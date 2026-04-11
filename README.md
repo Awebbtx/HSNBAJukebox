@@ -1,4 +1,4 @@
-# ProxmoxJukebox
+# HSNBAJukebox
 
 Self-hosted jukebox and request platform designed for Proxmox environments.
 
@@ -95,7 +95,7 @@ This packages current `HEAD`, uploads to Proxmox, deploys into container, instal
 Use [proxmox-jukebox-bootstrap.sh](proxmox-jukebox-bootstrap.sh) directly on Proxmox host:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Awebbtx/ProxmoxJukebox/main/proxmox-jukebox-bootstrap.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Awebbtx/HSNBAJukebox/main/proxmox-jukebox-bootstrap.sh)
 ```
 
 This helper:
@@ -110,7 +110,7 @@ This helper:
 Override example:
 
 ```bash
-CTID=120 BRIDGE=vmbr0 ROOTFS_STORAGE=local-lvm TEMPLATE_STORAGE=local REPO_URL=https://github.com/Awebbtx/ProxmoxJukebox.git BRANCH=main bash <(curl -fsSL https://raw.githubusercontent.com/Awebbtx/ProxmoxJukebox/main/proxmox-jukebox-bootstrap.sh)
+CTID=120 BRIDGE=vmbr0 ROOTFS_STORAGE=local-lvm TEMPLATE_STORAGE=local REPO_URL=https://github.com/Awebbtx/HSNBAJukebox.git BRANCH=main bash <(curl -fsSL https://raw.githubusercontent.com/Awebbtx/HSNBAJukebox/main/proxmox-jukebox-bootstrap.sh)
 ```
 
 ## Configuration

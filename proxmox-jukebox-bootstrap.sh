@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Proxmox host bootstrap for HSNBA/ProxmoxJukebox.
+# Proxmox host bootstrap for HSNBAJukebox.
 # Creates the next available LXC, installs prerequisites, deploys app, and starts service.
 
-REPO_URL="${REPO_URL:-https://github.com/Awebbtx/ProxmoxJukebox.git}"
+REPO_URL="${REPO_URL:-https://github.com/Awebbtx/HSNBAJukebox.git}"
 BRANCH="${BRANCH:-main}"
 CTID="${CTID:-}"
 HOSTNAME_PREFIX="${HOSTNAME_PREFIX:-jukebox}"

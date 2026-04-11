@@ -1,8 +1,8 @@
-# About ProxmoxJukebox
+# About HSNBAJukebox
 
 ## Project Understanding
 
-ProxmoxJukebox is a self-hosted operations + engagement platform for a real-world environment (staff, visitors, and admins), not just a music toy app.
+HSNBAJukebox is a self-hosted operations + engagement platform for a real-world environment (staff, visitors, and admins), not just a music toy app.
 
 It combines three domains in one deployable service:
 

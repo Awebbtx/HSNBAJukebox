@@ -1,5 +1,5 @@
 {
-  "name": "proxmox-streaming-jukebox",
+  "name": "hsnba-jukebox",
   "version": "0.1.0",
   "description": "Self-hosted jukebox UI with Spotify search and queue control for a Proxmox-hosted playback device.",
   "main": "src/server.js",
