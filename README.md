@@ -11,13 +11,14 @@ This project combines:
 - Deployment helpers for both incremental deploy and full Proxmox container bootstrap
 
 For deeper product and architecture detail, see [ABOUT.md](ABOUT.md).
+Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Core Features
 
 ### Playback and Queue Control
 
 - Search Spotify tracks and add to queue
-- Shuffle, clear, reorder, and remove queued tracks
+- Randomize, clear, reorder, and remove queued tracks
 - Save/load playlists
 - Display now-playing metadata
 
