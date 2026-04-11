@@ -50,6 +50,33 @@ Open `http://YOUR_HOST:3000`.
 Employee request page: `http://YOUR_HOST:3000/requests.html`
 Short alias: `http://YOUR_HOST:3000/requests`
 
+## Quick Proxmox Deploy (One Command)
+
+From this repo on Windows PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1
+```
+
+This helper will:
+
+- Package the current Git `HEAD` as a release archive
+- Upload it to Proxmox host `100.84.163.40`
+- Push into container `103`
+- Extract to `/opt/HSNBA`
+- Run `npm install --omit=dev`
+- Restart and verify `hsnba-jukebox`
+
+Optional switches:
+
+```powershell
+# Skip npm install
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1 -SkipNpmInstall
+
+# Override host/container/key/path
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1 -ProxmoxHost 100.84.163.40 -ContainerId 103 -SshKeyPath "$env:USERPROFILE\.ssh\id_ed25519_proxmox_teststand" -RemoteAppPath /opt/HSNBA
+```
+
 ## Employee Request Page
 
 The `/requests.html` page is designed for phone usage by staff.
