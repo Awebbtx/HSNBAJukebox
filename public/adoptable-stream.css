@@ -171,6 +171,7 @@ a.top-brand:hover .brand-name {
 :fullscreen .special-split-photo-wrap,
 :-webkit-full-screen .special-split-photo-wrap {
   min-height: calc(100vh - 12rem);
+  max-height: calc(100vh - 12rem);
 }
 
 :fullscreen .animal-name,
@@ -244,13 +245,24 @@ a.top-brand:hover .brand-name {
   min-height: 72vh;
 }
 
-.special-image-template,
+.special-image-template {
+  position: relative;
+  width: 100%;
+  min-height: 72vh;
+  max-height: 72vh;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+}
+
 .special-split-template {
   border: 1px solid var(--border);
   border-radius: 14px;
   overflow: hidden;
   background: rgba(255,255,255,0.04);
   min-height: 72vh;
+  max-height: 72vh;
 }
 
 .special-image-template img,
@@ -267,7 +279,10 @@ a.top-brand:hover .brand-name {
 }
 
 .special-split-photo-wrap {
+  position: relative;
   min-height: 72vh;
+  max-height: 72vh;
+  overflow: hidden;
 }
 
 .special-copy-wrap {
@@ -391,6 +406,7 @@ a.top-brand:hover .brand-name {
   .special-split-template,
   .special-split-photo-wrap {
     min-height: 45vh;
+    max-height: 45vh;
   }
 
   .slide-actions {
