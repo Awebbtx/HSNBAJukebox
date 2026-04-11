@@ -77,6 +77,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1 -SkipNp
 powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1 -ProxmoxHost 100.84.163.40 -ContainerId 103 -SshKeyPath "$env:USERPROFILE\.ssh\id_ed25519_proxmox_teststand" -RemoteAppPath /opt/HSNBA
 ```
 
+## Proxmox Host Bootstrap (Create + Deploy in One Run)
+
+Run this directly on the Proxmox host to:
+
+- Pick the next available CTID automatically
+- Create a Debian 12 LXC
+- Install Node.js + prerequisites
+- Clone/deploy this project
+- Seed default `.env` values
+- Install and start `hsnba-jukebox` service
+
+One-liner from Proxmox host shell:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Awebbtx/ProxmoxJukebox/main/proxmox-jukebox-bootstrap.sh)
+```
+
+Optional overrides:
+
+```bash
+CTID=120 BRIDGE=vmbr0 ROOTFS_STORAGE=local-lvm TEMPLATE_STORAGE=local REPO_URL=https://github.com/Awebbtx/ProxmoxJukebox.git BRANCH=main bash <(curl -fsSL https://raw.githubusercontent.com/Awebbtx/ProxmoxJukebox/main/proxmox-jukebox-bootstrap.sh)
+```
+
 ## Employee Request Page
 
 The `/requests.html` page is designed for phone usage by staff.
