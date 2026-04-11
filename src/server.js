@@ -483,6 +483,42 @@ function ensureSpecialPageUploadDir() {
   }
 }
 
+function getSpecialPageImageStorageStats() {
+  ensureSpecialPageUploadDir();
+  const entries = fs.readdirSync(SPECIAL_PAGE_UPLOAD_DIR, { withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile() && /\.(png|jpe?g|webp)$/i.test(entry.name))
+    .map((entry) => {
+      const fullPath = path.join(SPECIAL_PAGE_UPLOAD_DIR, entry.name);
+      const stat = fs.statSync(fullPath);
+      return {
+        name: entry.name,
+        fullPath,
+        sizeBytes: Number(stat.size || 0),
+        updatedAt: new Date(stat.mtimeMs || Date.now()).toISOString()
+      };
+    })
+    .sort((a, b) => `${b.updatedAt}`.localeCompare(`${a.updatedAt}`));
+
+  const totalBytes = files.reduce((sum, file) => sum + Number(file.sizeBytes || 0), 0);
+  let availableBytes = null;
+  try {
+    const fsStats = fs.statfsSync(SPECIAL_PAGE_UPLOAD_DIR);
+    if (fsStats && Number.isFinite(Number(fsStats.bavail)) && Number.isFinite(Number(fsStats.bsize))) {
+      availableBytes = Number(fsStats.bavail) * Number(fsStats.bsize);
+    }
+  } catch {
+    availableBytes = null;
+  }
+
+  return {
+    files,
+    totalBytes,
+    count: files.length,
+    availableBytes
+  };
+}
+
 function saveSpecialPageImageDataUrl(pageId, dataUrl) {
   const match = `${dataUrl || ""}`.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/i);
   if (!match) {
@@ -2428,6 +2464,7 @@ app.post("/api/admin/settings/spotify/device", requireAdmin, async (req, res) =>
 
 app.get("/api/admin/settings/asm", requireAdmin, async (_req, res) => {
   const result = await getAsmAdoptables(false);
+  const specialImageStorage = getSpecialPageImageStorageStats();
   res.json({
     configured: Boolean(state.asm.serviceUrl && (state.asm.apiKey || (state.asm.username && state.asm.password))),
     serviceUrl: state.asm.serviceUrl,
@@ -2454,7 +2491,14 @@ app.get("/api/admin/settings/asm", requireAdmin, async (_req, res) => {
       specialPages: sanitizeSpecialPages(state.slideshow.specialPages || []),
       adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
       alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
-      specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4)))
+      specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4))),
+      specialImageStorage: {
+        count: Number(specialImageStorage.count || 0),
+        totalBytes: Number(specialImageStorage.totalBytes || 0),
+        availableBytes: Number.isFinite(Number(specialImageStorage.availableBytes))
+          ? Number(specialImageStorage.availableBytes)
+          : null
+      }
     },
     displayFieldOptions: buildSlideshowDisplayFieldOptions(state.slideshow.displayFieldCatalog || []),
     fetchedAt: result.fetchedAt ? new Date(result.fetchedAt).toISOString() : null,
@@ -2556,12 +2600,51 @@ app.post("/api/admin/settings/asm", requireAdmin, (req, res) => {
 });
 
 app.get("/api/admin/slideshow/pages", requireAdmin, (_req, res) => {
+  const specialImageStorage = getSpecialPageImageStorageStats();
   res.json({
     pages: sanitizeSpecialPages(state.slideshow.specialPages || []),
     settings: {
       adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
       alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
-      specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4)))
+      specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4))),
+      specialImageStorage: {
+        count: Number(specialImageStorage.count || 0),
+        totalBytes: Number(specialImageStorage.totalBytes || 0),
+        availableBytes: Number.isFinite(Number(specialImageStorage.availableBytes))
+          ? Number(specialImageStorage.availableBytes)
+          : null
+      }
+    }
+  });
+});
+
+app.get("/api/admin/slideshow/images", requireAdmin, (_req, res) => {
+  const pages = sanitizeSpecialPages(state.slideshow.specialPages || []);
+  const byBaseName = new Map(
+    pages
+      .filter((page) => page.imageUrl)
+      .map((page) => [path.basename(page.imageUrl), page])
+  );
+  const storage = getSpecialPageImageStorageStats();
+  const images = storage.files.map((file) => {
+    const linkedPage = byBaseName.get(file.name) || null;
+    return {
+      fileName: file.name,
+      url: `${SPECIAL_PAGE_UPLOAD_WEB_PATH}/${file.name}`,
+      sizeBytes: Number(file.sizeBytes || 0),
+      updatedAt: file.updatedAt,
+      pageId: linkedPage?.id || "",
+      pageTitle: linkedPage?.title || ""
+    };
+  });
+  res.json({
+    images,
+    storage: {
+      count: Number(storage.count || 0),
+      totalBytes: Number(storage.totalBytes || 0),
+      availableBytes: Number.isFinite(Number(storage.availableBytes))
+        ? Number(storage.availableBytes)
+        : null
     }
   });
 });
@@ -2613,6 +2696,56 @@ app.post("/api/admin/slideshow/pages/:id/image", requireAdmin, (req, res) => {
   } catch (error) {
     res.status(400).json({ error: error.message || "Image upload failed." });
   }
+});
+
+app.delete("/api/admin/slideshow/pages/:id/image", requireAdmin, (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
+  const existing = current.find((item) => item.id === id);
+  if (!existing) {
+    res.status(404).json({ error: "Special page not found." });
+    return;
+  }
+  if (existing.imageUrl && existing.imageUrl.startsWith(`${SPECIAL_PAGE_UPLOAD_WEB_PATH}/`)) {
+    const oldPath = path.join(SPECIAL_PAGE_UPLOAD_DIR, path.basename(existing.imageUrl));
+    if (fs.existsSync(oldPath)) {
+      fs.unlinkSync(oldPath);
+    }
+  }
+  const updated = sanitizeSpecialPage({ ...existing, imageUrl: "", id: existing.id, createdAt: existing.createdAt });
+  state.slideshow.specialPages = current.map((item) => (item.id === id ? updated : item));
+  saveSlideshowConfig();
+  res.json({ ok: true, page: updated });
+});
+
+app.delete("/api/admin/slideshow/images/:fileName", requireAdmin, (req, res) => {
+  const fileName = `${req.params.fileName || ""}`.trim();
+  if (!/^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/i.test(fileName)) {
+    res.status(400).json({ error: "Invalid file name." });
+    return;
+  }
+  ensureSpecialPageUploadDir();
+  const targetPath = path.join(SPECIAL_PAGE_UPLOAD_DIR, fileName);
+  if (!fs.existsSync(targetPath)) {
+    res.status(404).json({ error: "Image not found." });
+    return;
+  }
+  fs.unlinkSync(targetPath);
+
+  const imageUrl = `${SPECIAL_PAGE_UPLOAD_WEB_PATH}/${fileName}`;
+  const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
+  let changed = false;
+  state.slideshow.specialPages = current.map((item) => {
+    if (item.imageUrl !== imageUrl) {
+      return item;
+    }
+    changed = true;
+    return sanitizeSpecialPage({ ...item, imageUrl: "", id: item.id, createdAt: item.createdAt });
+  });
+  if (changed) {
+    saveSlideshowConfig();
+  }
+  res.json({ ok: true, clearedPageImage: changed });
 });
 
 app.delete("/api/admin/slideshow/pages/:id", requireAdmin, (req, res) => {

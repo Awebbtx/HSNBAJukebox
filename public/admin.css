@@ -795,6 +795,13 @@ input[type="range"] {
   color: var(--muted);
 }
 
+.special-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
 .special-page-title {
   font-weight: 600;
   color: var(--ink);

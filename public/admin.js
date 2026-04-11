@@ -174,6 +174,7 @@ const els = {
   adoptablesPerSpecialInput: document.getElementById("adoptablesPerSpecialInput"),
   alertEveryXSlidesInput: document.getElementById("alertEveryXSlidesInput"),
   specialImageMaxMbInput: document.getElementById("specialImageMaxMbInput"),
+  specialImageStorageText: document.getElementById("specialImageStorageText"),
   slideshowDisplayFieldsContainer: document.getElementById("slideshowDisplayFieldsContainer"),
   specialPagesList: document.getElementById("specialPagesList"),
   specialPageIdInput: document.getElementById("specialPageIdInput"),
@@ -193,6 +194,8 @@ const els = {
   newSpecialPageBtn: document.getElementById("newSpecialPageBtn"),
   saveSpecialPageBtn: document.getElementById("saveSpecialPageBtn"),
   deleteSpecialPageBtn: document.getElementById("deleteSpecialPageBtn"),
+  viewSpecialPageImageBtn: document.getElementById("viewSpecialPageImageBtn"),
+  removeSpecialPageImageBtn: document.getElementById("removeSpecialPageImageBtn"),
   openSlideshowFieldMapBtn: document.getElementById("openSlideshowFieldMapBtn"),
   slideshowFieldMapDialog: document.getElementById("slideshowFieldMapDialog"),
   slideshowFieldMapList: document.getElementById("slideshowFieldMapList"),
@@ -211,6 +214,16 @@ function escapeHtml(v) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const power = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
+  const scaled = value / (1024 ** power);
+  const digits = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+  return `${scaled.toFixed(digits)} ${units[power]}`;
 }
 
 function toast(msg, isError = false) {
@@ -455,6 +468,33 @@ function updateSpecialPageImageHint() {
   els.specialPageImageHint.textContent = IMAGE_HINTS[tpl] || "";
 }
 
+function updateSpecialImageStorageText(storage) {
+  if (!els.specialImageStorageText) return;
+  const count = Number(storage?.count || 0);
+  const usedText = formatBytes(storage?.totalBytes || 0);
+  const freeText = storage?.availableBytes !== null && storage?.availableBytes !== undefined
+    ? formatBytes(storage.availableBytes)
+    : "Unknown";
+  els.specialImageStorageText.textContent = `Uploaded images: ${count} • Used: ${usedText} • Available disk: ${freeText}`;
+}
+
+function getSpecialPageById(pageId) {
+  const id = `${pageId || ""}`.trim();
+  if (!id) return null;
+  return specialPages.find((page) => `${page.id || ""}` === id) || null;
+}
+
+function updateSpecialPageImageButtons() {
+  const page = getSpecialPageById(els.specialPageIdInput?.value || "");
+  const hasImage = Boolean(page?.imageUrl);
+  if (els.viewSpecialPageImageBtn) {
+    els.viewSpecialPageImageBtn.disabled = !hasImage;
+  }
+  if (els.removeSpecialPageImageBtn) {
+    els.removeSpecialPageImageBtn.disabled = !hasImage;
+  }
+}
+
 function resetSpecialPageEditor() {
   if (!els.specialPageIdInput) return;
   els.specialPageIdInput.value = "";
@@ -470,6 +510,7 @@ function resetSpecialPageEditor() {
   els.specialPageImageNameInput.value = "No image selected";
   els.specialPageRichTextInput.innerHTML = "";
   updateSpecialPageImageHint();
+  updateSpecialPageImageButtons();
 }
 
 function renderSpecialPagesList() {
@@ -500,6 +541,8 @@ function renderSpecialPagesList() {
       </div>
       <div class="special-page-actions">
         <button type="button" class="q-btn" data-action="edit">Edit</button>
+        <button type="button" class="q-btn" data-action="view-image" ${page.imageUrl ? "" : "disabled"}>View Image</button>
+        <button type="button" class="q-btn" data-action="delete-image" ${page.imageUrl ? "" : "disabled"}>Delete Image</button>
       </div>
     `;
     row.querySelector('[data-action="edit"]')?.addEventListener("click", () => {
@@ -516,6 +559,19 @@ function renderSpecialPagesList() {
       els.specialPageImageInput.value = "";
       els.specialPageRichTextInput.innerHTML = `${page.richText || ""}`;
       updateSpecialPageImageHint();
+      updateSpecialPageImageButtons();
+    });
+    row.querySelector('[data-action="view-image"]')?.addEventListener("click", () => {
+      if (!page.imageUrl) return;
+      window.open(page.imageUrl, "_blank", "noopener,noreferrer");
+    });
+    row.querySelector('[data-action="delete-image"]')?.addEventListener("click", async () => {
+      if (!page.imageUrl) return;
+      try {
+        await deleteSpecialPageImage(page.id, page.title || "Untitled");
+      } catch (e) {
+        toast(e.message, true);
+      }
     });
     els.specialPagesList.append(row);
   }
@@ -589,6 +645,26 @@ async function deleteSpecialPage() {
   await loadAsmSettings();
   resetSpecialPageEditor();
   toast("Special page deleted");
+}
+
+async function deleteSpecialPageImage(pageId, pageTitle = "") {
+  const id = `${pageId || ""}`.trim();
+  if (!id) {
+    throw new Error("Select a page first.");
+  }
+  const label = pageTitle ? ` for "${pageTitle}"` : "";
+  if (!window.confirm(`Delete uploaded image${label}?`)) {
+    return;
+  }
+  await api(`/api/admin/slideshow/pages/${encodeURIComponent(id)}/image`, { method: "DELETE" });
+  await loadAsmSettings();
+  const activeId = `${els.specialPageIdInput?.value || ""}`.trim();
+  if (activeId === id) {
+    els.specialPageImageInput.value = "";
+    els.specialPageImageNameInput.value = "No image selected";
+  }
+  updateSpecialPageImageButtons();
+  toast("Special page image deleted");
 }
 
 function runRichTextCommand(command) {
@@ -1300,8 +1376,10 @@ async function loadAsmSettings() {
     if (els.specialImageMaxMbInput) {
       els.specialImageMaxMbInput.value = `${Math.max(1, Number(show.specialImageMaxMb || 4))}`;
     }
+    updateSpecialImageStorageText(show.specialImageStorage || null);
     specialPages = Array.isArray(show.specialPages) ? show.specialPages : [];
     renderSpecialPagesList();
+    updateSpecialPageImageButtons();
     slideshowDisplayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(show.displayFieldCatalog || []);
     asmKnownFieldNames = sanitizeAsmFieldNameList(data.fieldNames || [], 120);
     const options = Array.isArray(data.displayFieldOptions) && data.displayFieldOptions.length
@@ -1509,6 +1587,32 @@ if (els.deleteSpecialPageBtn) {
   els.deleteSpecialPageBtn.addEventListener("click", async () => {
     try {
       await deleteSpecialPage();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
+}
+if (els.viewSpecialPageImageBtn) {
+  els.viewSpecialPageImageBtn.addEventListener("click", () => {
+    const page = getSpecialPageById(els.specialPageIdInput?.value || "");
+    if (!page?.imageUrl) {
+      toast("No uploaded image on selected page.", true);
+      return;
+    }
+    window.open(page.imageUrl, "_blank", "noopener,noreferrer");
+  });
+}
+if (els.removeSpecialPageImageBtn) {
+  els.removeSpecialPageImageBtn.addEventListener("click", async () => {
+    try {
+      const page = getSpecialPageById(els.specialPageIdInput?.value || "");
+      if (!page) {
+        throw new Error("Select a page first.");
+      }
+      if (!page.imageUrl) {
+        throw new Error("Selected page has no uploaded image.");
+      }
+      await deleteSpecialPageImage(page.id, page.title || "Untitled");
     } catch (e) {
       toast(e.message, true);
     }
