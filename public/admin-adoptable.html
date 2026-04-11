@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jukebox Admin - Adoptable Filters</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/admin-pages.css" />
+  </head>
+  <body data-admin-page="adoptable">
+    <nav class="admin-page-nav" aria-label="Admin Sections">
+      <a href="/admin-audio.html">Audio</a>
+      <a href="/admin-system.html">System</a>
+      <a href="/admin-staff.html">Staff</a>
+      <a href="/admin-users.html">Users</a>
+      <a href="/admin-adoptable.html" class="is-active">Adoptable Filters</a>
+    </nav>
+    <main class="shell">
+
+      <section class="card">
+        <div class="card-head">
+          <span class="card-label">ADMIN SESSION</span>
+          <div class="queue-actions">
+            <button id="topSaveBtn" class="btn-sm" type="button">Save</button>
+            <button id="logoutBtn" class="btn-ghost">Logout</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card np-card">
+        <div class="card-label">NOW PLAYING</div>
+        <div id="trackTitle" class="np-title">—</div>
+        <div id="trackMeta" class="np-meta">Nothing playing</div>
+
+        <div class="progress-row">
+          <span id="posText" class="time-text">0:00</span>
+          <div class="prog-outer">
+            <div id="progBar" class="prog-inner" style="width:0%"></div>
+          </div>
+          <span id="durText" class="time-text">0:00</span>
+        </div>
+
+        <div class="transport">
+          <button id="prevBtn" class="tbtn" title="Previous">⏮</button>
+          <button id="playPauseBtn" class="tbtn primary" title="Play / Pause">▶</button>
+          <button id="nextBtn" class="tbtn" title="Next">⏭</button>
+        </div>
+
+        <div class="volume-row">
+          <span class="vol-icon" title="Volume">🔊</span>
+          <input type="range" id="volumeSlider" min="0" max="100" value="80" />
+          <span id="volVal" class="vol-val">80%</span>
+        </div>
+
+        <div class="modes-row">
+          <button id="repeatBtn" class="mode-btn" data-active="false">⟰ Repeat</button>
+          <button id="randomBtn" class="mode-btn" data-active="false">⤢ Shuffle mode</button>
+        </div>
+      </section>
+
+      <section class="card queue-card">
+        <div class="card-head">
+          <span class="card-label">QUEUE</span>
+          <span id="queueCount" class="badge"></span>
+          <div class="queue-actions">
+            <button id="shuffleBtn" class="btn-sm">⤢ Shuffle</button>
+            <button id="clearBtn" class="btn-sm danger">⊘ Clear</button>
+          </div>
+        </div>
+        <ul id="queueList" class="q-list"></ul>
+      </section>
+
+      <section class="card stats-card">
+        <div class="card-label">ACTIVE REQUESTERS</div>
+        <ul id="requesterList" class="req-list"></ul>
+      </section>
+
+      <section class="card playlist-card">
+        <div class="card-head">
+          <span class="card-label">PLAYLISTS</span>
+          <button id="refreshPlaylistsBtn" class="btn-sm">↺ Refresh</button>
+        </div>
+        <div class="save-row">
+          <input id="playlistNameInput" type="text" placeholder="Name this playlist…" maxlength="60" />
+          <button id="savePlaylistBtn" class="btn-sm">Save Queue</button>
+        </div>
+        <ul id="playlistList" class="playlist-list"></ul>
+      </section>
+
+      <section class="card settings-card">
+        <div class="card-label">SETTINGS</div>
+        <div class="settings-tabs">
+          <button id="tabAccount" class="settings-tab" data-tab="account">Account</button>
+          <button id="tabRequestAccess" class="settings-tab active" data-tab="request">Request Access</button>
+          <button id="tabAudioJack" class="settings-tab" data-tab="audio-jack">Audio Jack</button>
+          <button id="tabSpotify" class="settings-tab" data-tab="spotify">Spotify Enrollment</button>
+          <button id="tabAsm" class="settings-tab" data-tab="asm">ASM</button>
+        </div>
+
+        <div id="panelAccount" class="settings-panel">
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">My Account</div>
+              <div id="accountStatusText" class="setting-desc">Loading account profile...</div>
+            </div>
+            <div class="setting-form-grid">
+              <input id="accountUsernameInput" type="text" placeholder="Email" readonly />
+              <input id="accountDisplayNameInput" type="text" maxlength="60" placeholder="Display name" />
+            </div>
+            <div class="setting-form-actions">
+              <button id="saveAccountProfileBtn" class="btn-sm" type="button">Save Profile</button>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Change Password</div>
+              <div class="setting-desc">Use your current password to set a new one.</div>
+            </div>
+            <div class="setting-form-grid">
+              <input id="accountCurrentPasswordInput" type="password" autocomplete="current-password" placeholder="Current password" />
+              <input id="accountNewPasswordInput" type="password" autocomplete="new-password" placeholder="New password (8+ chars)" />
+            </div>
+            <div class="setting-form-actions">
+              <button id="saveAccountPasswordBtn" class="btn-sm" type="button">Change Password</button>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Admin Users</div>
+              <div class="setting-desc">Create additional admin accounts for this system.</div>
+            </div>
+            <div class="setting-form-grid">
+              <input id="newAdminUsernameInput" type="email" maxlength="120" placeholder="Email address" />
+              <input id="newAdminDisplayNameInput" type="text" maxlength="60" placeholder="Display name" />
+              <input id="newAdminPasswordInput" type="password" autocomplete="new-password" placeholder="Temporary password (8+ chars)" />
+            </div>
+            <div class="setting-form-actions">
+              <button id="createAdminUserBtn" class="btn-sm" type="button">Create Admin User</button>
+            </div>
+            <ul id="adminUsersList" class="req-list"></ul>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Admin History</div>
+              <div class="setting-desc">Recent account and admin-management actions.</div>
+            </div>
+            <div class="setting-form-actions">
+              <button id="refreshAccountHistoryBtn" class="btn-sm" type="button">Refresh History</button>
+            </div>
+            <ul id="accountHistoryList" class="req-list"></ul>
+          </div>
+        </div>
+
+        <div id="panelRequestAccess" class="settings-panel active">
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Default Daily Request Limit</div>
+              <div class="setting-desc">Applies to newly created staff accounts. Existing staff can override.</div>
+            </div>
+            <div class="setting-form-row">
+              <input id="defaultRequestLimitInput" type="number" min="1" step="1" placeholder="Default limit" />
+              <button id="saveDefaultRequestLimitBtn" class="btn-sm" type="button">Save Default</button>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Create Staff Account</div>
+              <div class="setting-desc">Staff sign in with their username and password.</div>
+            </div>
+            <div class="setting-form-grid">
+              <input id="staffFirstNameInput" type="text" maxlength="40" placeholder="First name" />
+              <input id="staffLastInitialInput" type="text" maxlength="1" placeholder="Last initial" />
+              <input id="staffUsernameInput" type="email" autocomplete="off" placeholder="Email address" />
+              <input id="staffPasswordInput" type="password" autocomplete="new-password" placeholder="Password (6+ chars)" />
+              <input id="staffLimitInput" type="number" min="1" step="1" placeholder="Daily request limit" />
+            </div>
+            <div class="setting-form-actions">
+              <button id="createStaffBtn" class="btn-sm" type="button">Create Staff</button>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Staff Accounts</div>
+              <div id="staffStatusText" class="setting-desc">Loading staff accounts...</div>
+            </div>
+            <ul id="staffList" class="req-list"></ul>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Request Trends</div>
+              <div class="setting-desc">Top requested and top upvoted songs.</div>
+            </div>
+            <div class="setting-form-actions">
+              <button id="refreshRequestStatsBtn" class="btn-sm" type="button">Refresh Stats</button>
+            </div>
+            <div class="inline-list">
+              <span class="pill">Top Requested</span>
+            </div>
+            <ul id="topRequestedAdminList" class="req-list"></ul>
+            <div class="inline-list">
+              <span class="pill">Top Upvoted</span>
+            </div>
+            <ul id="topUpvotedAdminList" class="req-list"></ul>
+          </div>
+        </div>
+
+        <div id="panelAudioJack" class="settings-panel">
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Hardware Output Jack Volume</div>
+              <div id="audioJackStatusText" class="setting-desc">Reading ALSA Master settings...</div>
+            </div>
+            <div class="setting-form-row">
+              <input id="audioJackVolumeInput" type="range" min="0" max="100" step="1" value="0" />
+              <span id="audioJackVolumeValue" class="meta">0%</span>
+            </div>
+            <div class="setting-form-row">
+              <label class="setting-desc"><input id="audioJackMutedToggle" type="checkbox" /> Mute hardware output</label>
+              <button id="audioJackRefreshBtn" class="btn-sm" type="button">Refresh</button>
+            </div>
+            <div class="setting-form-actions">
+              <button id="audioJackSaveBtn" class="btn-sm" type="button">Save / Apply Audio Jack</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="panelSpotify" class="settings-panel">
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Mopidy-Spotify Backend</div>
+              <div id="spotifyStatusText" class="setting-desc">Reading Spotify backend status from Mopidy.</div>
+            </div>
+            <div class="setting-form-actions">
+              <button id="spotifyRefreshBtn" class="btn-sm">Refresh</button>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Backend Summary</div>
+              <div id="spotifyAccountText" class="setting-desc">Checking status...</div>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Detected Settings</div>
+              <div class="setting-desc">These values come from the Mopidy server configuration and runtime capabilities.</div>
+            </div>
+            <div id="spotifyDetails" class="inline-list"></div>
+          </div>
+        </div>
+
+        <div id="panelAsm" class="settings-panel">
+          <div class="settings-tabs settings-subtabs asm-subtabs">
+            <button id="asmSubtabConnection" class="settings-tab active" type="button">Connection</button>
+            <button id="asmSubtabSlideshow" class="settings-tab" type="button">Slideshow</button>
+            <button id="asmSubtabDiagnostics" class="settings-tab" type="button">Diagnostics</button>
+          </div>
+
+          <div id="asmPanelConnection" class="settings-panel active asm-subpanel">
+            <div class="setting-row stack">
+            <div>
+              <div class="setting-name">ASM Service Connection</div>
+              <div id="asmStatusText" class="setting-desc">Configure Shelter Manager service credentials for adoptable slideshow.</div>
+            </div>
+            <div class="setting-form-grid">
+              <input id="asmServiceUrlInput" type="text" placeholder="ASM Service URL" />
+              <input id="asmAccountInput" type="text" placeholder="ASM Account (if cloud hosted)" />
+              <input id="asmApiKeyInput" type="password" placeholder="ASM API Key" />
+              <input id="asmUsernameInput" type="text" placeholder="ASM Username (optional if using API key)" />
+              <input id="asmPasswordInput" type="password" placeholder="ASM Password (optional if using API key)" />
+              <input id="asmMethodInput" type="text" placeholder="ASM adoptable method" />
+              <input id="asmCacheSecondsInput" type="number" min="30" step="30" placeholder="Cache seconds" />
+            </div>
+            <div class="setting-form-actions">
+              <button id="saveAsmConfigBtn" class="btn-sm">Save ASM Config</button>
+              <button id="testAsmConfigBtn" class="btn-sm">Test Connection</button>
+            </div>
+            </div>
+
+            <div class="setting-row stack">
+              <div>
+                <div class="setting-name">ASM Sync Details</div>
+                <div id="asmDetailsText" class="setting-desc">No sync information yet.</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="asmPanelSlideshow" class="settings-panel asm-subpanel">
+            <div class="setting-row stack">
+              <div>
+                <div class="setting-name">Slideshow</div>
+                <div id="asmShowSettingsText" class="setting-desc">Configure slideshow cadence and displayed animal fields for the Adoptable Stream page.</div>
+              </div>
+              <div class="setting-form-grid">
+                <input id="slideshowIntervalInput" type="number" min="5" step="1" placeholder="Slide interval seconds" />
+                <input id="slideshowLimitInput" type="number" min="1" max="50" step="1" placeholder="Default animal count" />
+              </div>
+              <div class="setting-form-row">
+                <label class="setting-desc"><input id="slideshowAudioEnabledToggle" type="checkbox" /> Enable background music</label>
+                <label class="setting-desc"><input id="slideshowAudioAutoplayToggle" type="checkbox" /> Try autoplay</label>
+              </div>
+              <div class="setting-form-row">
+                <label class="setting-desc"><input id="slideshowExcludeFeralToggle" type="checkbox" /> Exclude feral animals</label>
+                <label class="setting-desc"><input id="slideshowReadyTodayToggle" type="checkbox" /> Only show ready-today animals</label>
+              </div>
+              <div class="setting-row stack">
+                <div>
+                  <div class="setting-name">Custom Filters</div>
+                  <div class="setting-desc">Comma-separated terms to include in slideshow results (species, breed, sex, age, bio, etc).</div>
+                </div>
+                <div class="setting-form-row">
+                  <label class="setting-desc"><input id="slideshowCustomFiltersEnabledToggle" type="checkbox" /> Enable custom filters</label>
+                </div>
+                <div class="setting-form-row">
+                  <input id="slideshowCustomFiltersInput" type="text" placeholder="Example: dog, puppy, labrador" />
+                </div>
+              </div>
+              <div class="setting-row stack">
+                <div>
+                  <div class="setting-name">Display Fields (Order 1-10)</div>
+                  <div class="setting-desc">Choose what appears in the slideshow detail panel. Unused slots default to Skip.</div>
+                </div>
+                <div class="setting-form-actions">
+                  <button id="openSlideshowFieldMapBtn" class="btn-sm" type="button">Map Available Fields</button>
+                </div>
+                <div id="slideshowDisplayFieldsContainer" class="slideshow-display-grid"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="asmPanelDiagnostics" class="settings-panel asm-subpanel">
+            <div class="setting-row stack">
+              <div>
+                <div class="setting-name">ASM Diagnostics</div>
+                <div id="asmInspectSummary" class="setting-desc">Inspect the raw ASM response, returned field names, and cache state.</div>
+              </div>
+              <div class="setting-form-actions">
+                <button id="inspectAsmBtn" class="btn-sm" type="button">Inspect Response</button>
+              </div>
+              <div id="asmInspectPills" class="inline-list"></div>
+              <div class="diagnostic-block">
+                <div class="diagnostic-title">Field Names</div>
+                <pre id="asmFieldNames" class="diagnostic-pre">No fields inspected yet.</pre>
+              </div>
+              <div class="diagnostic-block">
+                <div class="diagnostic-title">Body Preview</div>
+                <pre id="asmBodyPreview" class="diagnostic-pre">No response inspected yet.</pre>
+              </div>
+              <div class="diagnostic-block">
+                <div class="diagnostic-title">First Item</div>
+                <pre id="asmFirstItem" class="diagnostic-pre">No payload sample yet.</pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-row asm-settings-footer">
+            <div>
+              <div class="setting-name">Apply ASM Settings</div>
+              <div class="setting-desc">Saves connection and slideshow settings to the server and applies them immediately.</div>
+            </div>
+            <button id="saveAsmApplyBtn" class="btn-sm" type="button">Save / Apply Settings</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <dialog id="slideshowFieldMapDialog" class="map-dialog">
+      <form method="dialog" class="map-dialog-form">
+        <div class="map-dialog-head">
+          <h3>Map Available ASM Fields</h3>
+          <button id="cancelSlideshowFieldMapBtn" class="btn-sm" type="button">Close</button>
+        </div>
+        <p class="setting-desc">Select ASM fields to make available in the 10 display slot dropdowns and optionally rename their display labels.</p>
+        <div id="slideshowFieldMapList" class="map-list"></div>
+        <div class="setting-form-actions">
+          <button id="saveSlideshowFieldMapBtn" class="btn-sm" type="button">Save Available Fields</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="loginDialog" class="login-dialog">
+      <form id="loginForm" method="dialog">
+        <p class="login-kicker">ADMIN ACCESS</p>
+        <h2>Jukebox Console</h2>
+        <label>
+          Username
+          <input id="usernameInput" type="email" autocomplete="username" placeholder="Enter email" required />
+        </label>
+        <label>
+          Password
+          <input id="passwordInput" type="password" autocomplete="current-password" placeholder="Enter password" required />
+        </label>
+        <p class="hint">Use your admin account credentials.</p>
+        <button class="btn-primary full" type="submit">Enter Console</button>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast"></div>
+
+    <script type="module" src="/admin.js"></script>
+  </body>
+</html>

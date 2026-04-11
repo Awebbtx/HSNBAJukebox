@@ -1,0 +1,19 @@
+{
+  "name": "proxmox-streaming-jukebox",
+  "version": "0.1.0",
+  "description": "Self-hosted jukebox UI with Spotify search and queue control for a Proxmox-hosted playback device.",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

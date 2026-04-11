@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Device Player</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/local-player.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <div class="card-label">SETUP</div>
+        <p class="meta">
+          This page creates a Spotify Connect player in this browser so audio plays on this device.
+          Spotify Premium is required.
+        </p>
+        <div class="actions">
+          <button id="connectBtn" class="btn-accent">Connect Spotify</button>
+          <button id="startBtn" class="btn-ghost">Start Local Player</button>
+          <button id="activateBtn" class="btn-ghost" disabled>Use This Device</button>
+        </div>
+        <div id="statusText" class="status">Checking Spotify auth...</div>
+      </section>
+
+      <section class="card now-card">
+        <div class="card-label">NOW PLAYING HERE</div>
+        <div class="now-grid">
+          <div class="art-wrap">
+            <img id="coverArt" alt="Album art" src="" />
+            <div id="coverFallback" class="fallback">♪</div>
+          </div>
+          <div>
+            <div id="trackTitle" class="title">Nothing loaded</div>
+            <div id="trackMeta" class="meta">Start local player to listen on this device.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-label">CONTROLS</div>
+        <div class="controls">
+          <button id="prevBtn" class="icon-btn">⏮</button>
+          <button id="playPauseBtn" class="icon-btn primary">▶</button>
+          <button id="nextBtn" class="icon-btn">⏭</button>
+        </div>
+        <div class="volume-row">
+          <span class="meta">Volume</span>
+          <input id="volumeSlider" type="range" min="0" max="100" value="80" />
+          <span id="volumeValue" class="meta">80%</span>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+    <script type="module" src="/local-player.js"></script>
+  </body>
+</html>

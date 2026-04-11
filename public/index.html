@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSNBA Jukebox</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/audio-bar.css" />
+    <link rel="stylesheet" href="/shell.css" />
+  </head>
+  <body>
+    <header class="top-bar">
+      <a href="/" class="top-brand" data-page="/home.html">
+        <span class="brand-dot"></span>
+        <span class="brand-name">HSNBA Jukebox</span>
+      </a>
+      <nav class="top-nav" aria-label="Main">
+        <a href="/home.html" data-page="/home.html" class="nav-btn">Home</a>
+        <a href="/requests.html" data-page="/requests.html" class="nav-btn nav-btn-accent">Put a Quarter in the Jukebox</a>
+        <a href="/adoptable-stream.html" data-page="/adoptable-stream.html" class="nav-btn">Adoptable Stream</a>
+        <a href="/admin.html" data-page="/admin.html" class="nav-btn">Admin</a>
+      </nav>
+    </header>
+
+    <main class="shell">
+      <iframe
+        id="contentFrame"
+        class="content-frame"
+        title="HSNBA Jukebox Content"
+        src="/home.html"
+      ></iframe>
+    </main>
+
+    <script type="module" src="/shell.js"></script>
+  </body>
+</html>

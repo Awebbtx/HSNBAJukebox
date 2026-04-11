@@ -1,0 +1,126 @@
+:root {
+  --bg: #0c1a27;
+  --border: rgba(255, 255, 255, 0.1);
+  --ink: #dceaf5;
+  --muted: #6a90b0;
+  --accent: #f5a623;
+  --accent-d: #c47d0a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Outfit", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 80% 5%, rgba(245, 166, 35, 0.12), transparent 35%),
+    radial-gradient(circle at 10% 80%, rgba(52, 196, 124, 0.08), transparent 40%),
+    linear-gradient(160deg, #0c1a27, #07111b);
+}
+
+.top-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1rem;
+  background: rgba(7, 17, 27, 0.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+
+.top-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.top-brand:hover .brand-name {
+  color: var(--accent);
+}
+
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.brand-name {
+  font-family: "Sora", sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+
+.top-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.nav-btn {
+  text-decoration: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.28rem 0.8rem;
+  font-size: 0.82rem;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.nav-btn:hover,
+.nav-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.nav-btn-accent {
+  color: var(--ink);
+  border-color: rgba(245, 166, 35, 0.45);
+  background: linear-gradient(140deg, rgba(245, 166, 35, 0.16), rgba(196, 125, 10, 0.16));
+}
+
+.shell {
+  width: min(1600px, 100vw);
+  margin: 0 auto;
+  padding: 0;
+  height: calc(100vh - 57px - 54px);
+}
+
+.content-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: transparent;
+}
+
+@media (max-width: 900px) {
+  .top-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .top-nav {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .shell {
+    height: calc(100vh - 100px - 54px);
+  }
+}

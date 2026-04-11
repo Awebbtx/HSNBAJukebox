@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jukebox Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/admin.css" />
+    <style>
+      .admin-home { max-width: 980px; margin: 2rem auto; padding: 0 1rem 1.5rem; }
+      .admin-home h1 { margin: 0 0 0.4rem; font-size: clamp(1.8rem, 4vw, 2.4rem); }
+      .admin-home p { margin: 0 0 1rem; color: var(--muted); }
+      .admin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.9rem; }
+      .admin-link {
+        display: block;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: rgba(255,255,255,0.04);
+        text-decoration: none;
+        color: var(--ink);
+        padding: 1rem;
+      }
+      .admin-link:hover { border-color: var(--accent); background: rgba(245,166,35,0.10); }
+      .admin-link-title { font-weight: 700; margin-bottom: 0.35rem; }
+      .admin-link-desc { color: var(--muted); font-size: 0.9rem; }
+    </style>
+  </head>
+  <body>
+    <main class="admin-home">
+      <h1>Admin Console</h1>
+      <p>Choose a focused admin page.</p>
+      <section class="admin-grid" aria-label="Admin Sections">
+        <a class="admin-link" href="/admin-audio.html">
+          <div class="admin-link-title">Audio Controls</div>
+          <div class="admin-link-desc">Playback, queue management, stream volume, hardware audio jack.</div>
+        </a>
+        <a class="admin-link" href="/admin-system.html">
+          <div class="admin-link-title">System Settings</div>
+          <div class="admin-link-desc">Platform settings, Spotify backend status, ASM connection and diagnostics.</div>
+        </a>
+        <a class="admin-link" href="/admin-staff.html">
+          <div class="admin-link-title">Staff</div>
+          <div class="admin-link-desc">Create staff accounts, manage daily limits, reset passwords, and review request trends.</div>
+        </a>
+        <a class="admin-link" href="/admin-users.html">
+          <div class="admin-link-title">User Management</div>
+          <div class="admin-link-desc">Admin/staff accounts, password changes, password reset and account deletion.</div>
+        </a>
+        <a class="admin-link" href="/admin-adoptable.html">
+          <div class="admin-link-title">Adoptable Filters</div>
+          <div class="admin-link-desc">Adoption-stream filters, custom terms, slideshow music and cadence.</div>
+        </a>
+      </section>
+    </main>
+  </body>
+</html>

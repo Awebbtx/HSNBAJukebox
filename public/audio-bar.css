@@ -1,0 +1,174 @@
+/* ============================================================
+   Persistent live audio bar — included on every page.
+   Uses hardcoded colours matching :root CSS vars so it works
+   even before the page's own stylesheet is parsed.
+   ============================================================ */
+
+body.has-audio-bar {
+  padding-bottom: 54px;
+}
+
+#audio-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0 1.25rem;
+  background: rgba(7, 17, 27, 0.97);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* --- live indicator --- */
+.ab-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.ab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6a90b0;
+  transition: background 0.3s;
+}
+
+#audio-bar.ab--playing .ab-dot {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+  animation: ab-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ab-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.ab-live-label {
+  font-size: 0.62rem;
+  font-family: "Sora", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #6a90b0;
+}
+
+/* --- title --- */
+.ab-now {
+  font-size: 0.82rem;
+  color: #dceaf5;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ab-votes {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.ab-vote-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #dceaf5;
+  border-radius: 8px;
+  padding: 0.22rem 0.55rem;
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ab-vote-btn:hover:not(:disabled) {
+  border-color: #f5a623;
+}
+
+.ab-vote-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ab-vote-btn.is-active {
+  border-color: #f5a623;
+  color: #f5a623;
+}
+
+/* --- play/pause button --- */
+.ab-toggle {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #dceaf5;
+  border-radius: 8px;
+  padding: 0.28rem 0.9rem;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.ab-toggle:hover {
+  border-color: #f5a623;
+  color: #f5a623;
+}
+
+#audio-bar.ab--playing .ab-toggle {
+  border-color: #f5a623;
+  color: #f5a623;
+}
+
+/* --- status text --- */
+.ab-status {
+  font-size: 0.72rem;
+  color: #6a90b0;
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ab-status--cta {
+  color: #f5a623;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ab-status--cta:focus {
+  outline: 2px solid rgba(245, 166, 35, 0.6);
+  outline-offset: 2px;
+}
+
+/* --- volume --- */
+.ab-vol-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.ab-vol-label {
+  font-size: 0.62rem;
+  color: #6a90b0;
+  font-family: "Sora", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.ab-vol {
+  width: 72px;
+  accent-color: #f5a623;
+  cursor: pointer;
+}

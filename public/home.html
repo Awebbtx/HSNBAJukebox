@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jukebox Display</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card hero-card">
+        <div class="card-label">NOW PLAYING</div>
+        <div class="np-grid">
+          <div class="art-wrap">
+            <img id="albumArt" alt="Album art" src="" />
+            <div id="artFallback" class="art-fallback">♪</div>
+          </div>
+          <div>
+            <h1 id="trackTitle" class="np-title">Nothing playing</h1>
+            <p id="trackMeta" class="np-meta">Queue up a song to get started.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="card-label">WHAT'S NEXT</span>
+          <span id="queueCount" class="meta">0 tracks</span>
+        </div>
+        <ul id="upNextList" class="list"></ul>
+      </section>
+    </main>
+
+    <script type="module" src="/index.js"></script>
+  </body>
+</html>

@@ -1,0 +1,39 @@
+{
+    # Keep cert provisioning on but disable automatic HTTP->HTTPS redirect.
+    # We handle redirects explicitly below.
+    auto_https disable_redirects
+}
+
+# ─── jukebox.local HTTPS ───────────────────────────────────────────────────────
+# Phones and laptops on LAN get trusted HTTPS via Caddy's internal CA.
+# One-time CA install per device: visit http://192.168.1.11/caddy-ca
+jukebox.local {
+    # Bind only the LAN interface — leaves Tailscale IP (100.67.211.48:443) free
+    bind 192.168.1.11
+    tls internal
+    reverse_proxy localhost:3000
+}
+
+# Bounce plain HTTP for the friendly hostname to HTTPS
+http://jukebox.local {
+    bind 192.168.1.11
+    redir https://jukebox.local{uri} 301
+}
+
+# ─── LAN IP fallback (port 80) ─────────────────────────────────────────────────
+# Keep a simple cert endpoint for device enrollment, redirect everything else
+# to the custom app over HTTPS.
+:80 {
+    # Serve CA root cert at a predictable URL for phone enrollment
+    handle /caddy-ca {
+        rewrite * /root.crt
+        file_server {
+            root /var/lib/caddy/.local/share/caddy/pki/authorities/local
+        }
+    }
+
+    # Everything else goes to the custom web app
+    handle {
+        redir https://jukebox.local{uri} 301
+    }
+}

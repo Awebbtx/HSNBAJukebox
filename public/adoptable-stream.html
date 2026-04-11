@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Adoptable Stream</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/adoptable-stream.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card slide-card">
+        <div class="card-head">
+          <span class="card-label">FEATURED ADOPTABLE</span>
+          <span id="slideCounter" class="meta">0 / 0</span>
+        </div>
+
+        <div class="slide-grid">
+          <div class="photo-wrap">
+            <img id="animalImage" alt="Adoptable animal" src="" />
+            <div id="imageFallback" class="image-fallback">🐾</div>
+          </div>
+
+          <div>
+            <h2 id="animalName" class="animal-name">Waiting for adoptable data</h2>
+            <div id="animalDetails" class="animal-details"></div>
+            <p id="animalBio" class="animal-bio"></p>
+            <a id="animalProfileLink" class="btn-accent" href="#" target="_blank" rel="noopener noreferrer">View Profile</a>
+          </div>
+        </div>
+
+        <div class="slide-actions">
+          <button id="fullscreenBtn" class="btn-ghost" type="button">Fullscreen</button>
+          <button id="prevAnimalBtn" class="btn-ghost">◀ Prev</button>
+          <button id="nextAnimalBtn" class="btn-ghost">Next ▶</button>
+          <button id="refreshAnimalsBtn" class="btn-ghost">Refresh List</button>
+        </div>
+        <div id="adoptableStatus" class="meta status-line"></div>
+      </section>
+    </main>
+
+    <aside class="status-hud" aria-live="polite">
+      <div class="hud-kicker">NOW PLAYING</div>
+      <div id="nowPlayingTitle" class="hud-title">—</div>
+      <div id="nowPlayingMeta" class="hud-meta">Loading…</div>
+      <div id="localDateTime" class="hud-time">--</div>
+    </aside>
+
+    <script type="module" src="/adoptable-stream.js"></script>
+  </body>
+</html>

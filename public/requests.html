@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Song Requests — Team Jukebox</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/requests.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card now-playing">
+        <div class="card-head">
+          <span class="card-label">NOW PLAYING</span>
+          <button id="refreshBtn" class="btn-sm">Refresh</button>
+        </div>
+        <div id="currentTrack" class="current-track empty">No active track</div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="card-label">FIND A SONG</span>
+          <span id="quotaText" class="meta"></span>
+        </div>
+        <form id="searchForm" class="search-row">
+          <input id="searchInput" type="search" placeholder="Artist, song, or album" autocomplete="off" />
+          <button class="btn-accent" type="submit">Search</button>
+        </form>
+        <ul id="searchResults" class="list"></ul>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="card-label">UP NEXT</span>
+          <span id="queueCount" class="meta"></span>
+        </div>
+        <ul id="queueList" class="list"></ul>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="card-label">TOP REQUESTED</span>
+        </div>
+        <ul id="topRequestedList" class="list"></ul>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="card-label">TOP UPVOTED</span>
+        </div>
+        <ul id="topUpvotedList" class="list"></ul>
+      </section>
+    </main>
+
+    <dialog id="joinDialog" class="login-dialog">
+      <form id="joinForm" method="dialog">
+        <p class="login-kicker">JUKEBOX</p>
+        <h2>Sign In</h2>
+        <label>
+          Email
+          <input id="staffUsernameInput" type="email" autocomplete="username" placeholder="Enter email" required />
+        </label>
+        <label>
+          Password
+          <input id="staffPasswordInput" type="password" autocomplete="current-password" placeholder="Enter password" required />
+        </label>
+        <p class="hint">Use your staff account credentials.</p>
+        <button class="btn-primary full" type="submit">Sign In</button>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast"></div>
+
+    <script type="module" src="/requests.js"></script>
+  </body>
+</html>
