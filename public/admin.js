@@ -187,6 +187,7 @@ const els = {
   specialPageEndAtInput: document.getElementById("specialPageEndAtInput"),
   specialPageImageInput: document.getElementById("specialPageImageInput"),
   specialPageImageNameInput: document.getElementById("specialPageImageNameInput"),
+  specialPageImageHint: document.getElementById("specialPageImageHint"),
   specialPageRichToolbar: document.getElementById("specialPageRichToolbar"),
   specialPageRichTextInput: document.getElementById("specialPageRichTextInput"),
   newSpecialPageBtn: document.getElementById("newSpecialPageBtn"),
@@ -443,6 +444,17 @@ function sanitizeSpecialPageCategory(value) {
   return SPECIAL_PAGE_CATEGORIES.includes(text) ? text : "General PSA and Alerts";
 }
 
+const IMAGE_HINTS = {
+  image: "Recommended: 1920 × 1080 px (16:9 landscape)",
+  split: "Recommended: 1080 × 1080 px (1:1 square)"
+};
+
+function updateSpecialPageImageHint() {
+  if (!els.specialPageImageHint) return;
+  const tpl = els.specialPageTemplateInput?.value || "split";
+  els.specialPageImageHint.textContent = IMAGE_HINTS[tpl] || "";
+}
+
 function resetSpecialPageEditor() {
   if (!els.specialPageIdInput) return;
   els.specialPageIdInput.value = "";
@@ -457,6 +469,7 @@ function resetSpecialPageEditor() {
   els.specialPageImageInput.value = "";
   els.specialPageImageNameInput.value = "No image selected";
   els.specialPageRichTextInput.innerHTML = "";
+  updateSpecialPageImageHint();
 }
 
 function renderSpecialPagesList() {
@@ -502,6 +515,7 @@ function renderSpecialPagesList() {
       els.specialPageImageNameInput.value = page.imageUrl || "No image selected";
       els.specialPageImageInput.value = "";
       els.specialPageRichTextInput.innerHTML = `${page.richText || ""}`;
+      updateSpecialPageImageHint();
     });
     els.specialPagesList.append(row);
   }
@@ -1505,6 +1519,9 @@ if (els.specialPageImageInput) {
     const file = els.specialPageImageInput.files?.[0] || null;
     els.specialPageImageNameInput.value = file ? `${file.name} (${Math.ceil(file.size / 1024)} KB)` : "No image selected";
   });
+}
+if (els.specialPageTemplateInput) {
+  els.specialPageTemplateInput.addEventListener("change", updateSpecialPageImageHint);
 }
 if (els.specialPageRichToolbar) {
   els.specialPageRichToolbar.addEventListener("click", (event) => {
