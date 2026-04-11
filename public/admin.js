@@ -469,7 +469,7 @@ async function loadPlayback() {
 async function loadModes() {
   const data = await api("/api/admin/modes");
   els.repeatBtn.dataset.active = String(data.repeat);
-  els.randomBtn.dataset.active = String(data.random);
+  els.randomBtn.dataset.active = "false";
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -705,19 +705,18 @@ els.repeatBtn.addEventListener("click", async () => {
 });
 
 els.randomBtn.addEventListener("click", async () => {
-  const newVal = els.randomBtn.dataset.active !== "true";
   try {
-    await api("/api/admin/modes", { method: "POST", body: JSON.stringify({ random: newVal }) });
-    els.randomBtn.dataset.active = String(newVal);
-    toast(`Shuffle mode ${newVal ? "on" : "off"}`);
+    await api("/api/admin/queue/randomize", { method: "POST" });
+    await loadQueue();
+    toast("Queue randomized");
   } catch (e) { toast(e.message, true); }
 });
 
 els.shuffleBtn.addEventListener("click", async () => {
   try {
-    await api("/api/admin/queue/shuffle", { method: "POST" });
+    await api("/api/admin/queue/randomize", { method: "POST" });
     await loadQueue();
-    toast("Queue shuffled");
+    toast("Queue randomized");
   } catch (e) { toast(e.message, true); }
 });
 

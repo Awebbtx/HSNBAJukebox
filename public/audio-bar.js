@@ -10,6 +10,7 @@ const STREAM_SRC = "/live.mp3";
 const SK_PLAYING = "ab_playing";
 const SK_VOLUME  = "ab_volume";
 const EMPLOYEE_TOKEN_KEY = "jukebox.employee.token";
+const RECONNECT_DELAY_MS = 1200;
 
 let _audio     = null;
 let _bar       = null;
@@ -23,6 +24,8 @@ let _voteDownCountEl = null;
 let _currentTrack = null;
 let _pollTimer = null;
 let _signInRequired = false;
+let _playIntent = false;
+let _reconnectTimer = null;
 
 function setUI(playing) {
   if (!_toggleBtn) return;
@@ -30,13 +33,42 @@ function setUI(playing) {
   _bar.classList.toggle("ab--playing", playing);
 }
 
-function startPlay() {
+function clearReconnectTimer() {
+  if (_reconnectTimer) {
+    window.clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
+}
+
+function reconnectWithIntent() {
+  if (!_audio || !_playIntent) {
+    return;
+  }
   _audio.src = `${STREAM_SRC}?t=${Date.now()}`;
   _audio.play().catch(() => {});
+}
+
+function scheduleReconnect(statusText = "Reconnecting…") {
+  if (!_playIntent) {
+    return;
+  }
+  _statusEl.textContent = statusText;
+  clearReconnectTimer();
+  _reconnectTimer = window.setTimeout(() => {
+    reconnectWithIntent();
+  }, RECONNECT_DELAY_MS);
+}
+
+function startPlay() {
+  _playIntent = true;
+  clearReconnectTimer();
+  reconnectWithIntent();
   sessionStorage.setItem(SK_PLAYING, "1");
 }
 
 function stopPlay() {
+  _playIntent = false;
+  clearReconnectTimer();
   _audio.pause();
   _audio.removeAttribute("src");
   _audio.load();
@@ -256,11 +288,26 @@ export function initAudioBar() {
     sessionStorage.setItem(SK_VOLUME, volInput.value);
   });
 
-  _audio.addEventListener("playing", () => { setUI(true); _statusEl.textContent = ""; });
+  _audio.addEventListener("playing", () => {
+    clearReconnectTimer();
+    setUI(true);
+    _statusEl.textContent = "";
+  });
   _audio.addEventListener("waiting", () => { _statusEl.textContent = "Buffering…"; });
-  _audio.addEventListener("stalled", () => { _statusEl.textContent = "Stalled"; });
-  _audio.addEventListener("error",   () => { _statusEl.textContent = "Unavailable"; setUI(false); });
-  _audio.addEventListener("pause",   () => setUI(false));
+  _audio.addEventListener("stalled", () => {
+    setUI(false);
+    scheduleReconnect("Stream stalled. Reconnecting…");
+  });
+  _audio.addEventListener("error", () => {
+    setUI(false);
+    scheduleReconnect("Stream unavailable. Reconnecting…");
+  });
+  _audio.addEventListener("pause", () => {
+    setUI(false);
+    if (_playIntent) {
+      scheduleReconnect("Stream paused. Reconnecting…");
+    }
+  });
 
   // Auto-resume if the stream was playing before the last navigation
   if (sessionStorage.getItem(SK_PLAYING) === "1") {

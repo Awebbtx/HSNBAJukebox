@@ -1331,6 +1331,59 @@ function mapQueueTrack(entry = {}) {
   };
 }
 
+function shuffleArray(items = []) {
+  const list = [...items];
+  for (let i = list.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+async function randomizeQueuePreservingCurrent() {
+  const tlTracks = await mopidyRpc("core.tracklist.get_tl_tracks");
+  const queue = Array.isArray(tlTracks) ? [...tlTracks] : [];
+  if (queue.length < 2) {
+    return queue;
+  }
+
+  let currentTlTrack = null;
+  try {
+    currentTlTrack = await mopidyRpc("core.playback.get_current_tl_track");
+  } catch {
+    currentTlTrack = null;
+  }
+  const currentTlid = Number(currentTlTrack?.tlid || 0);
+
+  const movable = currentTlid
+    ? queue.filter((entry) => Number(entry.tlid) !== currentTlid)
+    : queue;
+  const shuffled = shuffleArray(movable);
+  const desiredOrder = currentTlid
+    ? [queue.find((entry) => Number(entry.tlid) === currentTlid), ...shuffled].filter(Boolean)
+    : shuffled;
+
+  const workingOrder = [...queue];
+  for (let targetIndex = 0; targetIndex < desiredOrder.length; targetIndex += 1) {
+    const desiredTlid = Number(desiredOrder[targetIndex]?.tlid || 0);
+    const currentIndex = workingOrder.findIndex((entry) => Number(entry.tlid) === desiredTlid);
+    if (currentIndex < 0 || currentIndex === targetIndex) {
+      continue;
+    }
+
+    await mopidyRpc("core.tracklist.move", {
+      start: currentIndex,
+      end: currentIndex + 1,
+      to_position: targetIndex
+    });
+
+    const [moved] = workingOrder.splice(currentIndex, 1);
+    workingOrder.splice(targetIndex, 0, moved);
+  }
+
+  return workingOrder;
+}
+
 async function getPendingCountForToken(token) {
   await cleanupRequestMetadata();
   let count = 0;
@@ -2378,7 +2431,16 @@ app.post("/api/admin/queue/clear", requireAdmin, async (_req, res) => {
 
 app.post("/api/admin/queue/shuffle", requireAdmin, async (_req, res) => {
   try {
-    await mopidyRpc("core.tracklist.shuffle");
+    await randomizeQueuePreservingCurrent();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/queue/randomize", requireAdmin, async (_req, res) => {
+  try {
+    await randomizeQueuePreservingCurrent();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2413,22 +2475,22 @@ app.post("/api/admin/queue/move", requireAdmin, async (req, res) => {
 
 app.get("/api/admin/modes", requireAdmin, async (_req, res) => {
   try {
-    const [repeat, random] = await Promise.all([
+    const [repeat] = await Promise.all([
       mopidyRpc("core.tracklist.get_repeat"),
-      mopidyRpc("core.tracklist.get_random")
     ]);
-    res.json({ repeat: Boolean(repeat), random: Boolean(random) });
+    res.json({ repeat: Boolean(repeat), random: false });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 app.post("/api/admin/modes", requireAdmin, async (req, res) => {
-  const { repeat, random } = req.body || {};
+  const { repeat } = req.body || {};
   try {
     const ops = [];
     if (repeat !== undefined) ops.push(mopidyRpc("core.tracklist.set_repeat", { value: Boolean(repeat) }));
-    if (random !== undefined) ops.push(mopidyRpc("core.tracklist.set_random", { value: Boolean(random) }));
+    // Keep Mopidy random mode disabled so queue order stays authoritative in UI.
+    ops.push(mopidyRpc("core.tracklist.set_random", { value: false }));
     await Promise.all(ops);
     res.json({ ok: true });
   } catch (error) {
