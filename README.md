@@ -1,43 +1,70 @@
-# Proxmox Streaming Jukebox (Spotify + Librespot)
+# ProxmoxJukebox
 
-This project gives you a web jukebox where users can:
+Self-hosted jukebox and request platform designed for Proxmox environments.
 
-- Search Spotify tracks
-- Add tracks to a shared local queue
-- Push one or all queued tracks to Spotify playback
-- Target a playback device that outputs from your Proxmox host sound card
-- Offer a mobile-friendly employee request page backed by Mopidy queue controls
+This project combines:
+
+- Spotify search and queue controls for admins
+- Staff-friendly request/voting experience
+- Group-based user management (admins and staff)
+- An adoptable-animal slideshow stream backed by Shelter Manager (ASM)
+- Deployment helpers for both incremental deploy and full Proxmox container bootstrap
+
+For deeper product and architecture detail, see [ABOUT.md](ABOUT.md).
+
+## Core Features
+
+### Playback and Queue Control
+
+- Search Spotify tracks and add to queue
+- Shuffle, clear, reorder, and remove queued tracks
+- Save/load playlists
+- Display now-playing metadata
+
+### Staff Request Experience
+
+- Mobile-first request page at `/requests.html`
+- Username/password sign-in (email usernames)
+- Per-user daily request limits
+- Queue voting with up/down feedback
+
+### Account and Access Model
+
+- Unified user model (no separate hardcoded admin account type)
+- Admin rights based on membership in the `admins` group
+- Session-backed admin and employee auth
+
+### Adoptable Stream + ASM Integration
+
+- Pulls adoptable data from ASM service endpoint
+- Slideshow controls for interval, limit, and filtering
+- Configurable field catalog for slideshow details
+- Ordered display slots (1-10) driven by admin settings
+
+### Deployment Tooling
+
+- Windows deploy helper for existing container deployments
+- Proxmox-host bootstrap helper to create and configure a brand-new LXC
 
 ## Architecture
 
-- `Node/Express app` (this repo): OAuth, search API, shared queue, browser UI
-- `Spotify account` (Premium required for full remote playback control)
-- `librespot` on Proxmox host: appears as a Spotify Connect device and outputs to host audio
-- `Mopidy` (JSON-RPC endpoint): powers the employee request queue on `/requests.html`
+- Node.js + Express backend in [src/server.js](src/server.js)
+- Static frontend pages/scripts under [public](public)
+- Mopidy JSON-RPC integration for queue/search
+- Spotify OAuth + playback controls
+- ASM (Shelter Manager) integration for adoptables
 
-## 1) Create Spotify App
+## Authentication Summary
 
-1. Go to Spotify Developer Dashboard and create an app.
-2. Add redirect URI: `http://YOUR_HOST:3000/auth/callback`
-3. Copy Client ID and Client Secret.
+- Admin login endpoint: `/api/admin/session`
+- Employee login endpoint: `/api/requests/session`
+- Usernames must be email format
+- Admin privileges determined by `groups` containing `admins`
 
-## 2) Configure This App
+## Quick Start (Local)
 
-1. Copy `.env.example` to `.env`
-2. Fill values:
-
-```env
-PORT=3000
-BASE_URL=http://YOUR_HOST:3000
-SPOTIFY_CLIENT_ID=...
-SPOTIFY_CLIENT_SECRET=...
-SPOTIFY_REDIRECT_URI=http://YOUR_HOST:3000/auth/callback
-SPOTIFY_DEVICE_ID=
-MOPIDY_URL=http://YOUR_MOPIDY_HOST:6680/mopidy/rpc
-EMPLOYEE_PIN=1234
-MAX_PENDING_PER_USER=3
-```
-
+1. Copy [.env.example](.env.example) to `.env`.
+2. Fill required values (`BASE_URL`, Spotify keys, etc).
 3. Install and run:
 
 ```bash
@@ -45,139 +72,77 @@ npm install
 npm run dev
 ```
 
-Open `http://YOUR_HOST:3000`.
+Default web entry points:
 
-Employee request page: `http://YOUR_HOST:3000/requests.html`
-Short alias: `http://YOUR_HOST:3000/requests`
+- Home: `http://YOUR_HOST:3000/`
+- Admin: `http://YOUR_HOST:3000/admin.html`
+- Staff requests: `http://YOUR_HOST:3000/requests.html`
 
-## Quick Proxmox Deploy (One Command)
+## Deployment Workflows
 
-From this repo on Windows PowerShell:
+### 1) Fast Deploy to Existing Container (Windows)
+
+Use [deploy.proxmox.ps1](deploy.proxmox.ps1):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1
 ```
 
-This helper will:
+This packages current `HEAD`, uploads to Proxmox, deploys into container, installs prod deps, and restarts `hsnba-jukebox`.
 
-- Package the current Git `HEAD` as a release archive
-- Upload it to Proxmox host `100.84.163.40`
-- Push into container `103`
-- Extract to `/opt/HSNBA`
-- Run `npm install --omit=dev`
-- Restart and verify `hsnba-jukebox`
+### 2) Full Proxmox Host Bootstrap (New Container)
 
-Optional switches:
-
-```powershell
-# Skip npm install
-powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1 -SkipNpmInstall
-
-# Override host/container/key/path
-powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1 -ProxmoxHost 100.84.163.40 -ContainerId 103 -SshKeyPath "$env:USERPROFILE\.ssh\id_ed25519_proxmox_teststand" -RemoteAppPath /opt/HSNBA
-```
-
-## Proxmox Host Bootstrap (Create + Deploy in One Run)
-
-Run this directly on the Proxmox host to:
-
-- Pick the next available CTID automatically
-- Create a Debian 12 LXC
-- Install Node.js + prerequisites
-- Clone/deploy this project
-- Seed default `.env` values
-- Install and start `hsnba-jukebox` service
-
-One-liner from Proxmox host shell:
+Use [proxmox-jukebox-bootstrap.sh](proxmox-jukebox-bootstrap.sh) directly on Proxmox host:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Awebbtx/ProxmoxJukebox/main/proxmox-jukebox-bootstrap.sh)
 ```
 
-Optional overrides:
+This helper:
+
+- Finds next available CTID
+- Creates Debian 12 LXC
+- Installs Node.js + prerequisites
+- Clones this repo and installs dependencies
+- Seeds default `.env`
+- Installs and starts `hsnba-jukebox` service
+
+Override example:
 
 ```bash
 CTID=120 BRIDGE=vmbr0 ROOTFS_STORAGE=local-lvm TEMPLATE_STORAGE=local REPO_URL=https://github.com/Awebbtx/ProxmoxJukebox.git BRANCH=main bash <(curl -fsSL https://raw.githubusercontent.com/Awebbtx/ProxmoxJukebox/main/proxmox-jukebox-bootstrap.sh)
 ```
 
-## Employee Request Page
+## Configuration
 
-The `/requests.html` page is designed for phone usage by staff.
+Environment defaults and comments live in [.env.example](.env.example).
 
-- Join with a display name and optional PIN
-- Search tracks through Mopidy (`core.library.search`)
-- Add songs into Mopidy's tracklist queue (`core.tracklist.add`)
-- See current song and up-next queue, including who requested each track
-- Enforce a per-user pending limit via `MAX_PENDING_PER_USER`
+Key groups:
 
-Additional hardening knobs:
+- Server/runtime: `PORT`, `BASE_URL`
+- Spotify: `SPOTIFY_*`
+- Request controls: `MAX_PENDING_PER_USER`, `REQUESTS_RATE_*`, `EMPLOYEE_SESSION_TTL_MINUTES`
+- ASM + slideshow: `ASM_*`, `SLIDESHOW_*`
 
-- `EMPLOYEE_SESSION_TTL_MINUTES` (default `480`) for auto-expiring employee sessions
-- `REQUESTS_RATE_WINDOW_MS` (default `60000`) rate-limit window for employee API calls
-- `REQUESTS_RATE_MAX` (default `40`) max employee API calls per window
+## Service Unit
 
-If your Node app runs in a different container/host than Mopidy, set `MOPIDY_URL` to a reachable address and ensure firewall rules allow access.
+Systemd unit template: [hsnba-jukebox.service](hsnba-jukebox.service)
 
-## 3) Proxmox Host Audio + Librespot
+Default runtime path:
 
-On the Proxmox host (or a Linux VM/container with real audio passthrough):
+- App root: `/opt/HSNBA`
+- Service file: `/etc/systemd/system/hsnba-jukebox.service`
 
-```bash
-sudo apt update
-sudo apt install -y curl
-curl -L https://github.com/librespot-org/librespot/releases/download/v0.6.0/librespot-x86_64-unknown-linux-gnu.tar.gz | tar -xz
-sudo mv librespot /usr/local/bin/librespot
-```
+## Project Files of Interest
 
-Run it manually first:
+- Backend API: [src/server.js](src/server.js)
+- Spotify integration: [src/spotify.js](src/spotify.js)
+- Admin UI logic: [public/admin.js](public/admin.js)
+- Staff requests UI: [public/requests.js](public/requests.js)
+- Adoptable stream UI: [public/adoptable-stream.js](public/adoptable-stream.js)
 
-```bash
-librespot --name "Proxmox Jukebox" --backend alsa
-```
+## Notes
 
-If ALSA fails, try PulseAudio backend:
-
-```bash
-librespot --name "Proxmox Jukebox" --backend pulseaudio
-```
-
-Then from your web app:
-
-1. Connect Spotify
-2. Refresh devices
-3. Select `Proxmox Jukebox`
-4. Click `Activate Device`
-5. Search songs and add/send/play
-
-## 4) Optional systemd service
-
-Create `/etc/systemd/system/librespot.service`:
-
-```ini
-[Unit]
-Description=Librespot (Spotify Connect)
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/librespot --name Proxmox\ Jukebox --backend alsa
-Restart=always
-RestartSec=5
-User=root
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now librespot
-```
-
-## Notes / Limitations
-
-- Spotify API playback control requires a user token and typically Spotify Premium.
-- API behavior can vary by region/account; device transfer may require active session state.
-- If your Proxmox host has no local audio hardware, run librespot on a VM/LXC with passed-through audio device.
+- Spotify playback control typically requires a Premium Spotify account.
+- Mopidy endpoint must be reachable from this app host/container.
+- If local audio hardware is not available on host, run playback target in a VM/LXC with proper audio passthrough.
