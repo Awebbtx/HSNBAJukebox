@@ -190,6 +190,8 @@ const els = {
   specialPageImageNameInput: document.getElementById("specialPageImageNameInput"),
   specialPageImageHint: document.getElementById("specialPageImageHint"),
   specialPageRichToolbar: document.getElementById("specialPageRichToolbar"),
+  specialPageFontSizeInput: document.getElementById("specialPageFontSizeInput"),
+  specialPageTextColorInput: document.getElementById("specialPageTextColorInput"),
   specialPageRichTextInput: document.getElementById("specialPageRichTextInput"),
   newSpecialPageBtn: document.getElementById("newSpecialPageBtn"),
   saveSpecialPageBtn: document.getElementById("saveSpecialPageBtn"),
@@ -668,6 +670,7 @@ async function deleteSpecialPageImage(pageId, pageTitle = "") {
 }
 
 function runRichTextCommand(command) {
+  document.execCommand("styleWithCSS", false, false);
   if (command === "createLink") {
     const href = window.prompt("Enter URL (https://...)", "https://");
     if (!href) return;
@@ -675,6 +678,11 @@ function runRichTextCommand(command) {
     return;
   }
   document.execCommand(command, false);
+}
+
+function runRichTextCommandWithValue(command, value) {
+  document.execCommand("styleWithCSS", false, false);
+  document.execCommand(command, false, value);
 }
 
 async function api(url, opts = {}) {
@@ -1632,6 +1640,20 @@ if (els.specialPageRichToolbar) {
     const button = event.target.closest("button[data-cmd]");
     if (!button) return;
     runRichTextCommand(button.getAttribute("data-cmd") || "");
+  });
+}
+if (els.specialPageFontSizeInput) {
+  els.specialPageFontSizeInput.addEventListener("change", () => {
+    const size = `${els.specialPageFontSizeInput.value || ""}`.trim();
+    if (!size) return;
+    runRichTextCommandWithValue("fontSize", size);
+  });
+}
+if (els.specialPageTextColorInput) {
+  els.specialPageTextColorInput.addEventListener("input", () => {
+    const color = `${els.specialPageTextColorInput.value || ""}`.trim();
+    if (!color) return;
+    runRichTextCommandWithValue("foreColor", color);
   });
 }
 

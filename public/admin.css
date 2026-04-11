@@ -845,6 +845,34 @@ input[type="range"] {
   cursor: pointer;
 }
 
+.rich-inline-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  background: var(--surf-hi);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.24rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.rich-inline-control select,
+.rich-inline-control input[type="color"] {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  color: var(--ink);
+  font: inherit;
+  padding: 0.12rem 0.38rem;
+}
+
+.rich-inline-control input[type="color"] {
+  width: 2rem;
+  height: 1.45rem;
+  padding: 0;
+}
+
 .rich-editor {
   min-height: 150px;
   border: 1px solid var(--border);

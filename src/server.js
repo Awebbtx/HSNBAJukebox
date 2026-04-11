@@ -324,7 +324,7 @@ function sanitizeSpecialPageImagePath(value) {
 }
 
 function sanitizeRichTextHtml(value, maxLength = 12000) {
-  const allowedTags = new Set(["p", "br", "strong", "em", "u", "ul", "ol", "li", "a", "h2", "h3", "h4", "blockquote"]);
+  const allowedTags = new Set(["p", "br", "strong", "em", "u", "ul", "ol", "li", "a", "h2", "h3", "h4", "blockquote", "font"]);
   const input = `${value || ""}`.slice(0, maxLength);
   const withoutScript = input
     .replace(/<\s*script[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, "")
@@ -351,6 +351,20 @@ function sanitizeRichTextHtml(value, maxLength = 12000) {
         return "<a>";
       }
       return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">`;
+    }
+    if (lower === "font") {
+      const sizeMatch = attrs.match(/size\s*=\s*"([1-7])"|size\s*=\s*'([1-7])'/i);
+      const colorMatch = attrs.match(/color\s*=\s*"([^"]*)"|color\s*=\s*'([^']*)'/i);
+      const size = `${sizeMatch?.[1] || sizeMatch?.[2] || ""}`.trim();
+      const rawColor = `${colorMatch?.[1] || colorMatch?.[2] || ""}`.trim();
+      const safeColor = /^#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})$/.test(rawColor)
+        || /^(?:black|white|gray|grey|silver|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua|orange)$/i.test(rawColor)
+        ? rawColor
+        : "";
+      const attrParts = [];
+      if (size) attrParts.push(`size="${size}"`);
+      if (safeColor) attrParts.push(`color="${safeColor}"`);
+      return attrParts.length ? `<font ${attrParts.join(" ")}>` : "<font>";
     }
     return `<${lower}>`;
   }).trim();
