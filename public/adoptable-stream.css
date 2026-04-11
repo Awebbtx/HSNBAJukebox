@@ -126,13 +126,52 @@ a.top-brand:hover .brand-name {
 .photo-wrap {
   position: relative;
   width: 100%;
-  min-height: min(72vh, 860px);
-  max-height: min(72vh, 860px);
+  min-height: 72vh;
+  max-height: 72vh;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--border);
   background: rgba(255,255,255,0.04);
   justify-self: start;
+}
+
+:fullscreen .shell,
+:-webkit-full-screen .shell {
+  width: 99vw;
+  margin: 0.35rem auto;
+  gap: 0.45rem;
+}
+
+:fullscreen .card,
+:-webkit-full-screen .card {
+  padding: 0.75rem;
+}
+
+:fullscreen .slide-grid,
+:-webkit-full-screen .slide-grid {
+  grid-template-columns: minmax(760px, 68%) minmax(360px, 1fr);
+  gap: 1rem;
+}
+
+:fullscreen .photo-wrap,
+:-webkit-full-screen .photo-wrap {
+  min-height: calc(100vh - 12rem);
+  max-height: calc(100vh - 12rem);
+}
+
+:fullscreen .animal-name,
+:-webkit-full-screen .animal-name {
+  font-size: clamp(2.4rem, 5.2vw, 5rem);
+}
+
+:fullscreen .animal-details,
+:-webkit-full-screen .animal-details {
+  font-size: clamp(1.2rem, 2vw, 1.85rem);
+}
+
+:fullscreen .animal-bio,
+:-webkit-full-screen .animal-bio {
+  font-size: clamp(1.05rem, 1.45vw, 1.5rem);
 }
 
 .photo-wrap img {
