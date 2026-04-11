@@ -38,6 +38,16 @@ const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
 let slideshowDisplayFieldCatalog = [];
 let slideshowDisplayFieldOptions = [...SLIDESHOW_DISPLAY_FIELD_OPTIONS];
 let asmKnownFieldNames = [];
+let specialPages = [];
+const SPECIAL_PAGE_CATEGORIES = [
+  "Special Thanks",
+  "Employee of the Month",
+  "Volunteer of the Month",
+  "Upcoming Events",
+  "TNR Program",
+  "Become a Volunteer",
+  "General PSA and Alerts"
+];
 
 if (pageMode === "audio") {
   settingsTab = "audio-jack";
@@ -161,7 +171,27 @@ const els = {
   slideshowReadyTodayToggle: document.getElementById("slideshowReadyTodayToggle"),
   slideshowCustomFiltersEnabledToggle: document.getElementById("slideshowCustomFiltersEnabledToggle"),
   slideshowCustomFiltersInput: document.getElementById("slideshowCustomFiltersInput"),
+  adoptablesPerSpecialInput: document.getElementById("adoptablesPerSpecialInput"),
+  alertEveryXSlidesInput: document.getElementById("alertEveryXSlidesInput"),
+  specialImageMaxMbInput: document.getElementById("specialImageMaxMbInput"),
   slideshowDisplayFieldsContainer: document.getElementById("slideshowDisplayFieldsContainer"),
+  specialPagesList: document.getElementById("specialPagesList"),
+  specialPageIdInput: document.getElementById("specialPageIdInput"),
+  specialPageTitleInput: document.getElementById("specialPageTitleInput"),
+  specialPageCategoryInput: document.getElementById("specialPageCategoryInput"),
+  specialPageTemplateInput: document.getElementById("specialPageTemplateInput"),
+  specialPageDurationInput: document.getElementById("specialPageDurationInput"),
+  specialPageActiveInput: document.getElementById("specialPageActiveInput"),
+  specialPageAlertInput: document.getElementById("specialPageAlertInput"),
+  specialPageStartAtInput: document.getElementById("specialPageStartAtInput"),
+  specialPageEndAtInput: document.getElementById("specialPageEndAtInput"),
+  specialPageImageInput: document.getElementById("specialPageImageInput"),
+  specialPageImageNameInput: document.getElementById("specialPageImageNameInput"),
+  specialPageRichToolbar: document.getElementById("specialPageRichToolbar"),
+  specialPageRichTextInput: document.getElementById("specialPageRichTextInput"),
+  newSpecialPageBtn: document.getElementById("newSpecialPageBtn"),
+  saveSpecialPageBtn: document.getElementById("saveSpecialPageBtn"),
+  deleteSpecialPageBtn: document.getElementById("deleteSpecialPageBtn"),
   openSlideshowFieldMapBtn: document.getElementById("openSlideshowFieldMapBtn"),
   slideshowFieldMapDialog: document.getElementById("slideshowFieldMapDialog"),
   slideshowFieldMapList: document.getElementById("slideshowFieldMapList"),
@@ -385,6 +415,176 @@ function saveSlideshowFieldMapSelection() {
   renderSlideshowDisplayFieldSelectors(priorSelection, buildSlideshowDisplayFieldOptions(slideshowDisplayFieldCatalog));
   els.slideshowFieldMapDialog?.close();
   toast("Available slideshow fields updated. Save / Apply to persist.");
+}
+
+function toDatetimeLocalValue(value) {
+  if (!value) return "";
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return "";
+  const date = new Date(ms);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d}T${hh}:${mm}`;
+}
+
+function parseDatetimeLocalValue(value) {
+  const text = `${value || ""}`.trim();
+  if (!text) return "";
+  const ms = Date.parse(text);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toISOString();
+}
+
+function sanitizeSpecialPageCategory(value) {
+  const text = `${value || ""}`.trim();
+  return SPECIAL_PAGE_CATEGORIES.includes(text) ? text : "General PSA and Alerts";
+}
+
+function resetSpecialPageEditor() {
+  if (!els.specialPageIdInput) return;
+  els.specialPageIdInput.value = "";
+  els.specialPageTitleInput.value = "";
+  els.specialPageCategoryInput.value = "General PSA and Alerts";
+  els.specialPageTemplateInput.value = "split";
+  els.specialPageDurationInput.value = "10";
+  els.specialPageActiveInput.checked = true;
+  els.specialPageAlertInput.checked = false;
+  els.specialPageStartAtInput.value = "";
+  els.specialPageEndAtInput.value = "";
+  els.specialPageImageInput.value = "";
+  els.specialPageImageNameInput.value = "No image selected";
+  els.specialPageRichTextInput.innerHTML = "";
+}
+
+function renderSpecialPagesList() {
+  if (!els.specialPagesList) return;
+  els.specialPagesList.innerHTML = "";
+  if (!specialPages.length) {
+    const empty = document.createElement("div");
+    empty.className = "special-page-item empty";
+    empty.textContent = "No special pages yet.";
+    els.specialPagesList.append(empty);
+    return;
+  }
+  const sorted = [...specialPages].sort((a, b) => `${b.updatedAt || ""}`.localeCompare(`${a.updatedAt || ""}`));
+  for (const page of sorted) {
+    const row = document.createElement("div");
+    row.className = "special-page-item";
+    const chips = [
+      page.template === "image" ? "Image" : "Split",
+      page.active ? "Active" : "Inactive",
+      page.isAlert ? "Alert" : "Standard",
+      `${Math.max(4, Number(page.displaySeconds || 10))}s`
+    ];
+    row.innerHTML = `
+      <div class="special-page-main">
+        <div class="special-page-title">${escapeHtml(page.title || "Untitled")}</div>
+        <div class="special-page-meta">${escapeHtml(page.category || "General PSA and Alerts")}</div>
+        <div class="inline-list">${chips.map((chip) => `<span class="pill">${escapeHtml(chip)}</span>`).join("")}</div>
+      </div>
+      <div class="special-page-actions">
+        <button type="button" class="q-btn" data-action="edit">Edit</button>
+      </div>
+    `;
+    row.querySelector('[data-action="edit"]')?.addEventListener("click", () => {
+      els.specialPageIdInput.value = page.id || "";
+      els.specialPageTitleInput.value = page.title || "";
+      els.specialPageCategoryInput.value = sanitizeSpecialPageCategory(page.category);
+      els.specialPageTemplateInput.value = page.template === "image" ? "image" : "split";
+      els.specialPageDurationInput.value = `${Math.max(4, Number(page.displaySeconds || 10))}`;
+      els.specialPageActiveInput.checked = page.active !== false;
+      els.specialPageAlertInput.checked = page.isAlert === true;
+      els.specialPageStartAtInput.value = toDatetimeLocalValue(page.startAt);
+      els.specialPageEndAtInput.value = toDatetimeLocalValue(page.endAt);
+      els.specialPageImageNameInput.value = page.imageUrl || "No image selected";
+      els.specialPageImageInput.value = "";
+      els.specialPageRichTextInput.innerHTML = `${page.richText || ""}`;
+    });
+    els.specialPagesList.append(row);
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(`${reader.result || ""}`);
+    reader.onerror = () => reject(new Error("Unable to read image."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadSpecialPageImageIfNeeded(pageId) {
+  const file = els.specialPageImageInput?.files?.[0] || null;
+  if (!file) {
+    return;
+  }
+  const maxMb = Math.max(1, Number(els.specialImageMaxMbInput?.value || 4));
+  if (file.size > maxMb * 1024 * 1024) {
+    throw new Error(`Image exceeds ${maxMb}MB limit.`);
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  await api(`/api/admin/slideshow/pages/${encodeURIComponent(pageId)}/image`, {
+    method: "POST",
+    body: JSON.stringify({ dataUrl })
+  });
+}
+
+async function saveSpecialPage() {
+  if (!els.specialPageTitleInput) return;
+  const id = `${els.specialPageIdInput?.value || ""}`.trim();
+  const payload = {
+    title: els.specialPageTitleInput.value.trim(),
+    category: sanitizeSpecialPageCategory(els.specialPageCategoryInput.value),
+    template: els.specialPageTemplateInput.value === "image" ? "image" : "split",
+    displaySeconds: Number(els.specialPageDurationInput.value || 10),
+    active: Boolean(els.specialPageActiveInput.checked),
+    isAlert: Boolean(els.specialPageAlertInput.checked),
+    startAt: parseDatetimeLocalValue(els.specialPageStartAtInput.value),
+    endAt: parseDatetimeLocalValue(els.specialPageEndAtInput.value),
+    richText: `${els.specialPageRichTextInput.innerHTML || ""}`
+  };
+  if (!payload.title) {
+    throw new Error("Special page title is required.");
+  }
+
+  const result = id
+    ? await api(`/api/admin/slideshow/pages/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) })
+    : await api("/api/admin/slideshow/pages", { method: "POST", body: JSON.stringify(payload) });
+  const page = result?.page || null;
+  if (!page?.id) {
+    throw new Error("Unable to save page.");
+  }
+  await uploadSpecialPageImageIfNeeded(page.id);
+  await loadAsmSettings();
+  resetSpecialPageEditor();
+  toast("Special page saved");
+}
+
+async function deleteSpecialPage() {
+  const id = `${els.specialPageIdInput?.value || ""}`.trim();
+  if (!id) {
+    throw new Error("Select a page first.");
+  }
+  if (!window.confirm("Delete this special page?")) {
+    return;
+  }
+  await api(`/api/admin/slideshow/pages/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await loadAsmSettings();
+  resetSpecialPageEditor();
+  toast("Special page deleted");
+}
+
+function runRichTextCommand(command) {
+  if (command === "createLink") {
+    const href = window.prompt("Enter URL (https://...)", "https://");
+    if (!href) return;
+    document.execCommand("createLink", false, href.trim());
+    return;
+  }
+  document.execCommand(command, false);
 }
 
 async function api(url, opts = {}) {
@@ -1077,6 +1277,17 @@ async function loadAsmSettings() {
     if (els.slideshowCustomFiltersInput) {
       els.slideshowCustomFiltersInput.value = Array.isArray(show.customFilters) ? show.customFilters.join(", ") : "";
     }
+    if (els.adoptablesPerSpecialInput) {
+      els.adoptablesPerSpecialInput.value = `${Math.max(1, Number(show.adoptablesPerSpecial || 3))}`;
+    }
+    if (els.alertEveryXSlidesInput) {
+      els.alertEveryXSlidesInput.value = `${Math.max(2, Number(show.alertEveryXSlides || 6))}`;
+    }
+    if (els.specialImageMaxMbInput) {
+      els.specialImageMaxMbInput.value = `${Math.max(1, Number(show.specialImageMaxMb || 4))}`;
+    }
+    specialPages = Array.isArray(show.specialPages) ? show.specialPages : [];
+    renderSpecialPagesList();
     slideshowDisplayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(show.displayFieldCatalog || []);
     asmKnownFieldNames = sanitizeAsmFieldNameList(data.fieldNames || [], 120);
     const options = Array.isArray(data.displayFieldOptions) && data.displayFieldOptions.length
@@ -1139,6 +1350,9 @@ async function saveAsmSettings() {
       customFiltersEnabled: Boolean(els.slideshowCustomFiltersEnabledToggle?.checked),
       displayFieldCatalog: sanitizeSlideshowDisplayFieldCatalog(slideshowDisplayFieldCatalog),
       displayFields: getSelectedSlideshowDisplayFields(),
+      adoptablesPerSpecial: Number(els.adoptablesPerSpecialInput?.value || 3),
+      alertEveryXSlides: Number(els.alertEveryXSlidesInput?.value || 6),
+      specialImageMaxMb: Number(els.specialImageMaxMbInput?.value || 4),
       customFilters: `${els.slideshowCustomFiltersInput?.value || ""}`
         .split(/[\n,|]/g)
         .map((item) => item.trim())
@@ -1264,6 +1478,40 @@ if (els.saveSlideshowFieldMapBtn) {
 }
 if (els.cancelSlideshowFieldMapBtn) {
   els.cancelSlideshowFieldMapBtn.addEventListener("click", () => els.slideshowFieldMapDialog?.close());
+}
+if (els.newSpecialPageBtn) {
+  els.newSpecialPageBtn.addEventListener("click", resetSpecialPageEditor);
+}
+if (els.saveSpecialPageBtn) {
+  els.saveSpecialPageBtn.addEventListener("click", async () => {
+    try {
+      await saveSpecialPage();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
+}
+if (els.deleteSpecialPageBtn) {
+  els.deleteSpecialPageBtn.addEventListener("click", async () => {
+    try {
+      await deleteSpecialPage();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
+}
+if (els.specialPageImageInput) {
+  els.specialPageImageInput.addEventListener("change", () => {
+    const file = els.specialPageImageInput.files?.[0] || null;
+    els.specialPageImageNameInput.value = file ? `${file.name} (${Math.ceil(file.size / 1024)} KB)` : "No image selected";
+  });
+}
+if (els.specialPageRichToolbar) {
+  els.specialPageRichToolbar.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-cmd]");
+    if (!button) return;
+    runRichTextCommand(button.getAttribute("data-cmd") || "");
+  });
 }
 
 async function saveTopSettings() {

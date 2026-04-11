@@ -774,6 +774,86 @@ input[type="range"] {
   padding: 0.35rem 0.5rem;
 }
 
+.special-pages-list {
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.special-page-item {
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  border-radius: 12px;
+  padding: 0.6rem 0.7rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: start;
+}
+
+.special-page-item.empty {
+  color: var(--muted);
+}
+
+.special-page-title {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.special-page-meta {
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.special-page-editor {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  padding: 0.7rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.special-page-toggles {
+  grid-template-columns: repeat(2, auto);
+  justify-content: start;
+}
+
+.rich-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.rich-editor-toolbar button {
+  border: 1px solid var(--border);
+  background: var(--surf-hi);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.28rem 0.62rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.rich-editor {
+  min-height: 150px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  color: var(--ink);
+  padding: 0.65rem 0.75rem;
+  outline: none;
+  line-height: 1.45;
+}
+
+.rich-editor:focus {
+  outline: 2px solid rgba(245,166,35,0.35);
+  outline-offset: 1px;
+}
+
 /* Toggle switch */
 .toggle {
   flex-shrink: 0;

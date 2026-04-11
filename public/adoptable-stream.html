@@ -16,11 +16,11 @@
     <main class="shell">
       <section class="card slide-card">
         <div class="card-head">
-          <span class="card-label">FEATURED ADOPTABLE</span>
+          <span class="card-label">FEATURED SLIDE</span>
           <span id="slideCounter" class="meta">0 / 0</span>
         </div>
 
-        <div class="slide-grid">
+        <div id="animalSlide" class="slide-grid">
           <div class="photo-wrap">
             <img id="animalImage" alt="Adoptable animal" src="" />
             <div id="imageFallback" class="image-fallback">🐾</div>
@@ -31,6 +31,22 @@
             <div id="animalDetails" class="animal-details"></div>
             <p id="animalBio" class="animal-bio"></p>
             <a id="animalProfileLink" class="btn-accent" href="#" target="_blank" rel="noopener noreferrer">View Profile</a>
+          </div>
+        </div>
+
+        <div id="specialSlide" class="special-slide" hidden>
+          <div id="specialImageTemplate" class="special-image-template" hidden>
+            <img id="specialImageOnly" alt="Special slide image" src="" />
+          </div>
+          <div id="specialSplitTemplate" class="special-split-template" hidden>
+            <div class="special-split-photo-wrap">
+              <img id="specialSplitImage" alt="Special slide image" src="" />
+            </div>
+            <div class="special-copy-wrap">
+              <div id="specialCategory" class="card-label"></div>
+              <h2 id="specialTitle" class="animal-name"></h2>
+              <div id="specialBody" class="special-rich-body"></div>
+            </div>
           </div>
         </div>
 

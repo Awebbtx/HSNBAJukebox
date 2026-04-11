@@ -63,13 +63,24 @@ const ENV_FILE_PATH = path.resolve(__dirname, "../.env");
 const USER_DB_PATH = path.resolve(__dirname, "../data/user-db.json");
 const ADMIN_DB_PATH = path.resolve(__dirname, "../data/admin-db.json");
 const SLIDESHOW_CONFIG_PATH = path.resolve(__dirname, "../data/slideshow-config.json");
+const SPECIAL_PAGE_UPLOAD_DIR = path.resolve(__dirname, "../public/uploads/special-pages");
+const SPECIAL_PAGE_UPLOAD_WEB_PATH = "/uploads/special-pages";
+const SPECIAL_PAGE_CATEGORIES = [
+  "Special Thanks",
+  "Employee of the Month",
+  "Volunteer of the Month",
+  "Upcoming Events",
+  "TNR Program",
+  "Become a Volunteer",
+  "General PSA and Alerts"
+];
 
 if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
   console.warn("Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET in environment.");
 }
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "8mb" }));
 app.use(express.static(path.resolve(__dirname, "../public")));
 
 const state = {
@@ -104,7 +115,11 @@ const state = {
     customFiltersEnabled: SLIDESHOW_CUSTOM_FILTERS_ENABLED,
     customFilters: SLIDESHOW_CUSTOM_FILTERS,
     displayFieldCatalog: [],
-    displayFields: [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS]
+    displayFields: [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS],
+    specialPages: [],
+    adoptablesPerSpecial: Math.max(1, Number(process.env.SLIDESHOW_ADOPTABLES_PER_SPECIAL || 3)),
+    alertEveryXSlides: Math.max(2, Number(process.env.SLIDESHOW_ALERT_EVERY_X_SLIDES || 6)),
+    specialImageMaxMb: Math.max(1, Math.min(12, Number(process.env.SLIDESHOW_SPECIAL_IMAGE_MAX_MB || 4)))
   },
   employeeSessions: new Map(),
   requestMetaByTlid: new Map(),
@@ -282,23 +297,237 @@ function sanitizeSlideshowDisplayFields(raw, displayFieldCatalog = []) {
   return hasSelectedValue ? normalized : [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS];
 }
 
+function parseIsoDate(value) {
+  const text = `${value || ""}`.trim();
+  if (!text) return null;
+  const ms = Date.parse(text);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
+function sanitizeSpecialPageTemplate(value) {
+  return `${value || ""}`.trim() === "image" ? "image" : "split";
+}
+
+function sanitizeSpecialPageCategory(value) {
+  const text = `${value || ""}`.trim();
+  return SPECIAL_PAGE_CATEGORIES.includes(text) ? text : "General PSA and Alerts";
+}
+
+function sanitizeSpecialPageImagePath(value) {
+  const text = `${value || ""}`.trim();
+  if (!text) return "";
+  if (text.startsWith(`${SPECIAL_PAGE_UPLOAD_WEB_PATH}/`)) {
+    return text;
+  }
+  return "";
+}
+
+function sanitizeRichTextHtml(value, maxLength = 12000) {
+  const allowedTags = new Set(["p", "br", "strong", "em", "u", "ul", "ol", "li", "a", "h2", "h3", "h4", "blockquote"]);
+  const input = `${value || ""}`.slice(0, maxLength);
+  const withoutScript = input
+    .replace(/<\s*script[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, "")
+    .replace(/<\s*style[^>]*>[\s\S]*?<\s*\/\s*style\s*>/gi, "")
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, "")
+    .replace(/\sstyle\s*=\s*"[^"]*"/gi, "")
+    .replace(/\sstyle\s*=\s*'[^']*'/gi, "");
+
+  return withoutScript.replace(/<\/?([a-zA-Z0-9]+)([^>]*)>/g, (tag, name, attrs) => {
+    const lower = `${name || ""}`.toLowerCase();
+    if (!allowedTags.has(lower)) {
+      return "";
+    }
+    const isClosing = tag.startsWith("</");
+    if (isClosing) {
+      return `</${lower}>`;
+    }
+    if (lower === "a") {
+      const hrefMatch = attrs.match(/href\s*=\s*"([^"]*)"|href\s*=\s*'([^']*)'/i);
+      const href = `${hrefMatch?.[1] || hrefMatch?.[2] || ""}`.trim();
+      const safeHref = /^(https?:\/\/|mailto:)/i.test(href) ? href : "";
+      if (!safeHref) {
+        return "<a>";
+      }
+      return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">`;
+    }
+    return `<${lower}>`;
+  }).trim();
+}
+
+function sanitizeSpecialPage(raw = {}) {
+  const id = `${raw.id || crypto.randomUUID()}`;
+  const nowIso = new Date().toISOString();
+  const displaySeconds = Math.max(4, Math.min(60, Number(raw.displaySeconds || 10)));
+  const priority = Math.max(0, Math.min(10, Number(raw.priority || 0)));
+  return {
+    id,
+    title: `${raw.title || "Untitled Page"}`.trim().slice(0, 100) || "Untitled Page",
+    category: sanitizeSpecialPageCategory(raw.category),
+    template: sanitizeSpecialPageTemplate(raw.template),
+    imageUrl: sanitizeSpecialPageImagePath(raw.imageUrl),
+    richText: sanitizeRichTextHtml(raw.richText || ""),
+    active: raw.active !== false,
+    isAlert: raw.isAlert === true,
+    displaySeconds,
+    priority,
+    startAt: parseIsoDate(raw.startAt),
+    endAt: parseIsoDate(raw.endAt),
+    createdAt: parseIsoDate(raw.createdAt) || nowIso,
+    updatedAt: nowIso
+  };
+}
+
+function sanitizeSpecialPages(raw) {
+  const source = Array.isArray(raw) ? raw : [];
+  const seen = new Set();
+  const pages = [];
+  for (const item of source) {
+    const sanitized = sanitizeSpecialPage(item || {});
+    if (seen.has(sanitized.id)) continue;
+    seen.add(sanitized.id);
+    pages.push(sanitized);
+    if (pages.length >= 200) break;
+  }
+  return pages;
+}
+
+function isSpecialPageActiveNow(page, nowMs = Date.now()) {
+  if (!page?.active) return false;
+  const startMs = page.startAt ? Date.parse(page.startAt) : null;
+  const endMs = page.endAt ? Date.parse(page.endAt) : null;
+  if (Number.isFinite(startMs) && nowMs < startMs) return false;
+  if (Number.isFinite(endMs) && nowMs > endMs) return false;
+  return true;
+}
+
+function buildMixedSlideshowSlides(animals = [], specialPages = [], options = {}) {
+  const adoptablesPerSpecial = Math.max(1, Number(options.adoptablesPerSpecial || 3));
+  const alertEveryXSlides = Math.max(2, Number(options.alertEveryXSlides || 6));
+  const nowMs = Date.now();
+  const pages = sanitizeSpecialPages(specialPages)
+    .filter((page) => isSpecialPageActiveNow(page, nowMs))
+    .sort((a, b) => (Number(b.priority || 0) - Number(a.priority || 0)) || `${b.updatedAt || ""}`.localeCompare(`${a.updatedAt || ""}`));
+  const alerts = pages.filter((page) => page.isAlert);
+  const regularPages = pages.filter((page) => !page.isAlert);
+  const adoptableSlides = (Array.isArray(animals) ? animals : []).map((animal) => ({
+    type: "animal",
+    displaySeconds: Math.max(5, Number(options.defaultAnimalSeconds || 12)),
+    animal
+  }));
+
+  const base = [];
+  let aIndex = 0;
+  let pIndex = 0;
+  while (aIndex < adoptableSlides.length || pIndex < regularPages.length) {
+    for (let i = 0; i < adoptablesPerSpecial && aIndex < adoptableSlides.length; i += 1) {
+      base.push(adoptableSlides[aIndex]);
+      aIndex += 1;
+    }
+    if (pIndex < regularPages.length) {
+      base.push({
+        type: "special",
+        displaySeconds: Number(regularPages[pIndex].displaySeconds || 10),
+        page: regularPages[pIndex]
+      });
+      pIndex += 1;
+    }
+    if (pIndex >= regularPages.length && aIndex < adoptableSlides.length && regularPages.length === 0) {
+      continue;
+    }
+    if (aIndex >= adoptableSlides.length && pIndex < regularPages.length) {
+      base.push({
+        type: "special",
+        displaySeconds: Number(regularPages[pIndex].displaySeconds || 10),
+        page: regularPages[pIndex]
+      });
+      pIndex += 1;
+    }
+  }
+
+  if (!base.length && alerts.length) {
+    return alerts.map((page) => ({
+      type: "special",
+      displaySeconds: Number(page.displaySeconds || 10),
+      page
+    }));
+  }
+
+  if (!alerts.length) {
+    return base;
+  }
+
+  const output = [];
+  let alertIndex = 0;
+  let nonAlertCount = 0;
+  for (const slide of base) {
+    output.push(slide);
+    nonAlertCount += 1;
+    if (nonAlertCount % alertEveryXSlides === 0) {
+      const alert = alerts[alertIndex % alerts.length];
+      output.push({
+        type: "special",
+        displaySeconds: Number(alert.displaySeconds || 10),
+        page: alert
+      });
+      alertIndex += 1;
+    }
+  }
+  return output;
+}
+
+function ensureSpecialPageUploadDir() {
+  if (!fs.existsSync(SPECIAL_PAGE_UPLOAD_DIR)) {
+    fs.mkdirSync(SPECIAL_PAGE_UPLOAD_DIR, { recursive: true });
+  }
+}
+
+function saveSpecialPageImageDataUrl(pageId, dataUrl) {
+  const match = `${dataUrl || ""}`.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/i);
+  if (!match) {
+    throw new Error("Image data must be PNG, JPG, or WEBP.");
+  }
+  const imageType = `${match[1] || ""}`.toLowerCase();
+  const base64Body = `${match[2] || ""}`;
+  const buffer = Buffer.from(base64Body, "base64");
+  const maxBytes = Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4))) * 1024 * 1024;
+  if (buffer.byteLength > maxBytes) {
+    throw new Error(`Image exceeds max size of ${state.slideshow.specialImageMaxMb || 4}MB.`);
+  }
+  const ext = imageType === "jpeg" || imageType === "jpg" ? "jpg" : imageType;
+  const fileName = `${pageId}-${Date.now()}.${ext}`;
+  ensureSpecialPageUploadDir();
+  fs.writeFileSync(path.join(SPECIAL_PAGE_UPLOAD_DIR, fileName), buffer);
+  return `${SPECIAL_PAGE_UPLOAD_WEB_PATH}/${fileName}`;
+}
+
 function normalizeSlideshowConfig(raw) {
   const config = raw && typeof raw === "object" ? raw : {};
   const legacyCatalog = getLegacySlideshowCatalogDefaults();
   const displayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(config.displayFieldCatalog || legacyCatalog);
   const legacyDisplayFields = `${process.env.SLIDESHOW_DISPLAY_FIELDS || ""}`.split("|");
   const displayFields = sanitizeSlideshowDisplayFields(config.displayFields || legacyDisplayFields, displayFieldCatalog);
+  const specialPages = sanitizeSpecialPages(config.specialPages || []);
   return {
     version: 1,
     displayFieldCatalog,
-    displayFields
+    displayFields,
+    specialPages,
+    adoptablesPerSpecial: Math.max(1, Number(config.adoptablesPerSpecial || process.env.SLIDESHOW_ADOPTABLES_PER_SPECIAL || 3)),
+    alertEveryXSlides: Math.max(2, Number(config.alertEveryXSlides || process.env.SLIDESHOW_ALERT_EVERY_X_SLIDES || 6)),
+    specialImageMaxMb: Math.max(1, Math.min(12, Number(config.specialImageMaxMb || process.env.SLIDESHOW_SPECIAL_IMAGE_MAX_MB || 4)))
   };
 }
 
 function saveSlideshowConfig() {
   const config = normalizeSlideshowConfig({
     displayFieldCatalog: state.slideshow?.displayFieldCatalog || [],
-    displayFields: state.slideshow?.displayFields || []
+    displayFields: state.slideshow?.displayFields || [],
+    specialPages: state.slideshow?.specialPages || [],
+    adoptablesPerSpecial: state.slideshow?.adoptablesPerSpecial || 3,
+    alertEveryXSlides: state.slideshow?.alertEveryXSlides || 6,
+    specialImageMaxMb: state.slideshow?.specialImageMaxMb || 4
   });
   const dir = path.dirname(SLIDESHOW_CONFIG_PATH);
   if (!fs.existsSync(dir)) {
@@ -313,6 +542,10 @@ function loadSlideshowConfig() {
       const initial = normalizeSlideshowConfig(null);
       state.slideshow.displayFieldCatalog = initial.displayFieldCatalog;
       state.slideshow.displayFields = initial.displayFields;
+      state.slideshow.specialPages = initial.specialPages;
+      state.slideshow.adoptablesPerSpecial = initial.adoptablesPerSpecial;
+      state.slideshow.alertEveryXSlides = initial.alertEveryXSlides;
+      state.slideshow.specialImageMaxMb = initial.specialImageMaxMb;
       saveSlideshowConfig();
       return initial;
     }
@@ -321,12 +554,20 @@ function loadSlideshowConfig() {
     const normalized = normalizeSlideshowConfig(parsed);
     state.slideshow.displayFieldCatalog = normalized.displayFieldCatalog;
     state.slideshow.displayFields = normalized.displayFields;
+    state.slideshow.specialPages = normalized.specialPages;
+    state.slideshow.adoptablesPerSpecial = normalized.adoptablesPerSpecial;
+    state.slideshow.alertEveryXSlides = normalized.alertEveryXSlides;
+    state.slideshow.specialImageMaxMb = normalized.specialImageMaxMb;
     return normalized;
   } catch (error) {
     console.warn(`Failed to load slideshow config: ${error.message}`);
     const fallback = normalizeSlideshowConfig(null);
     state.slideshow.displayFieldCatalog = fallback.displayFieldCatalog;
     state.slideshow.displayFields = fallback.displayFields;
+    state.slideshow.specialPages = fallback.specialPages;
+    state.slideshow.adoptablesPerSpecial = fallback.adoptablesPerSpecial;
+    state.slideshow.alertEveryXSlides = fallback.alertEveryXSlides;
+    state.slideshow.specialImageMaxMb = fallback.specialImageMaxMb;
     return fallback;
   }
 }
@@ -2209,7 +2450,11 @@ app.get("/api/admin/settings/asm", requireAdmin, async (_req, res) => {
       customFiltersEnabled: Boolean(state.slideshow.customFiltersEnabled),
       customFilters: sanitizeCustomFilters(state.slideshow.customFilters || []),
       displayFieldCatalog: sanitizeSlideshowDisplayFieldCatalog(state.slideshow.displayFieldCatalog || []),
-      displayFields: sanitizeSlideshowDisplayFields(state.slideshow.displayFields || [], state.slideshow.displayFieldCatalog || [])
+      displayFields: sanitizeSlideshowDisplayFields(state.slideshow.displayFields || [], state.slideshow.displayFieldCatalog || []),
+      specialPages: sanitizeSpecialPages(state.slideshow.specialPages || []),
+      adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
+      alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
+      specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4)))
     },
     displayFieldOptions: buildSlideshowDisplayFieldOptions(state.slideshow.displayFieldCatalog || []),
     fetchedAt: result.fetchedAt ? new Date(result.fetchedAt).toISOString() : null,
@@ -2274,6 +2519,15 @@ app.post("/api/admin/settings/asm", requireAdmin, (req, res) => {
         state.slideshow.displayFieldCatalog || []
       )
     : sanitizeSlideshowDisplayFields(state.slideshow.displayFields || [], state.slideshow.displayFieldCatalog || []);
+  state.slideshow.adoptablesPerSpecial = body.adoptablesPerSpecial !== undefined
+    ? Math.max(1, Number(body.adoptablesPerSpecial || 3))
+    : Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3));
+  state.slideshow.alertEveryXSlides = body.alertEveryXSlides !== undefined
+    ? Math.max(2, Number(body.alertEveryXSlides || 6))
+    : Math.max(2, Number(state.slideshow.alertEveryXSlides || 6));
+  state.slideshow.specialImageMaxMb = body.specialImageMaxMb !== undefined
+    ? Math.max(1, Math.min(12, Number(body.specialImageMaxMb || 4)))
+    : Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4)));
   state.asmCache = { fetchedAt: 0, items: [], error: "" };
   saveSlideshowConfig();
 
@@ -2294,7 +2548,89 @@ app.post("/api/admin/settings/asm", requireAdmin, (req, res) => {
   persistEnvSetting("SLIDESHOW_READY_TODAY_ONLY", state.slideshow.readyTodayOnly ? "true" : "false");
   persistEnvSetting("SLIDESHOW_CUSTOM_FILTERS_ENABLED", state.slideshow.customFiltersEnabled ? "true" : "false");
   persistEnvSetting("SLIDESHOW_CUSTOM_FILTERS", sanitizeCustomFilters(state.slideshow.customFilters || []).join("|"));
+  persistEnvSetting("SLIDESHOW_ADOPTABLES_PER_SPECIAL", `${state.slideshow.adoptablesPerSpecial}`);
+  persistEnvSetting("SLIDESHOW_ALERT_EVERY_X_SLIDES", `${state.slideshow.alertEveryXSlides}`);
+  persistEnvSetting("SLIDESHOW_SPECIAL_IMAGE_MAX_MB", `${state.slideshow.specialImageMaxMb}`);
 
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/slideshow/pages", requireAdmin, (_req, res) => {
+  res.json({
+    pages: sanitizeSpecialPages(state.slideshow.specialPages || []),
+    settings: {
+      adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
+      alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
+      specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4)))
+    }
+  });
+});
+
+app.post("/api/admin/slideshow/pages", requireAdmin, (req, res) => {
+  const page = sanitizeSpecialPage(req.body || {});
+  state.slideshow.specialPages = [
+    ...sanitizeSpecialPages(state.slideshow.specialPages || []),
+    page
+  ];
+  saveSlideshowConfig();
+  res.status(201).json({ ok: true, page });
+});
+
+app.patch("/api/admin/slideshow/pages/:id", requireAdmin, (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
+  const existing = current.find((item) => item.id === id);
+  if (!existing) {
+    res.status(404).json({ error: "Special page not found." });
+    return;
+  }
+  const next = sanitizeSpecialPage({ ...existing, ...(req.body || {}), id: existing.id, createdAt: existing.createdAt });
+  state.slideshow.specialPages = current.map((item) => (item.id === id ? next : item));
+  saveSlideshowConfig();
+  res.json({ ok: true, page: next });
+});
+
+app.post("/api/admin/slideshow/pages/:id/image", requireAdmin, (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
+  const existing = current.find((item) => item.id === id);
+  if (!existing) {
+    res.status(404).json({ error: "Special page not found." });
+    return;
+  }
+  try {
+    const imageUrl = saveSpecialPageImageDataUrl(id, req.body?.dataUrl || "");
+    if (existing.imageUrl && existing.imageUrl.startsWith(`${SPECIAL_PAGE_UPLOAD_WEB_PATH}/`)) {
+      const oldPath = path.join(SPECIAL_PAGE_UPLOAD_DIR, path.basename(existing.imageUrl));
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
+    }
+    const updated = sanitizeSpecialPage({ ...existing, imageUrl, id: existing.id, createdAt: existing.createdAt });
+    state.slideshow.specialPages = current.map((item) => (item.id === id ? updated : item));
+    saveSlideshowConfig();
+    res.json({ ok: true, page: updated });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Image upload failed." });
+  }
+});
+
+app.delete("/api/admin/slideshow/pages/:id", requireAdmin, (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
+  const existing = current.find((item) => item.id === id);
+  if (!existing) {
+    res.status(404).json({ error: "Special page not found." });
+    return;
+  }
+  if (existing.imageUrl && existing.imageUrl.startsWith(`${SPECIAL_PAGE_UPLOAD_WEB_PATH}/`)) {
+    const oldPath = path.join(SPECIAL_PAGE_UPLOAD_DIR, path.basename(existing.imageUrl));
+    if (fs.existsSync(oldPath)) {
+      fs.unlinkSync(oldPath);
+    }
+  }
+  state.slideshow.specialPages = current.filter((item) => item.id !== id);
+  saveSlideshowConfig();
   res.json({ ok: true });
 });
 
@@ -2683,6 +3019,12 @@ app.get("/api/adoptables/slideshow", async (req, res) => {
   const force = `${req.query.refresh || ""}` === "1";
   const limit = Math.max(1, Math.min(50, Number(req.query.limit || state.slideshow.defaultLimit || 20)));
   const result = await getAsmAdoptables(force);
+  const animals = (result.items || []).slice(0, limit);
+  const slides = buildMixedSlideshowSlides(animals, state.slideshow.specialPages || [], {
+    defaultAnimalSeconds: Number(state.slideshow.intervalSeconds || 12),
+    adoptablesPerSpecial: Number(state.slideshow.adoptablesPerSpecial || 3),
+    alertEveryXSlides: Number(state.slideshow.alertEveryXSlides || 6)
+  });
   res.json({
     configured: Boolean(state.asm.serviceUrl && (state.asm.apiKey || (state.asm.username && state.asm.password))),
     fetchedAt: result.fetchedAt ? new Date(result.fetchedAt).toISOString() : null,
@@ -2694,10 +3036,15 @@ app.get("/api/adoptables/slideshow", async (req, res) => {
       audioSource: state.slideshow.audioSource || "/live.mp3",
       audioVolume: Number(state.slideshow.audioVolume || 70),
       audioAutoplay: Boolean(state.slideshow.audioAutoplay),
+      adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
+      alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
+      specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4))),
       displayFieldCatalog: sanitizeSlideshowDisplayFieldCatalog(state.slideshow.displayFieldCatalog || []),
-      displayFields: sanitizeSlideshowDisplayFields(state.slideshow.displayFields || [], state.slideshow.displayFieldCatalog || [])
+      displayFields: sanitizeSlideshowDisplayFields(state.slideshow.displayFields || [], state.slideshow.displayFieldCatalog || []),
+      specialPages: sanitizeSpecialPages(state.slideshow.specialPages || [])
     },
-    animals: (result.items || []).slice(0, limit)
+    animals,
+    slides
   });
 });
 

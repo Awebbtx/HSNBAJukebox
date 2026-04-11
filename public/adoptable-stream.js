@@ -13,6 +13,15 @@ const els = {
   animalDetails: document.getElementById("animalDetails"),
   animalBio: document.getElementById("animalBio"),
   animalProfileLink: document.getElementById("animalProfileLink"),
+  animalSlide: document.getElementById("animalSlide"),
+  specialSlide: document.getElementById("specialSlide"),
+  specialImageTemplate: document.getElementById("specialImageTemplate"),
+  specialSplitTemplate: document.getElementById("specialSplitTemplate"),
+  specialImageOnly: document.getElementById("specialImageOnly"),
+  specialSplitImage: document.getElementById("specialSplitImage"),
+  specialCategory: document.getElementById("specialCategory"),
+  specialTitle: document.getElementById("specialTitle"),
+  specialBody: document.getElementById("specialBody"),
   slideCounter: document.getElementById("slideCounter"),
   adoptableStatus: document.getElementById("adoptableStatus"),
 
@@ -22,6 +31,7 @@ const els = {
 };
 
 let animals = [];
+let slides = [];
 let currentIndex = 0;
 let slideTimer = null;
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
@@ -160,9 +170,10 @@ function buildDisplayLines(animal) {
     .slice(0, 10);
 }
 
-function showAnimal(index) {
-  if (!animals.length) {
+function renderEmptySlide() {
     els.slideCounter.textContent = "0 / 0";
+    els.animalSlide.hidden = false;
+    els.specialSlide.hidden = true;
     els.animalName.textContent = "No adoptables available";
     els.animalDetails.textContent = "";
     els.animalBio.textContent = "Configure ASM connection to load adoptable animals.";
@@ -171,13 +182,13 @@ function showAnimal(index) {
     els.animalProfileLink.style.opacity = "0.5";
     els.animalImage.removeAttribute("src");
     els.animalImage.parentElement.classList.remove("has-image");
-    return;
-  }
+}
 
-  currentIndex = (index + animals.length) % animals.length;
-  const a = animals[currentIndex];
+function showAnimalSlide(animal) {
+  const a = animal || {};
+  els.animalSlide.hidden = false;
+  els.specialSlide.hidden = true;
 
-  els.slideCounter.textContent = `${currentIndex + 1} / ${animals.length}`;
   els.animalName.textContent = a.name || "Unknown";
 
   const details = buildDisplayLines(a);
@@ -207,16 +218,55 @@ function showAnimal(index) {
   }
 }
 
+function showSpecialSlide(page) {
+  const item = page || {};
+  els.animalSlide.hidden = true;
+  els.specialSlide.hidden = false;
+  els.specialImageTemplate.hidden = item.template !== "image";
+  els.specialSplitTemplate.hidden = item.template === "image";
+
+  if (item.template === "image") {
+    els.specialImageOnly.src = item.imageUrl || "";
+    els.specialImageOnly.alt = item.title || "Special slide";
+  } else {
+    els.specialSplitImage.src = item.imageUrl || "";
+    els.specialSplitImage.alt = item.title || "Special slide";
+    els.specialCategory.textContent = item.category || "General PSA and Alerts";
+    els.specialTitle.textContent = item.title || "Special Page";
+    els.specialBody.innerHTML = item.richText || "";
+  }
+}
+
+function showSlide(index) {
+  if (!slides.length) {
+    renderEmptySlide();
+    return;
+  }
+  currentIndex = (index + slides.length) % slides.length;
+  const slide = slides[currentIndex] || {};
+  els.slideCounter.textContent = `${currentIndex + 1} / ${slides.length}`;
+  if (slide.type === "special") {
+    showSpecialSlide(slide.page || {});
+    return;
+  }
+  showAnimalSlide(slide.animal || {});
+}
+
 function startSlideTimer() {
   if (slideTimer) {
-    window.clearInterval(slideTimer);
+    window.clearTimeout(slideTimer);
   }
-  const intervalMs = Math.max(5, Number(slideshowSettings.intervalSeconds || 12)) * 1000;
-  slideTimer = window.setInterval(() => {
-    if (animals.length > 1) {
-      showAnimal(currentIndex + 1);
-    }
-  }, intervalMs);
+  const scheduleNext = () => {
+    const current = slides[currentIndex] || null;
+    const seconds = Math.max(4, Number(current?.displaySeconds || slideshowSettings.intervalSeconds || 12));
+    slideTimer = window.setTimeout(() => {
+      if (slides.length > 1) {
+        showSlide(currentIndex + 1);
+      }
+      scheduleNext();
+    }, seconds * 1000);
+  };
+  scheduleNext();
 }
 
 function applySlideshowSettings(settings = {}) {
@@ -241,6 +291,7 @@ async function loadAdoptables(force = false) {
     applySlideshowSettings(payload.settings || {});
 
     animals = payload.animals || [];
+    slides = payload.slides || (animals || []).map((animal) => ({ type: "animal", animal }));
     if (!payload.configured) {
       els.adoptableStatus.textContent = "ASM is not configured yet (set service URL and credentials).";
     } else if (payload.error) {
@@ -251,11 +302,12 @@ async function loadAdoptables(force = false) {
         : "Adoptables synced";
     }
 
-    showAnimal(0);
+    showSlide(0);
     startSlideTimer();
   } catch (error) {
     animals = [];
-    showAnimal(0);
+    slides = [];
+    showSlide(0);
     els.adoptableStatus.textContent = error.message;
   }
 }
@@ -283,8 +335,8 @@ async function loadNowPlaying() {
 els.fullscreenBtn.addEventListener("click", () => toggleFullscreen());
 document.addEventListener("fullscreenchange", syncFullscreenButton);
 
-els.prevAnimalBtn.addEventListener("click", () => showAnimal(currentIndex - 1));
-els.nextAnimalBtn.addEventListener("click", () => showAnimal(currentIndex + 1));
+els.prevAnimalBtn.addEventListener("click", () => showSlide(currentIndex - 1));
+els.nextAnimalBtn.addEventListener("click", () => showSlide(currentIndex + 1));
 els.refreshAnimalsBtn.addEventListener("click", () => loadAdoptables(true));
 
 (async () => {
