@@ -802,6 +802,45 @@ input[type="range"] {
   justify-content: flex-end;
 }
 
+.schedule-list {
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.schedule-item {
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  border-radius: 12px;
+  padding: 0.6rem 0.7rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: start;
+}
+
+.schedule-item.empty {
+  color: var(--muted);
+}
+
+.schedule-days-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.schedule-day-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.24rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.05);
+  color: var(--ink);
+  font-size: 0.8rem;
+}
+
 .special-page-title {
   font-weight: 600;
   color: var(--ink);

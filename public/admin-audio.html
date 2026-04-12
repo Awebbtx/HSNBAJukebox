@@ -243,6 +243,61 @@
               <button id="audioJackSaveBtn" class="btn-sm" type="button">Save / Apply Audio Jack</button>
             </div>
           </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Iframe Stream Delivery</div>
+              <div id="streamDeliveryStatusText" class="setting-desc">Loading stream delivery status...</div>
+            </div>
+            <div class="setting-form-actions">
+              <button id="streamDeliveryStartBtn" class="btn-sm" type="button">Start Stream Delivery</button>
+              <button id="streamDeliveryStopBtn" class="btn-sm danger" type="button">Stop Stream Delivery</button>
+              <button id="streamDeliveryRefreshBtn" class="btn-sm" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Audio Automation Scheduler</div>
+              <div id="audioAutomationStatusText" class="setting-desc">Server-side schedules can control stream delivery, playback, and audio jack mute state.</div>
+            </div>
+            <div id="audioAutomationSummaryPills" class="inline-list"></div>
+            <div id="audioAutomationList" class="schedule-list"></div>
+            <div class="special-page-editor">
+              <input id="audioAutomationIdInput" type="hidden" />
+              <div class="setting-form-grid">
+                <input id="audioAutomationLabelInput" type="text" maxlength="80" placeholder="Schedule label" />
+                <select id="audioAutomationTargetInput">
+                  <option value="stream">Iframe Stream</option>
+                  <option value="playback">Playback Engine</option>
+                  <option value="audio-jack">External Audio Jack</option>
+                </select>
+                <select id="audioAutomationActionInput"></select>
+                <input id="audioAutomationTimeInput" type="time" />
+              </div>
+              <div class="setting-row stack">
+                <div class="setting-desc">Repeat on these days</div>
+                <div id="audioAutomationDaysWrap" class="schedule-days-wrap">
+                  <label class="schedule-day-chip"><input type="checkbox" value="0" /> Sun</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="1" /> Mon</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="2" /> Tue</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="3" /> Wed</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="4" /> Thu</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="5" /> Fri</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="6" /> Sat</label>
+                </div>
+              </div>
+              <div class="setting-form-row">
+                <label class="setting-desc"><input id="audioAutomationEnabledInput" type="checkbox" checked /> Enabled</label>
+              </div>
+              <div class="setting-form-actions">
+                <button id="newAudioAutomationBtn" class="btn-sm" type="button">New</button>
+                <button id="saveAudioAutomationBtn" class="btn-sm" type="button">Save Schedule</button>
+                <button id="runAudioAutomationNowBtn" class="btn-sm" type="button">Run Now</button>
+                <button id="deleteAudioAutomationBtn" class="btn-sm danger" type="button">Delete</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div id="panelSpotify" class="settings-panel">

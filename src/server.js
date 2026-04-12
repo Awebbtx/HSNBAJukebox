@@ -63,6 +63,7 @@ const ENV_FILE_PATH = path.resolve(__dirname, "../.env");
 const USER_DB_PATH = path.resolve(__dirname, "../data/user-db.json");
 const ADMIN_DB_PATH = path.resolve(__dirname, "../data/admin-db.json");
 const SLIDESHOW_CONFIG_PATH = path.resolve(__dirname, "../data/slideshow-config.json");
+const AUDIO_AUTOMATION_CONFIG_PATH = path.resolve(__dirname, "../data/audio-automation.json");
 const SPECIAL_PAGE_UPLOAD_DIR = path.resolve(__dirname, "../public/uploads/special-pages");
 const SPECIAL_PAGE_UPLOAD_WEB_PATH = "/uploads/special-pages";
 const SPECIAL_PAGE_CATEGORIES = [
@@ -74,6 +75,11 @@ const SPECIAL_PAGE_CATEGORIES = [
   "Become a Volunteer",
   "General PSA and Alerts"
 ];
+const AUDIO_AUTOMATION_TARGET_ACTIONS = {
+  stream: ["start", "stop"],
+  playback: ["play", "pause", "stop"],
+  "audio-jack": ["mute", "unmute"]
+};
 
 if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
   console.warn("Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET in environment.");
@@ -128,6 +134,15 @@ const state = {
   userDb: null,
   adminDb: null,
   explicitFilter: EXPLICIT_FILTER_ENABLED,
+  audioAutomation: {
+    streamDeliveryEnabled: true,
+    schedules: []
+  },
+  audioAutomationRuntime: {
+    activeLiveStreams: new Set(),
+    recentExecutionKeys: new Map(),
+    timer: null
+  },
   asmCache: {
     fetchedAt: 0,
     items: [],
@@ -303,6 +318,247 @@ function parseIsoDate(value) {
   const ms = Date.parse(text);
   if (!Number.isFinite(ms)) return null;
   return new Date(ms).toISOString();
+}
+
+function sanitizeAudioAutomationTarget(value) {
+  const target = `${value || ""}`.trim();
+  return Object.prototype.hasOwnProperty.call(AUDIO_AUTOMATION_TARGET_ACTIONS, target)
+    ? target
+    : "stream";
+}
+
+function sanitizeAudioAutomationAction(target, value) {
+  const safeTarget = sanitizeAudioAutomationTarget(target);
+  const action = `${value || ""}`.trim();
+  return AUDIO_AUTOMATION_TARGET_ACTIONS[safeTarget].includes(action)
+    ? action
+    : AUDIO_AUTOMATION_TARGET_ACTIONS[safeTarget][0];
+}
+
+function sanitizeAudioAutomationTime(value) {
+  const text = `${value || ""}`.trim();
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(text) ? text : "08:00";
+}
+
+function sanitizeAudioAutomationDays(raw) {
+  const source = Array.isArray(raw) ? raw : [];
+  const seen = new Set();
+  const days = [];
+  for (const item of source) {
+    const day = Number(item);
+    if (!Number.isInteger(day) || day < 0 || day > 6 || seen.has(day)) {
+      continue;
+    }
+    seen.add(day);
+    days.push(day);
+  }
+  return days.length ? days.sort((a, b) => a - b) : [0, 1, 2, 3, 4, 5, 6];
+}
+
+function sanitizeAudioAutomationSchedule(raw = {}) {
+  const id = `${raw.id || crypto.randomUUID()}`;
+  const target = sanitizeAudioAutomationTarget(raw.target);
+  const nowIso = new Date().toISOString();
+  return {
+    id,
+    label: `${raw.label || "Untitled Schedule"}`.trim().slice(0, 80) || "Untitled Schedule",
+    target,
+    action: sanitizeAudioAutomationAction(target, raw.action),
+    time: sanitizeAudioAutomationTime(raw.time),
+    days: sanitizeAudioAutomationDays(raw.days),
+    enabled: raw.enabled !== false,
+    lastTriggeredAt: parseIsoDate(raw.lastTriggeredAt),
+    createdAt: parseIsoDate(raw.createdAt) || nowIso,
+    updatedAt: nowIso
+  };
+}
+
+function sanitizeAudioAutomationSchedules(raw) {
+  const source = Array.isArray(raw) ? raw : [];
+  const seen = new Set();
+  const schedules = [];
+  for (const item of source) {
+    const rule = sanitizeAudioAutomationSchedule(item || {});
+    if (seen.has(rule.id)) {
+      continue;
+    }
+    seen.add(rule.id);
+    schedules.push(rule);
+    if (schedules.length >= 250) {
+      break;
+    }
+  }
+  return schedules;
+}
+
+function normalizeAudioAutomationConfig(raw) {
+  const config = raw && typeof raw === "object" ? raw : {};
+  return {
+    version: 1,
+    streamDeliveryEnabled: config.streamDeliveryEnabled !== false,
+    schedules: sanitizeAudioAutomationSchedules(config.schedules || [])
+  };
+}
+
+function saveAudioAutomationConfig() {
+  const config = normalizeAudioAutomationConfig({
+    streamDeliveryEnabled: state.audioAutomation?.streamDeliveryEnabled !== false,
+    schedules: state.audioAutomation?.schedules || []
+  });
+  const dir = path.dirname(AUDIO_AUTOMATION_CONFIG_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(AUDIO_AUTOMATION_CONFIG_PATH, JSON.stringify(config, null, 2), "utf8");
+}
+
+function loadAudioAutomationConfig() {
+  try {
+    if (!fs.existsSync(AUDIO_AUTOMATION_CONFIG_PATH)) {
+      const initial = normalizeAudioAutomationConfig(null);
+      state.audioAutomation.streamDeliveryEnabled = initial.streamDeliveryEnabled;
+      state.audioAutomation.schedules = initial.schedules;
+      saveAudioAutomationConfig();
+      return initial;
+    }
+    const text = fs.readFileSync(AUDIO_AUTOMATION_CONFIG_PATH, "utf8");
+    const parsed = JSON.parse(text);
+    const normalized = normalizeAudioAutomationConfig(parsed);
+    state.audioAutomation.streamDeliveryEnabled = normalized.streamDeliveryEnabled;
+    state.audioAutomation.schedules = normalized.schedules;
+    return normalized;
+  } catch (error) {
+    console.warn(`Failed to load audio automation config: ${error.message}`);
+    const fallback = normalizeAudioAutomationConfig(null);
+    state.audioAutomation.streamDeliveryEnabled = fallback.streamDeliveryEnabled;
+    state.audioAutomation.schedules = fallback.schedules;
+    return fallback;
+  }
+}
+
+function getLocalMinuteKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d}T${hh}:${mm}`;
+}
+
+function disconnectActiveLiveStreams() {
+  for (const entry of state.audioAutomationRuntime.activeLiveStreams) {
+    try {
+      entry.upstream?.destroy?.();
+    } catch {}
+    try {
+      entry.res?.destroy?.();
+    } catch {}
+  }
+  state.audioAutomationRuntime.activeLiveStreams.clear();
+}
+
+async function setStreamDeliveryEnabled(enabled) {
+  const next = enabled !== false;
+  state.audioAutomation.streamDeliveryEnabled = next;
+  if (!next) {
+    disconnectActiveLiveStreams();
+  }
+  saveAudioAutomationConfig();
+  return {
+    enabled: next,
+    activeListeners: state.audioAutomationRuntime.activeLiveStreams.size
+  };
+}
+
+async function executeAudioAutomationAction(target, action) {
+  const safeTarget = sanitizeAudioAutomationTarget(target);
+  const safeAction = sanitizeAudioAutomationAction(safeTarget, action);
+  if (safeTarget === "stream") {
+    return {
+      target: safeTarget,
+      action: safeAction,
+      ...(await setStreamDeliveryEnabled(safeAction === "start"))
+    };
+  }
+  if (safeTarget === "playback") {
+    await mopidyRpc(`core.playback.${safeAction}`);
+    const playbackState = await mopidyRpc("core.playback.get_state");
+    return {
+      target: safeTarget,
+      action: safeAction,
+      playbackState: `${playbackState || "stopped"}`
+    };
+  }
+  const current = await getAudioJackSettings();
+  const updated = await setAudioJackSettings({
+    volume: current.volume,
+    muted: safeAction === "mute"
+  });
+  return {
+    target: safeTarget,
+    action: safeAction,
+    ...updated
+  };
+}
+
+async function runAudioAutomationSchedule(schedule, source = "schedule") {
+  const existing = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []).find((item) => item.id === schedule.id);
+  const rule = existing || sanitizeAudioAutomationSchedule(schedule || {});
+  const result = await executeAudioAutomationAction(rule.target, rule.action);
+  state.audioAutomation.schedules = sanitizeAudioAutomationSchedules((state.audioAutomation.schedules || []).map((item) => (
+    item.id === rule.id
+      ? { ...item, lastTriggeredAt: new Date().toISOString(), updatedAt: item.updatedAt, createdAt: item.createdAt }
+      : item
+  )));
+  saveAudioAutomationConfig();
+  return {
+    ok: true,
+    source,
+    rule: state.audioAutomation.schedules.find((item) => item.id === rule.id) || rule,
+    result
+  };
+}
+
+async function processAudioAutomationSchedules(now = new Date()) {
+  const minuteKey = getLocalMinuteKey(now);
+  for (const [key, ts] of state.audioAutomationRuntime.recentExecutionKeys.entries()) {
+    if (Date.now() - ts > 48 * 60 * 60 * 1000) {
+      state.audioAutomationRuntime.recentExecutionKeys.delete(key);
+    }
+  }
+  const day = now.getDay();
+  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const schedules = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []);
+  for (const rule of schedules) {
+    if (!rule.enabled || !rule.days.includes(day) || rule.time !== time) {
+      continue;
+    }
+    const dedupeKey = `${rule.id}:${minuteKey}`;
+    if (state.audioAutomationRuntime.recentExecutionKeys.has(dedupeKey)) {
+      continue;
+    }
+    state.audioAutomationRuntime.recentExecutionKeys.set(dedupeKey, Date.now());
+    try {
+      await runAudioAutomationSchedule(rule, "scheduler");
+    } catch (error) {
+      console.warn(`Audio automation rule failed (${rule.id}): ${error.message}`);
+    }
+  }
+}
+
+function startAudioAutomationScheduler() {
+  if (state.audioAutomationRuntime.timer) {
+    clearInterval(state.audioAutomationRuntime.timer);
+  }
+  state.audioAutomationRuntime.timer = setInterval(() => {
+    processAudioAutomationSchedules().catch((error) => {
+      console.warn(`Audio automation scheduler error: ${error.message}`);
+    });
+  }, 15000);
+  state.audioAutomationRuntime.timer.unref?.();
+  processAudioAutomationSchedules().catch((error) => {
+    console.warn(`Audio automation scheduler startup error: ${error.message}`);
+  });
 }
 
 function sanitizeSpecialPageTemplate(value) {
@@ -1112,6 +1368,8 @@ function getAdminBySessionToken(token) {
 loadUserDb();
 loadAdminDb();
 loadSlideshowConfig();
+loadAudioAutomationConfig();
+startAudioAutomationScheduler();
 
 function buildAsmServiceUrl(method, extraParams = {}) {
   if (!state.asm.serviceUrl) {
@@ -1801,12 +2059,29 @@ app.get("/adoptable-stream", (_req, res) => {
 });
 
 app.get("/live.mp3", async (_req, res) => {
+  if (state.audioAutomation.streamDeliveryEnabled === false) {
+    res.status(503).json({ error: "Live stream delivery is currently scheduled off." });
+    return;
+  }
   try {
     const upstream = await fetch("http://127.0.0.1:8000/stream.mp3");
     if (!upstream.ok || !upstream.body) {
       res.status(503).json({ error: "Live stream is not available yet." });
       return;
     }
+
+    const streamEntry = {
+      res,
+      upstream: upstream.body
+    };
+    state.audioAutomationRuntime.activeLiveStreams.add(streamEntry);
+    const cleanup = () => {
+      state.audioAutomationRuntime.activeLiveStreams.delete(streamEntry);
+    };
+    res.on("close", cleanup);
+    res.on("finish", cleanup);
+    upstream.body.on?.("close", cleanup);
+    upstream.body.on?.("end", cleanup);
 
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-store");
@@ -2372,6 +2647,102 @@ app.post("/api/admin/settings/audio-jack", requireAdmin, async (req, res) => {
     res.json({ ok: true, card: 0, ...updated });
   } catch (error) {
     res.status(500).json({ error: error.message || "Unable to update audio jack settings" });
+  }
+});
+
+app.get("/api/admin/settings/stream-delivery", requireAdmin, (_req, res) => {
+  res.json({
+    ok: true,
+    enabled: state.audioAutomation.streamDeliveryEnabled !== false,
+    activeListeners: state.audioAutomationRuntime.activeLiveStreams.size
+  });
+});
+
+app.post("/api/admin/settings/stream-delivery", requireAdmin, async (req, res) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const result = await setStreamDeliveryEnabled(enabled);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Unable to update stream delivery" });
+  }
+});
+
+app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) => {
+  try {
+    const [audioJack, playbackState] = await Promise.all([
+      getAudioJackSettings(),
+      mopidyRpc("core.playback.get_state").catch(() => "unknown")
+    ]);
+    res.json({
+      ok: true,
+      streamDeliveryEnabled: state.audioAutomation.streamDeliveryEnabled !== false,
+      activeListeners: state.audioAutomationRuntime.activeLiveStreams.size,
+      schedules: sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []),
+      targetActions: AUDIO_AUTOMATION_TARGET_ACTIONS,
+      audioJack,
+      playbackState: `${playbackState || "unknown"}`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Unable to load audio automation settings" });
+  }
+});
+
+app.post("/api/admin/audio-automation/schedules", requireAdmin, (req, res) => {
+  const rule = sanitizeAudioAutomationSchedule(req.body || {});
+  state.audioAutomation.schedules = [
+    ...sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []),
+    rule
+  ];
+  saveAudioAutomationConfig();
+  res.status(201).json({ ok: true, schedule: rule });
+});
+
+app.patch("/api/admin/audio-automation/schedules/:id", requireAdmin, (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const current = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []);
+  const existing = current.find((item) => item.id === id);
+  if (!existing) {
+    res.status(404).json({ error: "Schedule not found." });
+    return;
+  }
+  const next = sanitizeAudioAutomationSchedule({
+    ...existing,
+    ...(req.body || {}),
+    id: existing.id,
+    createdAt: existing.createdAt,
+    lastTriggeredAt: existing.lastTriggeredAt
+  });
+  state.audioAutomation.schedules = current.map((item) => (item.id === id ? next : item));
+  saveAudioAutomationConfig();
+  res.json({ ok: true, schedule: next });
+});
+
+app.delete("/api/admin/audio-automation/schedules/:id", requireAdmin, (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const current = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []);
+  const existing = current.find((item) => item.id === id);
+  if (!existing) {
+    res.status(404).json({ error: "Schedule not found." });
+    return;
+  }
+  state.audioAutomation.schedules = current.filter((item) => item.id !== id);
+  saveAudioAutomationConfig();
+  res.json({ ok: true });
+});
+
+app.post("/api/admin/audio-automation/schedules/:id/run", requireAdmin, async (req, res) => {
+  try {
+    const id = `${req.params.id || ""}`.trim();
+    const rule = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []).find((item) => item.id === id);
+    if (!rule) {
+      res.status(404).json({ error: "Schedule not found." });
+      return;
+    }
+    const result = await runAudioAutomationSchedule(rule, "manual-run");
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Unable to run schedule" });
   }
 });
 

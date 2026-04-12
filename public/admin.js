@@ -39,6 +39,13 @@ let slideshowDisplayFieldCatalog = [];
 let slideshowDisplayFieldOptions = [...SLIDESHOW_DISPLAY_FIELD_OPTIONS];
 let asmKnownFieldNames = [];
 let specialPages = [];
+let audioAutomationSchedules = [];
+const AUDIO_AUTOMATION_TARGET_ACTIONS = {
+  stream: ["start", "stop"],
+  playback: ["play", "pause", "stop"],
+  "audio-jack": ["mute", "unmute"]
+};
+const AUDIO_AUTOMATION_DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const SPECIAL_PAGE_CATEGORIES = [
   "Special Thanks",
   "Employee of the Month",
@@ -142,6 +149,24 @@ const els = {
   audioJackMutedToggle: document.getElementById("audioJackMutedToggle"),
   audioJackRefreshBtn: document.getElementById("audioJackRefreshBtn"),
   audioJackSaveBtn: document.getElementById("audioJackSaveBtn"),
+  streamDeliveryStatusText: document.getElementById("streamDeliveryStatusText"),
+  streamDeliveryStartBtn: document.getElementById("streamDeliveryStartBtn"),
+  streamDeliveryStopBtn: document.getElementById("streamDeliveryStopBtn"),
+  streamDeliveryRefreshBtn: document.getElementById("streamDeliveryRefreshBtn"),
+  audioAutomationStatusText: document.getElementById("audioAutomationStatusText"),
+  audioAutomationSummaryPills: document.getElementById("audioAutomationSummaryPills"),
+  audioAutomationList: document.getElementById("audioAutomationList"),
+  audioAutomationIdInput: document.getElementById("audioAutomationIdInput"),
+  audioAutomationLabelInput: document.getElementById("audioAutomationLabelInput"),
+  audioAutomationTargetInput: document.getElementById("audioAutomationTargetInput"),
+  audioAutomationActionInput: document.getElementById("audioAutomationActionInput"),
+  audioAutomationTimeInput: document.getElementById("audioAutomationTimeInput"),
+  audioAutomationDaysWrap: document.getElementById("audioAutomationDaysWrap"),
+  audioAutomationEnabledInput: document.getElementById("audioAutomationEnabledInput"),
+  newAudioAutomationBtn: document.getElementById("newAudioAutomationBtn"),
+  saveAudioAutomationBtn: document.getElementById("saveAudioAutomationBtn"),
+  runAudioAutomationNowBtn: document.getElementById("runAudioAutomationNowBtn"),
+  deleteAudioAutomationBtn: document.getElementById("deleteAudioAutomationBtn"),
 
   spotifyStatusText: document.getElementById("spotifyStatusText"),
   spotifyAccountText: document.getElementById("spotifyAccountText"),
@@ -875,6 +900,7 @@ async function initializeApp() {
     loadAccountSettings(),
     loadExplicit(),
     loadAudioJackSettings(),
+    loadAudioAutomationSettings(),
     loadPlaylists(),
     loadStaffSettings(),
     loadAdminRequestStats(),
@@ -902,6 +928,152 @@ function setSettingsTab(name) {
   els.panelAudioJack.classList.toggle("active", settingsTab === "audio-jack");
   els.panelSpotify.classList.toggle("active", settingsTab === "spotify");
   els.panelAsm.classList.toggle("active", settingsTab === "asm");
+}
+
+function populateAudioAutomationActionOptions(target, selectedAction = "") {
+  if (!els.audioAutomationActionInput) return;
+  const safeTarget = Object.prototype.hasOwnProperty.call(AUDIO_AUTOMATION_TARGET_ACTIONS, target) ? target : "stream";
+  const actions = AUDIO_AUTOMATION_TARGET_ACTIONS[safeTarget] || AUDIO_AUTOMATION_TARGET_ACTIONS.stream;
+  els.audioAutomationActionInput.innerHTML = actions
+    .map((action) => `<option value="${escapeHtml(action)}">${escapeHtml(action.replaceAll("-", " ").replace(/\b\w/g, (char) => char.toUpperCase()))}</option>`)
+    .join("");
+  els.audioAutomationActionInput.value = actions.includes(selectedAction) ? selectedAction : actions[0];
+}
+
+function readAudioAutomationDaysFromForm() {
+  if (!els.audioAutomationDaysWrap) {
+    return [0, 1, 2, 3, 4, 5, 6];
+  }
+  const values = Array.from(els.audioAutomationDaysWrap.querySelectorAll('input[type="checkbox"]:checked'))
+    .map((input) => Number(input.value))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+    .sort((a, b) => a - b);
+  return values.length ? values : [0, 1, 2, 3, 4, 5, 6];
+}
+
+function writeAudioAutomationDaysToForm(days = []) {
+  if (!els.audioAutomationDaysWrap) return;
+  const selected = new Set((Array.isArray(days) && days.length ? days : [0, 1, 2, 3, 4, 5, 6]).map((value) => Number(value)));
+  els.audioAutomationDaysWrap.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.checked = selected.has(Number(input.value));
+  });
+}
+
+function getAudioAutomationScheduleById(scheduleId) {
+  const id = `${scheduleId || ""}`.trim();
+  if (!id) return null;
+  return audioAutomationSchedules.find((item) => `${item.id || ""}` === id) || null;
+}
+
+function updateAudioAutomationActionChoices() {
+  populateAudioAutomationActionOptions(els.audioAutomationTargetInput?.value || "stream", els.audioAutomationActionInput?.value || "");
+}
+
+function updateAudioAutomationButtons() {
+  const schedule = getAudioAutomationScheduleById(els.audioAutomationIdInput?.value || "");
+  const hasSchedule = Boolean(schedule?.id);
+  if (els.runAudioAutomationNowBtn) {
+    els.runAudioAutomationNowBtn.disabled = !hasSchedule;
+  }
+  if (els.deleteAudioAutomationBtn) {
+    els.deleteAudioAutomationBtn.disabled = !hasSchedule;
+  }
+}
+
+function resetAudioAutomationEditor() {
+  if (!els.audioAutomationIdInput) return;
+  els.audioAutomationIdInput.value = "";
+  els.audioAutomationLabelInput.value = "";
+  els.audioAutomationTargetInput.value = "stream";
+  populateAudioAutomationActionOptions("stream", "start");
+  els.audioAutomationTimeInput.value = "08:00";
+  writeAudioAutomationDaysToForm([1, 2, 3, 4, 5]);
+  els.audioAutomationEnabledInput.checked = true;
+  updateAudioAutomationButtons();
+}
+
+function renderAudioAutomationList() {
+  if (!els.audioAutomationList) return;
+  els.audioAutomationList.innerHTML = "";
+  if (!audioAutomationSchedules.length) {
+    const empty = document.createElement("div");
+    empty.className = "schedule-item empty";
+    empty.textContent = "No schedules yet.";
+    els.audioAutomationList.append(empty);
+    return;
+  }
+  const sorted = [...audioAutomationSchedules].sort((a, b) => `${a.time || ""}`.localeCompare(`${b.time || ""}`) || `${a.label || ""}`.localeCompare(`${b.label || ""}`));
+  for (const schedule of sorted) {
+    const row = document.createElement("div");
+    row.className = "schedule-item";
+    const dayText = (Array.isArray(schedule.days) && schedule.days.length ? schedule.days : [0, 1, 2, 3, 4, 5, 6])
+      .map((day) => AUDIO_AUTOMATION_DAY_LABELS[Number(day)] || "?")
+      .join(", ");
+    const chips = [
+      schedule.target || "stream",
+      schedule.action || "start",
+      schedule.enabled === false ? "Disabled" : "Enabled",
+      schedule.time || "08:00"
+    ];
+    row.innerHTML = `
+      <div class="special-page-main">
+        <div class="special-page-title">${escapeHtml(schedule.label || "Untitled Schedule")}</div>
+        <div class="special-page-meta">${escapeHtml(dayText)}</div>
+        <div class="inline-list">${chips.map((chip) => `<span class="pill">${escapeHtml(chip)}</span>`).join("")}</div>
+      </div>
+      <div class="special-page-actions">
+        <button type="button" class="q-btn" data-action="edit">Edit</button>
+        <button type="button" class="q-btn" data-action="run">Run Now</button>
+        <button type="button" class="q-btn danger" data-action="delete">Delete</button>
+      </div>
+    `;
+    row.querySelector('[data-action="edit"]')?.addEventListener("click", () => {
+      els.audioAutomationIdInput.value = schedule.id || "";
+      els.audioAutomationLabelInput.value = schedule.label || "";
+      els.audioAutomationTargetInput.value = schedule.target || "stream";
+      populateAudioAutomationActionOptions(schedule.target || "stream", schedule.action || "start");
+      els.audioAutomationTimeInput.value = schedule.time || "08:00";
+      writeAudioAutomationDaysToForm(schedule.days || []);
+      els.audioAutomationEnabledInput.checked = schedule.enabled !== false;
+      updateAudioAutomationButtons();
+    });
+    row.querySelector('[data-action="run"]')?.addEventListener("click", async () => {
+      try {
+        await runAudioAutomationScheduleNow(schedule.id);
+      } catch (e) {
+        toast(e.message, true);
+      }
+    });
+    row.querySelector('[data-action="delete"]')?.addEventListener("click", async () => {
+      try {
+        await deleteAudioAutomationSchedule(schedule.id, schedule.label || "Untitled Schedule");
+      } catch (e) {
+        toast(e.message, true);
+      }
+    });
+    els.audioAutomationList.append(row);
+  }
+}
+
+async function loadStreamDeliverySettings() {
+  if (!els.streamDeliveryStatusText) return;
+  try {
+    const data = await api("/api/admin/settings/stream-delivery");
+    els.streamDeliveryStatusText.textContent = data.enabled
+      ? `Iframe stream delivery live • ${Number(data.activeListeners || 0)} active listener(s)`
+      : `Iframe stream delivery stopped • ${Number(data.activeListeners || 0)} active listener(s)`;
+  } catch (e) {
+    els.streamDeliveryStatusText.textContent = e.message;
+  }
+}
+
+async function setStreamDeliveryState(enabled) {
+  const data = await api("/api/admin/settings/stream-delivery", {
+    method: "POST",
+    body: JSON.stringify({ enabled: Boolean(enabled) })
+  });
+  await loadStreamDeliverySettings();
+  return data;
 }
 
 async function loadAudioJackSettings() {
@@ -933,6 +1105,74 @@ async function saveAudioJackSettings() {
   els.audioJackStatusText.textContent = `Card ${data.card ?? 0} • ${data.muted ? "Muted" : "Live"}`;
 }
 
+async function loadAudioAutomationSettings() {
+  if (!els.audioAutomationStatusText) return;
+  try {
+    const data = await api("/api/admin/settings/audio-automation");
+    audioAutomationSchedules = Array.isArray(data.schedules) ? data.schedules : [];
+    renderAudioAutomationList();
+    updateAudioAutomationButtons();
+    els.audioAutomationStatusText.textContent = `Server scheduler active • Playback ${data.playbackState || "unknown"} • Jack ${data.audioJack?.muted ? "muted" : "live"}`;
+    els.audioAutomationSummaryPills.innerHTML = [
+      data.streamDeliveryEnabled ? "Iframe stream live" : "Iframe stream stopped",
+      `Active listeners ${Number(data.activeListeners || 0)}`,
+      `Schedules ${audioAutomationSchedules.length}`
+    ].map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
+    await loadStreamDeliverySettings();
+  } catch (e) {
+    els.audioAutomationStatusText.textContent = e.message;
+  }
+}
+
+async function saveAudioAutomationSchedule() {
+  const id = `${els.audioAutomationIdInput?.value || ""}`.trim();
+  const payload = {
+    label: els.audioAutomationLabelInput.value.trim(),
+    target: els.audioAutomationTargetInput.value,
+    action: els.audioAutomationActionInput.value,
+    time: els.audioAutomationTimeInput.value || "08:00",
+    days: readAudioAutomationDaysFromForm(),
+    enabled: Boolean(els.audioAutomationEnabledInput.checked)
+  };
+  if (!payload.label) {
+    throw new Error("Schedule label is required.");
+  }
+  if (!payload.time) {
+    throw new Error("Schedule time is required.");
+  }
+  await api(id ? `/api/admin/audio-automation/schedules/${encodeURIComponent(id)}` : "/api/admin/audio-automation/schedules", {
+    method: id ? "PATCH" : "POST",
+    body: JSON.stringify(payload)
+  });
+  await loadAudioAutomationSettings();
+  resetAudioAutomationEditor();
+}
+
+async function deleteAudioAutomationSchedule(scheduleId, scheduleLabel = "") {
+  const id = `${scheduleId || els.audioAutomationIdInput?.value || ""}`.trim();
+  if (!id) {
+    throw new Error("Select a schedule first.");
+  }
+  const label = scheduleLabel || getAudioAutomationScheduleById(id)?.label || "this schedule";
+  if (!window.confirm(`Delete schedule "${label}"?`)) {
+    return;
+  }
+  await api(`/api/admin/audio-automation/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await loadAudioAutomationSettings();
+  resetAudioAutomationEditor();
+}
+
+async function runAudioAutomationScheduleNow(scheduleId) {
+  const id = `${scheduleId || els.audioAutomationIdInput?.value || ""}`.trim();
+  if (!id) {
+    throw new Error("Select a schedule first.");
+  }
+  const result = await api(`/api/admin/audio-automation/schedules/${encodeURIComponent(id)}/run`, { method: "POST" });
+  await loadAudioAutomationSettings();
+  await loadAudioJackSettings();
+  toast(`Schedule ran: ${result.rule?.label || "rule"}`);
+}
+
 function setAsmSubtab(name) {
   asmSubtab = ["connection", "slideshow", "diagnostics"].includes(name) ? name : "connection";
   els.asmSubtabConnection.classList.toggle("active", asmSubtab === "connection");
@@ -941,6 +1181,10 @@ function setAsmSubtab(name) {
   els.asmPanelConnection.classList.toggle("active", asmSubtab === "connection");
   els.asmPanelSlideshow.classList.toggle("active", asmSubtab === "slideshow");
   els.asmPanelDiagnostics.classList.toggle("active", asmSubtab === "diagnostics");
+}
+
+if (els.audioAutomationIdInput) {
+  resetAudioAutomationEditor();
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────
@@ -1689,6 +1933,67 @@ els.audioJackSaveBtn.addEventListener("click", async () => {
     toast("Audio jack settings saved");
   } catch (e) { toast(e.message, true); }
 });
+
+if (els.streamDeliveryRefreshBtn) {
+  els.streamDeliveryRefreshBtn.addEventListener("click", async () => {
+    await loadStreamDeliverySettings();
+    toast("Stream delivery refreshed");
+  });
+}
+
+if (els.streamDeliveryStartBtn) {
+  els.streamDeliveryStartBtn.addEventListener("click", async () => {
+    try {
+      await setStreamDeliveryState(true);
+      await loadAudioAutomationSettings();
+      toast("Iframe stream delivery started");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.streamDeliveryStopBtn) {
+  els.streamDeliveryStopBtn.addEventListener("click", async () => {
+    try {
+      await setStreamDeliveryState(false);
+      await loadAudioAutomationSettings();
+      toast("Iframe stream delivery stopped");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.audioAutomationTargetInput) {
+  els.audioAutomationTargetInput.addEventListener("change", updateAudioAutomationActionChoices);
+}
+
+if (els.newAudioAutomationBtn) {
+  els.newAudioAutomationBtn.addEventListener("click", resetAudioAutomationEditor);
+}
+
+if (els.saveAudioAutomationBtn) {
+  els.saveAudioAutomationBtn.addEventListener("click", async () => {
+    try {
+      await saveAudioAutomationSchedule();
+      toast("Audio schedule saved");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.deleteAudioAutomationBtn) {
+  els.deleteAudioAutomationBtn.addEventListener("click", async () => {
+    try {
+      await deleteAudioAutomationSchedule();
+      toast("Audio schedule deleted");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.runAudioAutomationNowBtn) {
+  els.runAudioAutomationNowBtn.addEventListener("click", async () => {
+    try {
+      await runAudioAutomationScheduleNow();
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
 els.saveAccountProfileBtn.addEventListener("click", async () => {
   try {
