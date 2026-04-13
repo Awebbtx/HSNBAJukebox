@@ -12,6 +12,8 @@ const ALLOWED = new Set([
 
 const frame = document.getElementById("contentFrame");
 const navLinks = Array.from(document.querySelectorAll("[data-page]"));
+const adminSessionUser = document.getElementById("adminSessionUser");
+const ADMIN_TOKEN_KEY = "jukebox.admin.token";
 
 function normalizePage(rawPath) {
   const path = `${rawPath || ""}`.trim();
@@ -28,6 +30,35 @@ function setActiveLink(page) {
   });
 }
 
+async function refreshAdminSessionUser() {
+  if (!adminSessionUser) return;
+  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY) || "";
+  if (!token) {
+    adminSessionUser.hidden = true;
+    adminSessionUser.textContent = "Not signed in";
+    return;
+  }
+  try {
+    const res = await fetch("/api/admin/account/me", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    if (!res.ok) {
+      adminSessionUser.hidden = true;
+      adminSessionUser.textContent = "Not signed in";
+      return;
+    }
+    const data = await res.json();
+    const label = data.displayName || data.username || "Admin";
+    adminSessionUser.textContent = `Signed in: ${label}`;
+    adminSessionUser.hidden = false;
+  } catch {
+    adminSessionUser.hidden = true;
+    adminSessionUser.textContent = "Not signed in";
+  }
+}
+
 function loadPage(page, pushHistory = true) {
   const normalized = normalizePage(page);
   if (frame.dataset.page !== normalized) {
@@ -41,6 +72,8 @@ function loadPage(page, pushHistory = true) {
     params.set("page", normalized);
     window.history.pushState({ page: normalized }, "", `/?${params.toString()}`);
   }
+
+  refreshAdminSessionUser();
 }
 
 
@@ -56,5 +89,20 @@ window.addEventListener("popstate", () => {
   loadPage(params.get("page"), false);
 });
 
+window.addEventListener("focus", () => {
+  refreshAdminSessionUser();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    refreshAdminSessionUser();
+  }
+});
+
+frame.addEventListener("load", () => {
+  refreshAdminSessionUser();
+});
+
 const initialParams = new URLSearchParams(window.location.search);
 loadPage(initialParams.get("page"), false);
+refreshAdminSessionUser();

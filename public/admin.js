@@ -1370,14 +1370,32 @@ async function saveExplicitSetting() {
 async function loadAccountSettings() {
   if (!els.accountStatusText) return;
   try {
-    const fetchList = [api("/api/admin/account/me")];
-    if (els.adminUsersList) fetchList.push(api("/api/admin/account/users"));
-    if (els.accountHistoryList) fetchList.push(api("/api/admin/account/history?limit=25"));
-    const [me, users, history] = await Promise.all(fetchList);
+    const me = await api("/api/admin/account/me");
 
     els.accountUsernameInput.value = me.username || "";
     els.accountDisplayNameInput.value = me.displayName || "";
     els.accountStatusText.textContent = `Signed in as ${me.displayName || me.username} (${me.username})`;
+
+    let users;
+    let history;
+    const optionalFetches = [];
+    if (els.adminUsersList) {
+      optionalFetches.push(
+        api("/api/admin/account/users").then((data) => {
+          users = data;
+        })
+      );
+    }
+    if (els.accountHistoryList) {
+      optionalFetches.push(
+        api("/api/admin/account/history?limit=25").then((data) => {
+          history = data;
+        })
+      );
+    }
+    if (optionalFetches.length) {
+      await Promise.allSettled(optionalFetches);
+    }
 
     if (els.adminUsersList) {
       els.adminUsersList.innerHTML = "";

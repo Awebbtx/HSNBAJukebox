@@ -72,6 +72,16 @@ body {
   justify-content: flex-end;
 }
 
+.admin-session-user {
+  border: 1px solid rgba(82, 204, 143, 0.45);
+  color: #9ce7c2;
+  background: rgba(82, 204, 143, 0.1);
+  border-radius: 999px;
+  padding: 0.28rem 0.75rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 .nav-btn {
   text-decoration: none;
   border: 1px solid var(--border);
