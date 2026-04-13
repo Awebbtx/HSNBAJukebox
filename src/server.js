@@ -1757,14 +1757,30 @@ async function getAudioJackSettings() {
   const pctMatch = stdout.match(/\[(\d+)%\]/);
   const switchMatch = stdout.match(/\[(on|off)\]/i);
   const volume = Math.max(0, Math.min(100, Number(pctMatch?.[1] || 0)));
-  const muted = `${switchMatch?.[1] || "off"}`.toLowerCase() !== "on";
-  return { volume, muted };
+  const supportsMute = Boolean(switchMatch);
+  const muted = supportsMute
+    ? `${switchMatch?.[1] || "on"}`.toLowerCase() !== "on"
+    : volume <= 0;
+  return { volume, muted, supportsMute };
 }
 
 async function setAudioJackSettings({ volume, muted }) {
   const routing = getAudioJackRoutingConfig();
+  const current = await getAudioJackSettings();
   const clamped = Math.max(0, Math.min(100, Number(volume || 0)));
-  await execFileAsync("amixer", ["-c", routing.card, "set", routing.control, `${clamped}%`, muted ? "mute" : "unmute"]);
+  let targetVolume = clamped;
+  if (!current.supportsMute && muted !== undefined) {
+    if (Boolean(muted)) {
+      targetVolume = 0;
+    } else if (targetVolume <= 0) {
+      targetVolume = Math.max(1, Number(current.volume || 1));
+    }
+  }
+  const args = ["-c", routing.card, "set", routing.control, `${targetVolume}%"];
+  if (current.supportsMute) {
+    args.push(Boolean(muted) ? "mute" : "unmute");
+  }
+  await execFileAsync("amixer", args);
   if (AUDIO_JACK_STORE_ON_CHANGE) {
     await execFileAsync("alsactl", ["store"]);
   }
@@ -2946,6 +2962,36 @@ app.get("/api/admin/settings/audio-path/diagnostics", requireAdmin, async (_req,
     });
   } catch (error) {
     res.status(500).json({ error: error.message || "Unable to run audio path diagnostics" });
+  }
+});
+
+app.get("/api/admin/debug/logs", requireAdmin, async (req, res) => {
+  try {
+    const allowedUnits = new Set(["hsnba-jukebox", "mopidy"]);
+    const requestedUnit = `${req.query?.unit || "hsnba-jukebox"}`.trim();
+    const unit = allowedUnits.has(requestedUnit) ? requestedUnit : "hsnba-jukebox";
+    const requestedLines = Number(req.query?.lines || 200);
+    const lines = Math.max(20, Math.min(1000, Number.isFinite(requestedLines) ? requestedLines : 200));
+
+    const { stdout } = await execFileAsync("journalctl", [
+      "-u",
+      unit,
+      "-n",
+      `${lines}`,
+      "--no-pager",
+      "-o",
+      "short-iso"
+    ]);
+
+    res.json({
+      ok: true,
+      unit,
+      lines,
+      fetchedAt: new Date().toISOString(),
+      output: `${stdout || ""}`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Unable to read service logs" });
   }
 });
 
