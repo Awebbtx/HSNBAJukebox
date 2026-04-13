@@ -68,7 +68,7 @@ async function refreshEmployeeSessionButton() {
 
 async function refreshAdminSessionUser() {
   if (!adminSessionUser) return;
-  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY) || "";
+  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY) || localStorage.getItem(ADMIN_TOKEN_KEY) || "";
   if (!token) {
     adminSessionUser.hidden = true;
     if (adminNavBtn) adminNavBtn.hidden = true;
@@ -83,6 +83,8 @@ async function refreshAdminSessionUser() {
       }
     });
     if (!res.ok) {
+      sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+      localStorage.removeItem(ADMIN_TOKEN_KEY);
       adminSessionUser.hidden = true;
       if (adminNavBtn) adminNavBtn.hidden = true;
       if (myAccountNavBtn) myAccountNavBtn.hidden = true;
@@ -96,6 +98,8 @@ async function refreshAdminSessionUser() {
     if (adminNavBtn) adminNavBtn.hidden = false;
     if (myAccountNavBtn) myAccountNavBtn.hidden = false;
   } catch {
+    sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
     adminSessionUser.hidden = true;
     if (adminNavBtn) adminNavBtn.hidden = true;
     if (myAccountNavBtn) myAccountNavBtn.hidden = true;

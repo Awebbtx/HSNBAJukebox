@@ -4,7 +4,7 @@ initAudioBar();
 const ADMIN_TOKEN_KEY = "jukebox.admin.token";
 const EMPLOYEE_TOKEN_KEY = "jukebox.employee.token";
 
-let adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY) || "";
+let adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY) || localStorage.getItem(ADMIN_TOKEN_KEY) || "";
 let currentPlaybackState = null;
 let playbackTimer = null;
 let queueTimer = null;
@@ -778,6 +778,7 @@ async function login(username, password) {
   });
   adminToken = result.token;
   sessionStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
+  localStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
   await connectAdminToStreamSession();
 }
 
@@ -793,6 +794,7 @@ async function connectAdminToStreamSession() {
 async function logout() {
   try { await api("/api/admin/session/logout", { method: "POST" }); } catch {}
   sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
   localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
   adminToken = "";
   stopPolling();
@@ -2215,6 +2217,7 @@ async function bootstrap() {
       const isAuthError = err?.status === 401 || err?.status === 403 || err?.message?.includes("401") || err?.message?.includes("403") || err?.message?.includes("Unauthorized") || err?.message?.includes("Forbidden");
       if (isAuthError) {
         sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+        localStorage.removeItem(ADMIN_TOKEN_KEY);
         localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
         adminToken = "";
         els.loginDialog.showModal();
