@@ -972,20 +972,29 @@ function stopPolling() {
 }
 
 async function initializeApp() {
-  await Promise.all([
-    loadPlayback(),
-    loadModes(),
-    loadQueue(),
-    loadAccountSettings(),
-    loadExplicit(),
-    loadAudioJackSettings(),
-    loadAudioAutomationSettings(),
-    loadPlaylists(),
-    loadStaffSettings(),
-    loadAdminRequestStats(),
-    loadSpotifySettings(),
-    loadAsmSettings()
-  ]);
+  const startupTasks = [
+    ["playback", loadPlayback],
+    ["modes", loadModes],
+    ["queue", loadQueue],
+    ["account", loadAccountSettings],
+    ["explicit", loadExplicit],
+    ["audio-jack", loadAudioJackSettings],
+    ["audio-automation", loadAudioAutomationSettings],
+    ["playlists", loadPlaylists],
+    ["staff", loadStaffSettings],
+    ["request-stats", loadAdminRequestStats],
+    ["spotify", loadSpotifySettings],
+    ["asm", loadAsmSettings]
+  ];
+
+  const results = await Promise.allSettled(startupTasks.map(([, task]) => task()));
+  results.forEach((result, index) => {
+    if (result.status === "rejected") {
+      const taskName = startupTasks[index]?.[0] || "unknown";
+      const message = result.reason?.message || String(result.reason || "Unknown error");
+      console.warn(`Startup task failed (${taskName}): ${message}`);
+    }
+  });
   stopPolling();
   playbackTimer = window.setInterval(async () => {
     try { await loadPlayback(); } catch {}
@@ -2147,94 +2156,122 @@ if (els.runAudioAutomationNowBtn) {
   });
 }
 
-els.saveAccountProfileBtn.addEventListener("click", async () => {
-  try {
-    await saveAccountProfile();
-    await loadAccountSettings();
-    toast("Account profile saved");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.saveAccountProfileBtn) {
+  els.saveAccountProfileBtn.addEventListener("click", async () => {
+    try {
+      await saveAccountProfile();
+      await loadAccountSettings();
+      toast("Account profile saved");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.saveAccountPasswordBtn.addEventListener("click", async () => {
-  try {
-    await saveAccountPassword();
-    await loadAccountSettings();
-    toast("Password updated");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.saveAccountPasswordBtn) {
+  els.saveAccountPasswordBtn.addEventListener("click", async () => {
+    try {
+      await saveAccountPassword();
+      await loadAccountSettings();
+      toast("Password updated");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.refreshAccountHistoryBtn.addEventListener("click", async () => {
-  try {
-    await loadAccountSettings();
-    toast("Account data refreshed");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.refreshAccountHistoryBtn) {
+  els.refreshAccountHistoryBtn.addEventListener("click", async () => {
+    try {
+      await loadAccountSettings();
+      toast("Account data refreshed");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.saveDefaultRequestLimitBtn.addEventListener("click", async () => {
-  try {
-    await saveDefaultRequestLimit();
-    await loadStaffSettings();
-    toast("Default request limit saved");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.saveDefaultRequestLimitBtn) {
+  els.saveDefaultRequestLimitBtn.addEventListener("click", async () => {
+    try {
+      await saveDefaultRequestLimit();
+      await loadStaffSettings();
+      toast("Default request limit saved");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.createStaffBtn.addEventListener("click", async () => {
-  try {
-    await createStaffAccount();
-    await loadStaffSettings();
-    toast("Staff account created");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.createStaffBtn) {
+  els.createStaffBtn.addEventListener("click", async () => {
+    try {
+      await createStaffAccount();
+      await loadStaffSettings();
+      toast("Staff account created");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.refreshRequestStatsBtn.addEventListener("click", async () => {
-  try {
-    await loadAdminRequestStats();
-    toast("Request stats refreshed");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.refreshRequestStatsBtn) {
+  els.refreshRequestStatsBtn.addEventListener("click", async () => {
+    try {
+      await loadAdminRequestStats();
+      toast("Request stats refreshed");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.spotifyRefreshBtn.addEventListener("click", async () => {
-  await loadSpotifySettings();
-  toast("Spotify settings refreshed");
-});
+if (els.spotifyRefreshBtn) {
+  els.spotifyRefreshBtn.addEventListener("click", async () => {
+    await loadSpotifySettings();
+    toast("Spotify settings refreshed");
+  });
+}
 
-els.saveAsmConfigBtn.addEventListener("click", async () => {
-  try {
-    await saveAsmSettings();
-    toast("ASM config saved");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.saveAsmConfigBtn) {
+  els.saveAsmConfigBtn.addEventListener("click", async () => {
+    try {
+      await saveAsmSettings();
+      toast("ASM config saved");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.saveAsmApplyBtn.addEventListener("click", async () => {
-  try {
-    await saveAsmSettings();
-    toast("ASM settings saved and applied");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.saveAsmApplyBtn) {
+  els.saveAsmApplyBtn.addEventListener("click", async () => {
+    try {
+      await saveAsmSettings();
+      toast("ASM settings saved and applied");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.testAsmConfigBtn.addEventListener("click", async () => {
-  try {
-    await saveAsmSettings();
-    await testAsmSettings();
-    toast("ASM connection tested");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.testAsmConfigBtn) {
+  els.testAsmConfigBtn.addEventListener("click", async () => {
+    try {
+      await saveAsmSettings();
+      await testAsmSettings();
+      toast("ASM connection tested");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.inspectAsmBtn.addEventListener("click", async () => {
-  try {
-    await inspectAsmSettings();
-    setAsmSubtab("diagnostics");
-    toast("ASM response inspected");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.inspectAsmBtn) {
+  els.inspectAsmBtn.addEventListener("click", async () => {
+    try {
+      await inspectAsmSettings();
+      setAsmSubtab("diagnostics");
+      toast("ASM response inspected");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
-els.savePlaylistBtn.addEventListener("click", savePlaylist);
+if (els.savePlaylistBtn) {
+  els.savePlaylistBtn.addEventListener("click", savePlaylist);
+}
 
-els.refreshPlaylistsBtn.addEventListener("click", loadPlaylists);
+if (els.refreshPlaylistsBtn) {
+  els.refreshPlaylistsBtn.addEventListener("click", loadPlaylists);
+}
 
-els.playlistNameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); savePlaylist(); }
-});
+if (els.playlistNameInput) {
+  els.playlistNameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); savePlaylist(); }
+  });
+}
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
