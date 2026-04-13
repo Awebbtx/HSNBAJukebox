@@ -10,6 +10,7 @@ let playbackTimer = null;
 let queueTimer = null;
 let volumeDebounce = null;
 let audioJackDebounce = null;
+let masterVolumeBeforeMute = 80;
 let settingsTab = "request";
 let asmSubtab = "connection";
 const pageMode = document.body?.dataset?.adminPage || "full";
@@ -85,6 +86,7 @@ const els = {
   prevBtn:      document.getElementById("prevBtn"),
   playPauseBtn: document.getElementById("playPauseBtn"),
   nextBtn:      document.getElementById("nextBtn"),
+  masterMuteToggleBtn: document.getElementById("masterMuteToggleBtn"),
   volumeSlider: document.getElementById("volumeSlider"),
   volVal:       document.getElementById("volVal"),
   repeatBtn:    document.getElementById("repeatBtn"),
@@ -149,6 +151,7 @@ const els = {
   accountHistoryList: document.getElementById("accountHistoryList"),
 
   audioJackStatusText: document.getElementById("audioJackStatusText"),
+  audioJackMuteToggleBtn: document.getElementById("audioJackMuteToggleBtn"),
   audioJackVolumeInput: document.getElementById("audioJackVolumeInput"),
   audioJackVolumeValue: document.getElementById("audioJackVolumeValue"),
   audioJackMutedToggle: document.getElementById("audioJackMutedToggle"),
@@ -266,6 +269,33 @@ function toast(msg, isError = false) {
 function fmt(ms) {
   const s = Math.floor(Number(ms || 0) / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function setMasterMuteUi(muted) {
+  if (!els.masterMuteToggleBtn) return;
+  els.masterMuteToggleBtn.dataset.active = String(Boolean(muted));
+  els.masterMuteToggleBtn.textContent = Boolean(muted) ? "UNMUTE" : "MUTE";
+}
+
+function getAudioJackMutedFromUi() {
+  if (els.audioJackMuteToggleBtn) {
+    return els.audioJackMuteToggleBtn.dataset.active === "true";
+  }
+  if (els.audioJackMutedToggle) {
+    return Boolean(els.audioJackMutedToggle.checked);
+  }
+  return false;
+}
+
+function setAudioJackMutedToUi(muted) {
+  const isMuted = Boolean(muted);
+  if (els.audioJackMuteToggleBtn) {
+    els.audioJackMuteToggleBtn.dataset.active = String(isMuted);
+    els.audioJackMuteToggleBtn.textContent = isMuted ? "UNMUTE" : "MUTE";
+  }
+  if (els.audioJackMutedToggle) {
+    els.audioJackMutedToggle.checked = isMuted;
+  }
 }
 
 function sanitizeAsmFieldName(value) {
@@ -790,6 +820,10 @@ async function loadPlayback() {
   const vol = data.volume ?? 80;
   els.volumeSlider.value = vol;
   els.volVal.textContent = `${vol}%`;
+  if (vol > 0) {
+    masterVolumeBeforeMute = vol;
+  }
+  setMasterMuteUi(vol <= 0);
 }
 
 async function loadModes() {
@@ -1094,7 +1128,7 @@ async function loadAudioJackSettings() {
     const volume = Number(data.volume || 0);
     els.audioJackVolumeInput.value = `${volume}`;
     els.audioJackVolumeValue.textContent = `${volume}%`;
-    els.audioJackMutedToggle.checked = Boolean(data.muted);
+    setAudioJackMutedToUi(Boolean(data.muted));
     els.audioJackStatusText.textContent = `Card ${data.card ?? 0} • ${data.muted ? "Muted" : "Live"}`;
   } catch (e) {
     els.audioJackStatusText.textContent = e.message;
@@ -1104,7 +1138,7 @@ async function loadAudioJackSettings() {
 async function saveAudioJackSettings() {
   const payload = {
     volume: Number(els.audioJackVolumeInput.value || 0),
-    muted: Boolean(els.audioJackMutedToggle.checked)
+    muted: getAudioJackMutedFromUi()
   };
   const data = await api("/api/admin/settings/audio-jack", {
     method: "POST",
@@ -1113,7 +1147,7 @@ async function saveAudioJackSettings() {
   const volume = Number(data.volume || 0);
   els.audioJackVolumeInput.value = `${volume}`;
   els.audioJackVolumeValue.textContent = `${volume}%`;
-  els.audioJackMutedToggle.checked = Boolean(data.muted);
+  setAudioJackMutedToUi(Boolean(data.muted));
   els.audioJackStatusText.textContent = `Card ${data.card ?? 0} • ${data.muted ? "Muted" : "Live"}`;
 }
 
@@ -1242,12 +1276,33 @@ els.nextBtn.addEventListener("click", async () => {
 els.volumeSlider.addEventListener("input", () => {
   const vol = Number(els.volumeSlider.value);
   els.volVal.textContent = `${vol}%`;
+  if (vol > 0) {
+    masterVolumeBeforeMute = vol;
+  }
+  setMasterMuteUi(vol <= 0);
   window.clearTimeout(volumeDebounce);
   volumeDebounce = window.setTimeout(async () => {
     try { await api("/api/admin/volume", { method: "POST", body: JSON.stringify({ volume: vol }) }); }
     catch (e) { toast(e.message, true); }
   }, 300);
 });
+
+if (els.masterMuteToggleBtn) {
+  els.masterMuteToggleBtn.addEventListener("click", async () => {
+    try {
+      const current = Number(els.volumeSlider.value || 0);
+      const next = current > 0 ? 0 : Math.max(1, Number(masterVolumeBeforeMute || 80));
+      if (current > 0) {
+        masterVolumeBeforeMute = current;
+      }
+      els.volumeSlider.value = `${next}`;
+      els.volVal.textContent = `${next}%`;
+      setMasterMuteUi(next <= 0);
+      await api("/api/admin/volume", { method: "POST", body: JSON.stringify({ volume: next }) });
+      toast(next <= 0 ? "Master muted" : "Master unmuted");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
 els.repeatBtn.addEventListener("click", async () => {
   const newVal = els.repeatBtn.dataset.active !== "true";
@@ -1952,6 +2007,17 @@ if (els.audioJackMutedToggle) {
     try {
       await saveAudioJackSettings();
       toast("AUX mute updated");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.audioJackMuteToggleBtn) {
+  els.audioJackMuteToggleBtn.addEventListener("click", async () => {
+    try {
+      const currentMuted = getAudioJackMutedFromUi();
+      setAudioJackMutedToUi(!currentMuted);
+      await saveAudioJackSettings();
+      toast(!currentMuted ? "AUX muted" : "AUX unmuted");
     } catch (e) { toast(e.message, true); }
   });
 }

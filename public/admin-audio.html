@@ -55,18 +55,19 @@
         </div>
 
         <div class="volume-row">
+          <button id="masterMuteToggleBtn" class="mode-btn" data-active="false" type="button">MUTE</button>
           <span class="vol-icon" title="Master Volume">Master Volume</span>
           <input type="range" id="volumeSlider" min="0" max="100" value="80" />
           <span id="volVal" class="vol-val">80%</span>
         </div>
 
         <div class="volume-row">
+          <button id="audioJackMuteToggleBtn" class="mode-btn" data-active="false" type="button">MUTE</button>
           <span class="vol-icon" title="AUX OUT">AUX OUT</span>
           <input id="audioJackVolumeInput" type="range" min="0" max="100" step="1" value="0" />
           <span id="audioJackVolumeValue" class="vol-val">0%</span>
         </div>
         <div class="setting-form-row">
-          <label class="setting-desc"><input id="audioJackMutedToggle" type="checkbox" /> Mute AUX OUT</label>
           <button id="audioJackRefreshBtn" class="btn-sm" type="button">Refresh AUX</button>
         </div>
         <div id="audioJackStatusText" class="setting-desc">Reading AUX OUT settings...</div>
