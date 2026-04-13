@@ -8,8 +8,10 @@ let adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY) || localStorage.getItem
 let currentPlaybackState = null;
 let playbackTimer = null;
 let queueTimer = null;
+let settingsSyncTimer = null;
 let volumeDebounce = null;
 let audioJackDebounce = null;
+let audioJackSaveSequence = 0;
 let masterVolumeBeforeMute = 80;
 let settingsTab = "request";
 let asmSubtab = "connection";
@@ -59,6 +61,8 @@ const SPECIAL_PAGE_CATEGORIES = [
 ];
 
 if (pageMode === "audio") {
+  settingsTab = "audio-jack";
+} else if (pageMode === "debug") {
   settingsTab = "audio-jack";
 } else if (pageMode === "scheduler") {
   settingsTab = "audio-jack";
@@ -164,6 +168,8 @@ const els = {
   audioJackMutedToggle: document.getElementById("audioJackMutedToggle"),
   audioJackRefreshBtn: document.getElementById("audioJackRefreshBtn"),
   audioJackSaveBtn: document.getElementById("audioJackSaveBtn"),
+  audioJackCardSelect: document.getElementById("audioJackCardSelect"),
+  audioJackControlSelect: document.getElementById("audioJackControlSelect"),
   streamDeliveryToggleBtn: document.getElementById("streamDeliveryToggleBtn"),
   streamDeliveryStatusText: document.getElementById("streamDeliveryStatusText"),
   audioAutomationStatusText: document.getElementById("audioAutomationStatusText"),
@@ -971,6 +977,7 @@ async function moveTrack(tlid, direction) {
 function stopPolling() {
   if (playbackTimer) window.clearInterval(playbackTimer);
   if (queueTimer) window.clearInterval(queueTimer);
+  if (settingsSyncTimer) window.clearInterval(settingsSyncTimer);
 }
 
 async function initializeApp() {
@@ -981,6 +988,7 @@ async function initializeApp() {
     ["account", loadAccountSettings],
     ["explicit", loadExplicit],
     ["audio-jack", loadAudioJackSettings],
+    ["audio-jack-routing", loadAudioJackRoutingSettings],
     ["audio-automation", loadAudioAutomationSettings],
     ["playlists", loadPlaylists],
     ["staff", loadStaffSettings],
@@ -1004,6 +1012,14 @@ async function initializeApp() {
   queueTimer = window.setInterval(async () => {
     try { await loadQueue(); } catch {}
   }, 6000);
+  settingsSyncTimer = window.setInterval(async () => {
+    try {
+      await Promise.all([
+        loadAudioJackSettings(),
+        loadAudioAutomationSettings()
+      ]);
+    } catch {}
+  }, 10000);
 }
 
 function setSettingsTab(name) {
@@ -1188,7 +1204,68 @@ async function loadAudioJackSettings() {
   }
 }
 
+async function loadAudioJackRoutingSettings(selectedCard = "") {
+  if (!els.audioJackCardSelect || !els.audioJackControlSelect) return;
+  try {
+    const query = selectedCard ? `?card=${encodeURIComponent(selectedCard)}` : "";
+    const data = await api(`/api/admin/settings/audio-jack/controls${query}`);
+    const cards = Array.isArray(data.cards) ? data.cards : [];
+    const controls = Array.isArray(data.controls) ? data.controls : [];
+    const activeCard = `${data.active?.card || data.selectedCard || "0"}`;
+    const activeControl = `${data.active?.control || controls[0] || ""}`;
+
+    els.audioJackCardSelect.innerHTML = cards
+      .map((card) => `<option value="${escapeHtml(card.id)}">Card ${escapeHtml(card.id)} - ${escapeHtml(card.shortName || card.name || "ALSA")}</option>`)
+      .join("");
+    if (!cards.length) {
+      els.audioJackCardSelect.innerHTML = `<option value="${escapeHtml(activeCard)}">Card ${escapeHtml(activeCard)}</option>`;
+    }
+    els.audioJackCardSelect.value = `${data.selectedCard || activeCard}`;
+
+    els.audioJackControlSelect.innerHTML = controls
+      .map((control) => `<option value="${escapeHtml(control)}">${escapeHtml(control)}</option>`)
+      .join("");
+    if (!controls.length) {
+      els.audioJackControlSelect.innerHTML = `<option value="${escapeHtml(activeControl)}">${escapeHtml(activeControl || "No controls found")}</option>`;
+    }
+    if (controls.includes(activeControl)) {
+      els.audioJackControlSelect.value = activeControl;
+    } else if (controls.length) {
+      els.audioJackControlSelect.value = controls[0];
+    }
+
+    if (els.audioJackStatusText) {
+      els.audioJackStatusText.textContent = `AUX routing active: card ${activeCard}, control ${activeControl || "unknown"}`;
+    }
+  } catch (e) {
+    if (els.audioJackStatusText) {
+      els.audioJackStatusText.textContent = `AUX routing load failed: ${e.message}`;
+    }
+  }
+}
+
+async function saveAudioJackRoutingSettings() {
+  if (!els.audioJackCardSelect || !els.audioJackControlSelect) return;
+  const card = `${els.audioJackCardSelect.value || ""}`.trim();
+  const control = `${els.audioJackControlSelect.value || ""}`.trim();
+  if (!card || !control) {
+    throw new Error("Select both card and control before applying AUX routing.");
+  }
+  const data = await api("/api/admin/settings/audio-jack/controls", {
+    method: "POST",
+    body: JSON.stringify({ card, control })
+  });
+  await Promise.all([
+    loadAudioJackRoutingSettings(card),
+    loadAudioJackSettings()
+  ]);
+  if (els.audioJackStatusText) {
+    els.audioJackStatusText.textContent = `AUX routing applied: card ${data.card}, control ${data.control}`;
+  }
+}
+
 async function saveAudioJackSettings() {
+  const requestSequence = ++audioJackSaveSequence;
   const payload = {
     volume: Number(els.audioJackVolumeInput.value || 0),
     muted: getAudioJackMutedFromUi()
@@ -1197,10 +1274,14 @@ async function saveAudioJackSettings() {
     method: "POST",
     body: JSON.stringify(payload)
   });
+  if (requestSequence !== audioJackSaveSequence) {
+    return data;
+  }
   const volume = Number(data.volume || 0);
   els.audioJackVolumeInput.value = `${volume}`;
   els.audioJackVolumeValue.textContent = `${volume}%`;
   setAudioJackMutedToUi(Boolean(data.muted));
+  return data;
 }
 
 async function loadAudioAutomationSettings() {
@@ -1210,11 +1291,17 @@ async function loadAudioAutomationSettings() {
     audioAutomationSchedules = Array.isArray(data.schedules) ? data.schedules : [];
     renderAudioAutomationList();
     updateAudioAutomationButtons();
-    els.audioAutomationStatusText.textContent = `Server scheduler active • Playback ${data.playbackState || "unknown"} • Jack ${data.audioJack?.muted ? "muted" : "live"}${data.serverTime ? ` • Server time ${data.serverTime}` : ""}`;  
+    const jackControlSummary = `${data.audioJackCard ?? "?"}:${data.audioJackControl || "unknown"}`;
+    const masterSummary = Number.isFinite(Number(data.masterVolume)) ? `${Number(data.masterVolume)}%` : "unknown";
+    const hardwareSummary = data.hardwarePathReady ? "Hardware path ready" : "Hardware path missing alsasink";
+    els.audioAutomationStatusText.textContent = `Server scheduler active • Playback ${data.playbackState || "unknown"} • Master ${masterSummary} • Jack ${data.audioJack?.muted ? "muted" : "live"} (${jackControlSummary}) • ${hardwareSummary}${data.serverTime ? ` • Server time ${data.serverTime}` : ""}`;
     els.audioAutomationSummaryPills.innerHTML = [
       data.streamDeliveryEnabled ? "Iframe stream live" : "Iframe stream stopped",
       `Active listeners ${Number(data.activeListeners || 0)}`,
-      `Schedules ${audioAutomationSchedules.length}`
+      `Schedules ${audioAutomationSchedules.length}`,
+      `Route playback: ${data.routing?.playback || "mopidy"}`,
+      `Route AUX: ${data.routing?.["audio-jack"] || jackControlSummary}`,
+      data.audioOutput?.output ? `Mopidy output: ${data.audioOutput.output}` : "Mopidy output: unknown"
     ].map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
     await loadStreamDeliverySettings();
   } catch (e) {
@@ -2084,14 +2171,24 @@ els.audioJackVolumeInput.addEventListener("input", () => {
 
 if (els.audioJackRefreshBtn) {
   els.audioJackRefreshBtn.addEventListener("click", async () => {
-    await loadAudioJackSettings();
+    await Promise.all([
+      loadAudioJackSettings(),
+      loadAudioJackRoutingSettings(els.audioJackCardSelect?.value || "")
+    ]);
     toast("Audio jack settings refreshed");
+  });
+}
+
+if (els.audioJackCardSelect) {
+  els.audioJackCardSelect.addEventListener("change", async () => {
+    await loadAudioJackRoutingSettings(els.audioJackCardSelect.value || "");
   });
 }
 
 if (els.audioJackMutedToggle) {
   els.audioJackMutedToggle.addEventListener("change", async () => {
     try {
+      window.clearTimeout(audioJackDebounce);
       await saveAudioJackSettings();
       toast("AUX mute updated");
     } catch (e) { toast(e.message, true); }
@@ -2101,6 +2198,7 @@ if (els.audioJackMutedToggle) {
 if (els.audioJackMuteToggleBtn) {
   els.audioJackMuteToggleBtn.addEventListener("click", async () => {
     try {
+      window.clearTimeout(audioJackDebounce);
       const currentMuted = getAudioJackMutedFromUi();
       setAudioJackMutedToUi(!currentMuted);
       await saveAudioJackSettings();
@@ -2112,8 +2210,8 @@ if (els.audioJackMuteToggleBtn) {
 if (els.audioJackSaveBtn) {
   els.audioJackSaveBtn.addEventListener("click", async () => {
     try {
-      await saveAudioJackSettings();
-      toast("Audio jack settings saved");
+      await saveAudioJackRoutingSettings();
+      toast("AUX routing applied");
     } catch (e) { toast(e.message, true); }
   });
 }

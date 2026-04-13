@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jukebox Admin - Audio</title>
+    <title>Jukebox Admin - Debug</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,10 +13,10 @@
     <link rel="stylesheet" href="/admin.css" />
     <link rel="stylesheet" href="/admin-pages.css" />
   </head>
-  <body data-admin-page="audio">
+  <body data-admin-page="debug">
     <nav class="admin-page-nav" aria-label="Admin Sections">
-      <a href="/admin-audio.html" class="is-active">Audio</a>
-      <a href="/admin-debug.html">Debug</a>
+      <a href="/admin-audio.html">Audio</a>
+      <a href="/admin-debug.html" class="is-active">Debug</a>
       <a href="/admin-scheduler.html">Scheduler</a>
       <a href="/admin-stats.html">Stats</a>
       <a href="/admin-system.html">System</a>
@@ -209,6 +209,21 @@
         </div>
 
         <div id="panelAudioJack" class="settings-panel">
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">AUX Hardware Routing</div>
+              <div id="audioJackStatusText" class="setting-desc">Detect ALSA cards/controls and apply AUX output routing.</div>
+            </div>
+            <div class="setting-form-grid">
+              <select id="audioJackCardSelect"></select>
+              <select id="audioJackControlSelect"></select>
+            </div>
+            <div class="setting-form-actions">
+              <button id="audioJackRefreshBtn" class="btn-sm" type="button">Refresh Controls</button>
+              <button id="audioJackSaveBtn" class="btn-sm" type="button">Apply AUX Routing</button>
+            </div>
+          </div>
+
           <div id="audioAutomationSchedulerRow" class="setting-row stack">
             <div>
               <div class="setting-name">Audio Automation Scheduler</div>

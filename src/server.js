@@ -27,6 +27,9 @@ const EMPLOYEE_SESSION_TTL_MINUTES = Number(process.env.EMPLOYEE_SESSION_TTL_MIN
 const REQUESTS_RATE_WINDOW_MS = Number(process.env.REQUESTS_RATE_WINDOW_MS || 60000);
 const REQUESTS_RATE_MAX = Number(process.env.REQUESTS_RATE_MAX || 40);
 const ADMIN_BOOTSTRAP_PASSWORD = process.env.ADMIN_BOOTSTRAP_PASSWORD || "";
+let audioJackAlsaCard = `${process.env.AUDIO_JACK_ALSA_CARD || "0"}`.trim() || "0";
+let audioJackAlsaControl = `${process.env.AUDIO_JACK_ALSA_CONTROL || "PCM"}`.trim() || "PCM";
+const AUDIO_JACK_STORE_ON_CHANGE = `${process.env.AUDIO_JACK_STORE_ON_CHANGE || "true"}`.toLowerCase() !== "false";
 const EXPLICIT_FILTER_ENABLED = `${process.env.EXPLICIT_FILTER_ENABLED || "false"}`.toLowerCase() === "true";
 const SLIDESHOW_EXCLUDE_FERAL = `${process.env.SLIDESHOW_EXCLUDE_FERAL || "true"}`.toLowerCase() !== "false";
 const SLIDESHOW_READY_TODAY_ONLY = `${process.env.SLIDESHOW_READY_TODAY_ONLY || "true"}`.toLowerCase() !== "false";
@@ -478,10 +481,13 @@ async function executeAudioAutomationAction(target, action) {
   const safeTarget = sanitizeAudioAutomationTarget(target);
   const safeAction = sanitizeAudioAutomationAction(safeTarget, action);
   if (safeTarget === "stream") {
+    const streamState = await setStreamDeliveryEnabled(safeAction === "start");
     return {
       target: safeTarget,
       action: safeAction,
-      ...(await setStreamDeliveryEnabled(safeAction === "start"))
+      route: "stream-delivery",
+      control: "state.audioAutomation.streamDeliveryEnabled",
+      ...streamState
     };
   }
   if (safeTarget === "playback") {
@@ -490,6 +496,8 @@ async function executeAudioAutomationAction(target, action) {
     return {
       target: safeTarget,
       action: safeAction,
+      route: "mopidy",
+      control: `core.playback.${safeAction}`,
       playbackState: `${playbackState || "stopped"}`
     };
   }
@@ -501,6 +509,9 @@ async function executeAudioAutomationAction(target, action) {
   return {
     target: safeTarget,
     action: safeAction,
+    route: "alsa",
+    card: getAudioJackRoutingConfig().card,
+    control: getAudioJackRoutingConfig().control,
     ...updated
   };
 }
@@ -1665,8 +1676,84 @@ function readIniFile(filePath) {
   return result;
 }
 
+function getAudioJackRoutingConfig() {
+  return {
+    card: `${audioJackAlsaCard || "0"}`.trim() || "0",
+    control: `${audioJackAlsaControl || "PCM"}`.trim() || "PCM"
+  };
+}
+
+function sanitizeAudioJackControlName(value) {
+  const text = `${value || ""}`.trim();
+  if (!text) return "";
+  return text.replace(/[\r\n\t]/g, " ").slice(0, 80).trim();
+}
+
+async function getAlsaCards() {
+  try {
+    const { stdout } = await execFileAsync("amixer", ["-l"]);
+    const cards = [];
+    for (const line of `${stdout || ""}`.split(/\r?\n/)) {
+      const match = line.match(/^\s*card\s+(\d+)\s*:\s*([^,]+),\s*(.+)$/i);
+      if (!match) continue;
+      cards.push({
+        id: match[1],
+        shortName: `${match[2] || ""}`.trim(),
+        name: `${match[3] || ""}`.trim()
+      });
+    }
+    if (cards.length) return cards;
+  } catch {}
+  const routing = getAudioJackRoutingConfig();
+  return [{ id: routing.card, shortName: "unknown", name: "Detected card" }];
+}
+
+async function getAlsaSimpleControls(cardId) {
+  const routing = getAudioJackRoutingConfig();
+  const targetCard = `${cardId || ""}`.trim() || routing.card;
+  const { stdout } = await execFileAsync("amixer", ["-c", targetCard, "scontrols"]);
+  const controls = [];
+  const seen = new Set();
+  for (const line of `${stdout || ""}`.split(/\r?\n/)) {
+    const match = line.match(/'([^']+)'/);
+    const control = sanitizeAudioJackControlName(match?.[1] || "");
+    if (!control) continue;
+    const key = control.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    controls.push(control);
+  }
+  return controls;
+}
+
+function getMopidyAudioOutputDiagnostics() {
+  const configPath = "/etc/mopidy/mopidy.conf";
+  try {
+    const ini = readIniFile(configPath);
+    const output = `${ini.audio?.output || ""}`.trim();
+    const normalized = output.toLowerCase();
+    const hasAlsaSink = normalized.includes("alsasink");
+    const feedsStream = normalized.includes("shout2send") || normalized.includes("icecast") || normalized.includes("stream.mp3");
+    return {
+      configPath,
+      output,
+      hasAlsaSink,
+      feedsStream
+    };
+  } catch (error) {
+    return {
+      configPath,
+      output: "",
+      hasAlsaSink: false,
+      feedsStream: false,
+      error: error.message || "Unable to read Mopidy config"
+    };
+  }
+}
+
 async function getAudioJackSettings() {
-  const { stdout } = await execFileAsync("amixer", ["-c", "0", "sget", "Master"]);
+  const routing = getAudioJackRoutingConfig();
+  const { stdout } = await execFileAsync("amixer", ["-c", routing.card, "sget", routing.control]);
   const pctMatch = stdout.match(/\[(\d+)%\]/);
   const switchMatch = stdout.match(/\[(on|off)\]/i);
   const volume = Math.max(0, Math.min(100, Number(pctMatch?.[1] || 0)));
@@ -1675,9 +1762,12 @@ async function getAudioJackSettings() {
 }
 
 async function setAudioJackSettings({ volume, muted }) {
+  const routing = getAudioJackRoutingConfig();
   const clamped = Math.max(0, Math.min(100, Number(volume || 0)));
-  await execFileAsync("amixer", ["-c", "0", "set", "Master", `${clamped}%`, muted ? "mute" : "unmute"]);
-  await execFileAsync("alsactl", ["store"]);
+  await execFileAsync("amixer", ["-c", routing.card, "set", routing.control, `${clamped}%`, muted ? "mute" : "unmute"]);
+  if (AUDIO_JACK_STORE_ON_CHANGE) {
+    await execFileAsync("alsactl", ["store"]);
+  }
   return getAudioJackSettings();
 }
 
@@ -2670,19 +2760,83 @@ app.get("/api/admin/requests/stats", requireAdmin, (_req, res) => {
 
 app.get("/api/admin/settings/audio-jack", requireAdmin, async (_req, res) => {
   try {
+    const routing = getAudioJackRoutingConfig();
     const current = await getAudioJackSettings();
     res.json({
       ok: true,
-      card: 0,
+      card: routing.card,
+      control: routing.control,
       ...current
     });
   } catch (error) {
-    res.status(500).json({ error: error.message || "Unable to read audio jack settings" });
+    const routing = getAudioJackRoutingConfig();
+    res.status(500).json({
+      error: error.message || "Unable to read audio jack settings",
+      suggestion: `Verify ALSA control via amixer (card=${routing.card}, control=${routing.control}) or update AUX routing in Audio settings`
+    });
+  }
+});
+
+app.get("/api/admin/settings/audio-jack/controls", requireAdmin, async (req, res) => {
+  try {
+    const cards = await getAlsaCards();
+    const requestedCard = `${req.query?.card || ""}`.trim();
+    const current = getAudioJackRoutingConfig();
+    const selectedCard = requestedCard || current.card;
+    const controls = await getAlsaSimpleControls(selectedCard);
+    res.json({
+      ok: true,
+      active: {
+        card: current.card,
+        control: current.control
+      },
+      selectedCard,
+      cards,
+      controls
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Unable to enumerate ALSA controls" });
+  }
+});
+
+app.post("/api/admin/settings/audio-jack/controls", requireAdmin, async (req, res) => {
+  try {
+    const nextCard = `${req.body?.card || ""}`.trim();
+    const nextControl = sanitizeAudioJackControlName(req.body?.control || "");
+    if (!nextCard || !nextControl) {
+      res.status(400).json({ error: "card and control are required" });
+      return;
+    }
+    const available = await getAlsaSimpleControls(nextCard);
+    const resolved = available.find((item) => item.toLowerCase() === nextControl.toLowerCase()) || "";
+    if (!resolved) {
+      res.status(400).json({
+        error: `Control ${nextControl} is not available on card ${nextCard}`,
+        suggestion: `Use one of: ${available.slice(0, 12).join(", ")}`
+      });
+      return;
+    }
+
+    audioJackAlsaCard = nextCard;
+    audioJackAlsaControl = resolved;
+    persistEnvSetting("AUDIO_JACK_ALSA_CARD", audioJackAlsaCard);
+    persistEnvSetting("AUDIO_JACK_ALSA_CONTROL", audioJackAlsaControl);
+
+    const current = await getAudioJackSettings();
+    res.json({
+      ok: true,
+      card: audioJackAlsaCard,
+      control: audioJackAlsaControl,
+      ...current
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Unable to update AUX routing controls" });
   }
 });
 
 app.post("/api/admin/settings/audio-jack", requireAdmin, async (req, res) => {
   try {
+    const routing = getAudioJackRoutingConfig();
     const body = req.body || {};
     if (body.volume === undefined && body.muted === undefined) {
       res.status(400).json({ error: "Provide volume and/or muted" });
@@ -2692,9 +2846,18 @@ app.post("/api/admin/settings/audio-jack", requireAdmin, async (req, res) => {
     const nextVolume = body.volume === undefined ? current.volume : Number(body.volume);
     const nextMuted = body.muted === undefined ? current.muted : Boolean(body.muted);
     const updated = await setAudioJackSettings({ volume: nextVolume, muted: nextMuted });
-    res.json({ ok: true, card: 0, ...updated });
+    res.json({
+      ok: true,
+      card: routing.card,
+      control: routing.control,
+      ...updated
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message || "Unable to update audio jack settings" });
+    const routing = getAudioJackRoutingConfig();
+    res.status(500).json({
+      error: error.message || "Unable to update audio jack settings",
+      suggestion: `Verify ALSA control via amixer (card=${routing.card}, control=${routing.control}) or update AUX routing in Audio settings`
+    });
   }
 });
 
@@ -2718,10 +2881,13 @@ app.post("/api/admin/settings/stream-delivery", requireAdmin, async (req, res) =
 
 app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) => {
   try {
-    const [audioJack, playbackState] = await Promise.all([
+    const routingConfig = getAudioJackRoutingConfig();
+    const [audioJack, playbackState, masterVolume] = await Promise.all([
       getAudioJackSettings(),
-      mopidyRpc("core.playback.get_state").catch(() => "unknown")
+      mopidyRpc("core.playback.get_state").catch(() => "unknown"),
+      mopidyRpc("core.mixer.get_volume").catch(() => null)
     ]);
+    const audioOutput = getMopidyAudioOutputDiagnostics();
     const now = new Date();
     const serverTime = now.toLocaleTimeString('en-US', { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: 'America/Chicago' });
     res.json({
@@ -2731,11 +2897,55 @@ app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) 
       schedules: sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []),
       targetActions: AUDIO_AUTOMATION_TARGET_ACTIONS,
       audioJack,
+      audioJackCard: routingConfig.card,
+      audioJackControl: routingConfig.control,
+      masterVolume: Number.isFinite(Number(masterVolume)) ? Number(masterVolume) : null,
+      audioOutput,
+      hardwarePathReady: Boolean(audioOutput.hasAlsaSink),
+      routing: {
+        stream: "state.audioAutomation.streamDeliveryEnabled",
+        playback: "mopidy core.playback.*",
+        "audio-jack": `alsa amixer -c ${routingConfig.card} ${routingConfig.control}`
+      },
       playbackState: `${playbackState || "unknown"}`,
       serverTime
     });
   } catch (error) {
     res.status(500).json({ error: error.message || "Unable to load audio automation settings" });
+  }
+});
+
+app.get("/api/admin/settings/audio-path/diagnostics", requireAdmin, async (_req, res) => {
+  try {
+    const routingConfig = getAudioJackRoutingConfig();
+    const [audioJack, playbackState, masterVolume] = await Promise.all([
+      getAudioJackSettings(),
+      mopidyRpc("core.playback.get_state").catch(() => "unknown"),
+      mopidyRpc("core.mixer.get_volume").catch(() => null)
+    ]);
+    const audioOutput = getMopidyAudioOutputDiagnostics();
+    const warnings = [];
+    if (!audioOutput.output) {
+      warnings.push("Mopidy [audio] output is empty or unreadable.");
+    }
+    if (!audioOutput.hasAlsaSink) {
+      warnings.push("Mopidy output does not include alsasink, so AUX hardware may be silent.");
+    }
+    if (!audioOutput.feedsStream) {
+      warnings.push("Mopidy output does not look configured to feed stream.mp3/icecast.");
+    }
+    res.json({
+      ok: warnings.length === 0,
+      playbackState: `${playbackState || "unknown"}`,
+      masterVolume: Number.isFinite(Number(masterVolume)) ? Number(masterVolume) : null,
+      audioJack,
+      audioJackCard: routingConfig.card,
+      audioJackControl: routingConfig.control,
+      audioOutput,
+      warnings
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Unable to run audio path diagnostics" });
   }
 });
 
