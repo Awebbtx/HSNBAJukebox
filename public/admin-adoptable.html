@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jukebox Admin - Adoptable Filters</title>
+    <title>Jukebox Admin - Adoptable Stream</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -21,7 +21,8 @@
       <a href="/admin-system.html">System</a>
       <a href="/admin-staff.html">Staff</a>
       <a href="/admin-account.html">My Account</a>
-      <a href="/admin-adoptable.html" class="is-active">Adoptable Filters</a>
+      <a href="/admin-adoptable.html" class="is-active">Adoptable Stream</a>
+      <a href="/admin-custom-slides.html">Custom Slides</a>
     </nav>
     <main class="shell">
 
@@ -265,7 +266,7 @@
           </div>
 
           <div id="asmPanelConnection" class="settings-panel active asm-subpanel">
-            <div class="setting-row stack">
+            <div id="adoptableCoreSettingsRow" class="setting-row stack">
             <div>
               <div class="setting-name">ASM Service Connection</div>
               <div id="asmStatusText" class="setting-desc">Configure Shelter Manager service credentials for adoptable slideshow.</div>
@@ -311,7 +312,7 @@
                 <label class="setting-desc"><input id="slideshowExcludeFeralToggle" type="checkbox" /> Exclude feral animals</label>
                 <label class="setting-desc"><input id="slideshowReadyTodayToggle" type="checkbox" /> Only show ready-today animals</label>
               </div>
-              <div class="setting-row stack">
+              <div id="customFiltersRow" class="setting-row stack">
                 <div>
                   <div class="setting-name">Custom Filters</div>
                   <div class="setting-desc">Comma-separated terms to include in slideshow results (species, breed, sex, age, bio, etc).</div>
@@ -323,7 +324,7 @@
                   <input id="slideshowCustomFiltersInput" type="text" placeholder="Example: dog, puppy, labrador" />
                 </div>
               </div>
-              <div class="setting-row stack">
+              <div id="displayFieldsRow" class="setting-row stack">
                 <div>
                   <div class="setting-name">Display Fields (Order 1-10)</div>
                   <div class="setting-desc">Choose what appears in the slideshow detail panel. Unused slots default to Skip.</div>
@@ -334,7 +335,7 @@
                 <div id="slideshowDisplayFieldsContainer" class="slideshow-display-grid"></div>
               </div>
 
-              <div class="setting-row stack">
+              <div id="rotationRulesRow" class="setting-row stack">
                 <div>
                   <div class="setting-name">Rotation Rules</div>
                   <div class="setting-desc">Control how many adoptables appear per special page and how often alerts are injected.</div>
@@ -348,7 +349,7 @@
                 </div>
               </div>
 
-              <div class="setting-row stack">
+              <div id="specialPagesRow" class="setting-row stack">
                 <div>
                   <div class="setting-name">Special Pages</div>
                   <div class="setting-desc">Create and manage non-adoptable slides such as thanks, events, TNR details, volunteer calls, and alerts.</div>

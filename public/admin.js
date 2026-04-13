@@ -75,6 +75,9 @@ if (pageMode === "audio") {
 } else if (pageMode === "adoptable") {
   settingsTab = "asm";
   asmSubtab = "slideshow";
+} else if (pageMode === "custom-slides") {
+  settingsTab = "asm";
+  asmSubtab = "slideshow";
 }
 
 const els = {

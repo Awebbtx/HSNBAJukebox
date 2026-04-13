@@ -191,3 +191,34 @@ body[data-admin-page="adoptable"] #panelAsm,
 body[data-admin-page="adoptable"] #asmPanelSlideshow {
   display: block !important;
 }
+
+body[data-admin-page="adoptable"] #rotationRulesRow,
+body[data-admin-page="adoptable"] #specialPagesRow {
+  display: none !important;
+}
+
+body[data-admin-page="custom-slides"] .np-card,
+body[data-admin-page="custom-slides"] .queue-card,
+body[data-admin-page="custom-slides"] .stats-card,
+body[data-admin-page="custom-slides"] .playlist-card {
+  display: none;
+}
+
+body[data-admin-page="custom-slides"] .settings-tabs,
+body[data-admin-page="custom-slides"] #panelAccount,
+body[data-admin-page="custom-slides"] #panelRequestAccess,
+body[data-admin-page="custom-slides"] #panelAudioJack,
+body[data-admin-page="custom-slides"] #panelSpotify {
+  display: none !important;
+}
+
+body[data-admin-page="custom-slides"] #panelAsm,
+body[data-admin-page="custom-slides"] #asmPanelSlideshow {
+  display: block !important;
+}
+
+body[data-admin-page="custom-slides"] #adoptableCoreSettingsRow,
+body[data-admin-page="custom-slides"] #customFiltersRow,
+body[data-admin-page="custom-slides"] #displayFieldsRow {
+  display: none !important;
+}
