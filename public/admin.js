@@ -81,7 +81,6 @@ if (pageMode === "audio") {
 }
 
 const els = {
-  logoutBtn:    document.getElementById("logoutBtn"),
   topSaveBtn:   document.getElementById("topSaveBtn"),
   trackTitle:   document.getElementById("trackTitle"),
   trackMeta:    document.getElementById("trackMeta"),
@@ -1298,10 +1297,6 @@ els.loginForm.addEventListener("submit", async (e) => {
     toast("Welcome back");
   } catch (err) { toast(err.message, true); }
 });
-
-if (els.logoutBtn) {
-  els.logoutBtn.addEventListener("click", logout);
-}
 
 els.prevBtn.addEventListener("click", async () => {
   try {
