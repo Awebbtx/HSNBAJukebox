@@ -2510,7 +2510,7 @@ app.patch("/api/admin/staff/:id", requireAdmin, (req, res) => {
   const id = `${req.params.id || ""}`;
   const staff = (state.adminDb.users || []).find((item) => item.id === id);
   if (!staff) {
-    res.status(404).json({ error: "Staff member not found." });
+    res.status(404).json({ error: "User account not found." });
     return;
   }
 
@@ -2600,7 +2600,7 @@ app.post("/api/admin/staff/:id/reset-password", requireAdmin, (req, res) => {
   const id = `${req.params.id || ""}`;
   const staff = (state.adminDb.users || []).find((item) => item.id === id);
   if (!staff) {
-    res.status(404).json({ error: "Staff member not found." });
+    res.status(404).json({ error: "User account not found." });
     return;
   }
   const newPassword = `${req.body?.password || ""}`;
@@ -2621,7 +2621,7 @@ app.delete("/api/admin/staff/:id", requireAdmin, (req, res) => {
   const id = `${req.params.id || ""}`;
   const staff = (state.adminDb.users || []).find((item) => item.id === id);
   if (!staff) {
-    res.status(404).json({ error: "Staff member not found." });
+    res.status(404).json({ error: "User account not found." });
     return;
   }
   if (staff.id === req.adminAccount.id) {
@@ -2651,7 +2651,7 @@ app.post("/api/admin/staff/default-limit", requireAdmin, (req, res) => {
     requestLimit
   };
   saveAdminDb();
-  logAdminHistory(req.adminAccount.id, "staff-default-limit", `Set staff default request limit to ${requestLimit}`);
+  logAdminHistory(req.adminAccount.id, "staff-default-limit", `Set user default request limit to ${requestLimit}`);
   res.json({ ok: true, requestLimit });
 });
 

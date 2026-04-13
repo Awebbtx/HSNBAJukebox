@@ -113,7 +113,7 @@
           <div class="setting-row stack">
             <div>
               <div class="setting-name">Default Daily Request Limit</div>
-              <div class="setting-desc">Applies to newly created staff accounts. Existing staff can override.</div>
+              <div class="setting-desc">Applies to newly created user accounts. Existing users can override.</div>
             </div>
             <div class="setting-form-row">
               <input id="defaultRequestLimitInput" type="number" min="1" step="1" placeholder="Default limit" />
@@ -123,8 +123,8 @@
 
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Create Staff Account</div>
-              <div class="setting-desc">Staff sign in with their username and password.</div>
+              <div class="setting-name">Create User Account</div>
+              <div class="setting-desc">Users sign in with their username and password.</div>
             </div>
             <div class="setting-form-grid">
               <input id="staffFirstNameInput" type="text" maxlength="40" placeholder="First name" />
@@ -134,14 +134,14 @@
               <input id="staffLimitInput" type="number" min="1" step="1" placeholder="Daily request limit" />
             </div>
             <div class="setting-form-actions">
-              <button id="createStaffBtn" class="btn-sm" type="button">Create Staff</button>
+              <button id="createStaffBtn" class="btn-sm" type="button">Create User</button>
             </div>
           </div>
 
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Staff Accounts</div>
-              <div id="staffStatusText" class="setting-desc">Loading staff accounts...</div>
+              <div class="setting-name">User Accounts</div>
+              <div id="staffStatusText" class="setting-desc">Loading User Accounts...</div>
             </div>
             <ul id="staffList" class="req-list"></ul>
           </div>
@@ -149,7 +149,7 @@
           <div id="staffAccountsRow" class="setting-row stack">
             <div>
               <div class="setting-name">User Roles</div>
-              <div class="setting-desc">Create users as standard staff above, then grant or remove admin access from the list below.</div>
+              <div class="setting-desc">Create users above, then grant or remove admin access from the list below.</div>
             </div>
             <ul id="adminUsersList" class="req-list"></ul>
           </div>

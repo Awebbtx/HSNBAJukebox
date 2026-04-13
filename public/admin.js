@@ -1546,14 +1546,14 @@ async function loadStaffSettings() {
   try {
     const data = await api("/api/admin/staff");
     els.defaultRequestLimitInput.value = `${Number(data.defaults?.requestLimit || 3)}`;
-    els.staffStatusText.textContent = `Daily window ${data.daily?.dateKey || "today"} • ${data.staff?.length || 0} staff account(s)`;
+    els.staffStatusText.textContent = `Daily window ${data.daily?.dateKey || "today"} • ${data.staff?.length || 0} user account(s)`;
 
     els.staffList.innerHTML = "";
     const staff = data.staff || [];
     if (!staff.length) {
       const li = document.createElement("li");
       li.className = "req-item empty";
-      li.textContent = "No staff accounts yet";
+      li.textContent = "No user accounts yet";
       els.staffList.append(li);
       return;
     }
@@ -1581,7 +1581,7 @@ async function loadStaffSettings() {
             body: JSON.stringify({ requestLimit: Math.max(1, limit) })
           });
           await loadStaffSettings();
-          toast("Staff limit updated");
+          toast("User limit updated");
         } catch (e) {
           toast(e.message, true);
         }
@@ -1593,7 +1593,7 @@ async function loadStaffSettings() {
             body: JSON.stringify({ active: !item.active })
           });
           await loadStaffSettings();
-          toast(`Staff ${item.active ? "disabled" : "enabled"}`);
+          toast(`User ${item.active ? "disabled" : "enabled"}`);
         } catch (e) {
           toast(e.message, true);
         }
@@ -1629,11 +1629,11 @@ async function loadStaffSettings() {
         }
       });
       li.querySelector('[data-action="delete"]').addEventListener("click", async () => {
-        if (!window.confirm(`Delete staff account ${item.displayName || item.firstName}?`)) return;
+        if (!window.confirm(`Delete user account ${item.displayName || item.firstName}?`)) return;
         try {
           await api(`/api/admin/staff/${item.id}`, { method: "DELETE" });
           await loadStaffSettings();
-          toast("Staff account deleted");
+          toast("User account deleted");
         } catch (e) {
           toast(e.message, true);
         }
@@ -2203,7 +2203,7 @@ if (els.createStaffBtn) {
     try {
       await createStaffAccount();
       await loadStaffSettings();
-      toast("Staff account created");
+      toast("User account created");
     } catch (e) { toast(e.message, true); }
   });
 }
