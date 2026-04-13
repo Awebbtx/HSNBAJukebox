@@ -2194,6 +2194,32 @@ app.post("/api/admin/stream/session", requireAdmin, (req, res) => {
   res.status(201).json({ ok: true, token, session });
 });
 
+app.post("/api/admin/session/from-employee", requireEmployee, (req, res) => {
+  const admin = req.adminStreamAccount || null;
+  if (!admin) {
+    res.status(403).json({ error: "Admin access required." });
+    return;
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const now = new Date().toISOString();
+  state.adminSessions.set(token, { userId: admin.id, createdAt: now });
+  admin.lastLoginAt = now;
+  admin.updatedAt = now;
+  saveAdminDb();
+  logAdminHistory(admin.id, "login", `User ${admin.username} elevated from employee session`);
+
+  res.status(201).json({
+    token,
+    admin: {
+      id: admin.id,
+      username: admin.username,
+      displayName: admin.displayName,
+      lastLoginAt: admin.lastLoginAt
+    }
+  });
+});
+
 app.get("/api/admin/account/me", requireAdmin, (req, res) => {
   const admin = req.adminAccount;
   res.json({

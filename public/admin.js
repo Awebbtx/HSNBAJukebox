@@ -800,6 +800,28 @@ async function connectAdminToStreamSession() {
   }
 }
 
+async function tryElevateEmployeeSessionToAdmin() {
+  const employeeToken = localStorage.getItem(EMPLOYEE_TOKEN_KEY) || "";
+  if (!employeeToken) {
+    return false;
+  }
+  const result = await api("/api/admin/session/from-employee", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${employeeToken}`
+    }
+  });
+  const token = `${result?.token || ""}`.trim();
+  if (!token) {
+    return false;
+  }
+  adminToken = token;
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+  localStorage.setItem(ADMIN_TOKEN_KEY, token);
+  notifyShellSessionUpdate("admin");
+  return true;
+}
+
 async function logout() {
   try { await api("/api/admin/session/logout", { method: "POST" }); } catch {}
   sessionStorage.removeItem(ADMIN_TOKEN_KEY);
@@ -2239,6 +2261,14 @@ async function bootstrap() {
       }
     }
   } else {
+    try {
+      const elevated = await tryElevateEmployeeSessionToAdmin();
+      if (elevated) {
+        await connectAdminToStreamSession().catch(() => {});
+        await initializeApp();
+        return;
+      }
+    } catch {}
     els.loginDialog.showModal();
   }
 }
