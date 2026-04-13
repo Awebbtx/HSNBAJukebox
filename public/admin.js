@@ -1128,6 +1128,7 @@ async function setStreamDeliveryState(enabled) {
 }
 
 async function loadAudioJackSettings() {
+  if (!els.audioJackVolumeInput) return;
   try {
     const data = await api("/api/admin/settings/audio-jack");
     const volume = Number(data.volume || 0);
@@ -1644,6 +1645,7 @@ function renderSpotifyDetails(items) {
 }
 
 async function loadSpotifySettings() {
+  if (!els.spotifyStatusText) return;
   try {
     const data = await api("/api/admin/settings/spotify");
     els.spotifyStatusText.textContent = data.configured
@@ -1671,6 +1673,7 @@ async function loadSpotifySettings() {
 }
 
 async function loadAsmSettings() {
+  if (!els.asmServiceUrlInput) return;
   try {
     const data = await api("/api/admin/settings/asm");
     els.asmServiceUrlInput.value = data.serviceUrl || "";
@@ -2185,13 +2188,19 @@ async function bootstrap() {
   setAsmSubtab(asmSubtab);
   if (adminToken) {
     try {
-      await connectAdminToStreamSession();
+      await connectAdminToStreamSession().catch(() => {});
       await initializeApp();
-    } catch {
-      sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-      localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
-      adminToken = "";
-      els.loginDialog.showModal();
+    } catch (err) {
+      console.error("initializeApp failed:", err);
+      const isAuthError = err?.message?.includes("401") || err?.message?.includes("403") || err?.message?.includes("Unauthorized") || err?.message?.includes("Forbidden");
+      if (isAuthError) {
+        sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+        localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
+        adminToken = "";
+        els.loginDialog.showModal();
+      } else {
+        toast(`Load error: ${err.message}`, true);
+      }
     }
   } else {
     els.loginDialog.showModal();
