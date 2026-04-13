@@ -1997,10 +1997,12 @@ els.audioJackVolumeInput.addEventListener("input", () => {
   }, 250);
 });
 
-els.audioJackRefreshBtn.addEventListener("click", async () => {
-  await loadAudioJackSettings();
-  toast("Audio jack settings refreshed");
-});
+if (els.audioJackRefreshBtn) {
+  els.audioJackRefreshBtn.addEventListener("click", async () => {
+    await loadAudioJackSettings();
+    toast("Audio jack settings refreshed");
+  });
+}
 
 if (els.audioJackMutedToggle) {
   els.audioJackMutedToggle.addEventListener("change", async () => {
