@@ -154,10 +154,8 @@ const els = {
   audioJackMutedToggle: document.getElementById("audioJackMutedToggle"),
   audioJackRefreshBtn: document.getElementById("audioJackRefreshBtn"),
   audioJackSaveBtn: document.getElementById("audioJackSaveBtn"),
+  streamDeliveryToggleBtn: document.getElementById("streamDeliveryToggleBtn"),
   streamDeliveryStatusText: document.getElementById("streamDeliveryStatusText"),
-  streamDeliveryStartBtn: document.getElementById("streamDeliveryStartBtn"),
-  streamDeliveryStopBtn: document.getElementById("streamDeliveryStopBtn"),
-  streamDeliveryRefreshBtn: document.getElementById("streamDeliveryRefreshBtn"),
   audioAutomationStatusText: document.getElementById("audioAutomationStatusText"),
   audioAutomationSummaryPills: document.getElementById("audioAutomationSummaryPills"),
   audioAutomationList: document.getElementById("audioAutomationList"),
@@ -1061,14 +1059,23 @@ function renderAudioAutomationList() {
 }
 
 async function loadStreamDeliverySettings() {
-  if (!els.streamDeliveryStatusText) return;
   try {
     const data = await api("/api/admin/settings/stream-delivery");
-    els.streamDeliveryStatusText.textContent = data.enabled
-      ? `Iframe stream delivery live • ${Number(data.activeListeners || 0)} active listener(s)`
-      : `Iframe stream delivery stopped • ${Number(data.activeListeners || 0)} active listener(s)`;
+    if (els.streamDeliveryToggleBtn) {
+      els.streamDeliveryToggleBtn.dataset.active = String(Boolean(data.enabled));
+      els.streamDeliveryToggleBtn.textContent = data.enabled
+        ? `📡 Stream Delivery On`
+        : `📡 Stream Delivery Off`;
+    }
+    if (els.streamDeliveryStatusText) {
+      els.streamDeliveryStatusText.textContent = data.enabled
+        ? `Iframe stream delivery live • ${Number(data.activeListeners || 0)} active listener(s)`
+        : `Iframe stream delivery stopped • ${Number(data.activeListeners || 0)} active listener(s)`;
+    }
   } catch (e) {
-    els.streamDeliveryStatusText.textContent = e.message;
+    if (els.streamDeliveryStatusText) {
+      els.streamDeliveryStatusText.textContent = e.message;
+    }
   }
 }
 
@@ -1958,29 +1965,13 @@ if (els.audioJackSaveBtn) {
   });
 }
 
-if (els.streamDeliveryRefreshBtn) {
-  els.streamDeliveryRefreshBtn.addEventListener("click", async () => {
-    await loadStreamDeliverySettings();
-    toast("Stream delivery refreshed");
-  });
-}
-
-if (els.streamDeliveryStartBtn) {
-  els.streamDeliveryStartBtn.addEventListener("click", async () => {
+if (els.streamDeliveryToggleBtn) {
+  els.streamDeliveryToggleBtn.addEventListener("click", async () => {
     try {
-      await setStreamDeliveryState(true);
+      const currentlyEnabled = els.streamDeliveryToggleBtn.dataset.active === "true";
+      await setStreamDeliveryState(!currentlyEnabled);
       await loadAudioAutomationSettings();
-      toast("Iframe stream delivery started");
-    } catch (e) { toast(e.message, true); }
-  });
-}
-
-if (els.streamDeliveryStopBtn) {
-  els.streamDeliveryStopBtn.addEventListener("click", async () => {
-    try {
-      await setStreamDeliveryState(false);
-      await loadAudioAutomationSettings();
-      toast("Iframe stream delivery stopped");
+      toast(!currentlyEnabled ? "Iframe stream delivery started" : "Iframe stream delivery stopped");
     } catch (e) { toast(e.message, true); }
   });
 }
