@@ -1776,7 +1776,7 @@ async function setAudioJackSettings({ volume, muted }) {
       targetVolume = Math.max(1, Number(current.volume || 1));
     }
   }
-  const args = ["-c", routing.card, "set", routing.control, `${targetVolume}%"];
+  const args = ["-c", routing.card, "set", routing.control, `${targetVolume}%`];
   if (current.supportsMute) {
     args.push(Boolean(muted) ? "mute" : "unmute");
   }
