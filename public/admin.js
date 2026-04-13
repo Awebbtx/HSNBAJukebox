@@ -1296,12 +1296,7 @@ async function loadAudioAutomationSettings() {
     const hardwareSummary = data.hardwarePathReady ? "Hardware path ready" : "Hardware path missing alsasink";
     els.audioAutomationStatusText.textContent = `Server scheduler active • Playback ${data.playbackState || "unknown"} • Master ${masterSummary} • Jack ${data.audioJack?.muted ? "muted" : "live"} (${jackControlSummary}) • ${hardwareSummary}${data.serverTime ? ` • Server time ${data.serverTime}` : ""}`;
     els.audioAutomationSummaryPills.innerHTML = [
-      data.streamDeliveryEnabled ? "Iframe stream live" : "Iframe stream stopped",
-      `Active listeners ${Number(data.activeListeners || 0)}`,
-      `Schedules ${audioAutomationSchedules.length}`,
-      `Route playback: ${data.routing?.playback || "mopidy"}`,
-      `Route AUX: ${data.routing?.["audio-jack"] || jackControlSummary}`,
-      data.audioOutput?.output ? `Mopidy output: ${data.audioOutput.output}` : "Mopidy output: unknown"
+      `Schedules ${audioAutomationSchedules.length}`
     ].map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
     await loadStreamDeliverySettings();
   } catch (e) {

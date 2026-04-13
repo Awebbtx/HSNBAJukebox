@@ -28,7 +28,7 @@ const REQUESTS_RATE_WINDOW_MS = Number(process.env.REQUESTS_RATE_WINDOW_MS || 60
 const REQUESTS_RATE_MAX = Number(process.env.REQUESTS_RATE_MAX || 40);
 const ADMIN_BOOTSTRAP_PASSWORD = process.env.ADMIN_BOOTSTRAP_PASSWORD || "";
 let audioJackAlsaCard = `${process.env.AUDIO_JACK_ALSA_CARD || "0"}`.trim() || "0";
-let audioJackAlsaControl = `${process.env.AUDIO_JACK_ALSA_CONTROL || "PCM"}`.trim() || "PCM";
+let audioJackAlsaControl = `${process.env.AUDIO_JACK_ALSA_CONTROL || "Master"}`.trim() || "Master";
 const AUDIO_JACK_STORE_ON_CHANGE = `${process.env.AUDIO_JACK_STORE_ON_CHANGE || "true"}`.toLowerCase() !== "false";
 const EXPLICIT_FILTER_ENABLED = `${process.env.EXPLICIT_FILTER_ENABLED || "false"}`.toLowerCase() === "true";
 const SLIDESHOW_EXCLUDE_FERAL = `${process.env.SLIDESHOW_EXCLUDE_FERAL || "true"}`.toLowerCase() !== "false";
