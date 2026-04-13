@@ -165,42 +165,6 @@
         <div id="panelRequestAccess" class="settings-panel active">
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Default Daily Request Limit</div>
-              <div class="setting-desc">Applies to newly created staff accounts. Existing staff can override.</div>
-            </div>
-            <div class="setting-form-row">
-              <input id="defaultRequestLimitInput" type="number" min="1" step="1" placeholder="Default limit" />
-              <button id="saveDefaultRequestLimitBtn" class="btn-sm" type="button">Save Default</button>
-            </div>
-          </div>
-
-          <div class="setting-row stack">
-            <div>
-              <div class="setting-name">Create Staff Account</div>
-              <div class="setting-desc">Staff sign in with their username and password.</div>
-            </div>
-            <div class="setting-form-grid">
-              <input id="staffFirstNameInput" type="text" maxlength="40" placeholder="First name" />
-              <input id="staffLastInitialInput" type="text" maxlength="1" placeholder="Last initial" />
-              <input id="staffUsernameInput" type="email" autocomplete="off" placeholder="Email address" />
-              <input id="staffPasswordInput" type="password" autocomplete="new-password" placeholder="Password (6+ chars)" />
-              <input id="staffLimitInput" type="number" min="1" step="1" placeholder="Daily request limit" />
-            </div>
-            <div class="setting-form-actions">
-              <button id="createStaffBtn" class="btn-sm" type="button">Create Staff</button>
-            </div>
-          </div>
-
-          <div class="setting-row stack">
-            <div>
-              <div class="setting-name">Staff Accounts</div>
-              <div id="staffStatusText" class="setting-desc">Loading staff accounts...</div>
-            </div>
-            <ul id="staffList" class="req-list"></ul>
-          </div>
-
-          <div class="setting-row stack">
-            <div>
               <div class="setting-name">Request Trends</div>
               <div class="setting-desc">Top requested and top upvoted songs.</div>
             </div>
