@@ -70,6 +70,8 @@ if (pageMode === "audio") {
   settingsTab = "request";
 } else if (pageMode === "users") {
   settingsTab = "account";
+} else if (pageMode === "account") {
+  settingsTab = "account";
 } else if (pageMode === "adoptable") {
   settingsTab = "asm";
   asmSubtab = "slideshow";

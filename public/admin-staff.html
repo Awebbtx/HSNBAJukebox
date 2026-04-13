@@ -20,7 +20,7 @@
       <a href="/admin-stats.html">Stats</a>
       <a href="/admin-system.html">System</a>
       <a href="/admin-staff.html" class="is-active">Staff</a>
-      <a href="/admin-users.html">Users</a>
+      <a href="/admin-account.html">My Account</a>
       <a href="/admin-adoptable.html">Adoptable Filters</a>
     </nav>
     <main class="shell">
@@ -106,60 +106,6 @@
         </div>
 
         <div id="panelAccount" class="settings-panel">
-          <div id="requestDefaultLimitRow" class="setting-row stack">
-            <div>
-              <div class="setting-name">My Account</div>
-              <div id="accountStatusText" class="setting-desc">Loading account profile...</div>
-            </div>
-            <div class="setting-form-grid">
-              <input id="accountUsernameInput" type="text" placeholder="Email" readonly />
-              <input id="accountDisplayNameInput" type="text" maxlength="60" placeholder="Display name" />
-            </div>
-            <div class="setting-form-actions">
-              <button id="saveAccountProfileBtn" class="btn-sm" type="button">Save Profile</button>
-            </div>
-          </div>
-
-          <div id="createStaffRow" class="setting-row stack">
-            <div>
-              <div class="setting-name">Change Password</div>
-              <div class="setting-desc">Use your current password to set a new one.</div>
-            </div>
-            <div class="setting-form-grid">
-              <input id="accountCurrentPasswordInput" type="password" autocomplete="current-password" placeholder="Current password" />
-              <input id="accountNewPasswordInput" type="password" autocomplete="new-password" placeholder="New password (8+ chars)" />
-            </div>
-            <div class="setting-form-actions">
-              <button id="saveAccountPasswordBtn" class="btn-sm" type="button">Change Password</button>
-            </div>
-          </div>
-
-          <div id="staffAccountsRow" class="setting-row stack">
-            <div>
-              <div class="setting-name">Admin Users</div>
-              <div class="setting-desc">Create additional admin accounts for this system.</div>
-            </div>
-            <div class="setting-form-grid">
-              <input id="newAdminUsernameInput" type="email" maxlength="120" placeholder="Email address" />
-              <input id="newAdminDisplayNameInput" type="text" maxlength="60" placeholder="Display name" />
-              <input id="newAdminPasswordInput" type="password" autocomplete="new-password" placeholder="Temporary password (8+ chars)" />
-            </div>
-            <div class="setting-form-actions">
-              <button id="createAdminUserBtn" class="btn-sm" type="button">Create Admin User</button>
-            </div>
-            <ul id="adminUsersList" class="req-list"></ul>
-          </div>
-
-          <div id="requestTrendsRow" class="setting-row stack">
-            <div>
-              <div class="setting-name">Admin History</div>
-              <div class="setting-desc">Recent account and admin-management actions.</div>
-            </div>
-            <div class="setting-form-actions">
-              <button id="refreshAccountHistoryBtn" class="btn-sm" type="button">Refresh History</button>
-            </div>
-            <ul id="accountHistoryList" class="req-list"></ul>
-          </div>
         </div>
 
         <div id="panelRequestAccess" class="settings-panel active">
@@ -199,6 +145,32 @@
             <ul id="staffList" class="req-list"></ul>
           </div>
 
+          <div id="staffAccountsRow" class="setting-row stack">
+            <div>
+              <div class="setting-name">Admin Users</div>
+              <div class="setting-desc">Create additional admin accounts for this system.</div>
+            </div>
+            <div class="setting-form-grid">
+              <input id="newAdminUsernameInput" type="email" maxlength="120" placeholder="Email address" />
+              <input id="newAdminDisplayNameInput" type="text" maxlength="60" placeholder="Display name" />
+              <input id="newAdminPasswordInput" type="password" autocomplete="new-password" placeholder="Temporary password (8+ chars)" />
+            </div>
+            <div class="setting-form-actions">
+              <button id="createAdminUserBtn" class="btn-sm" type="button">Create Admin User</button>
+            </div>
+            <ul id="adminUsersList" class="req-list"></ul>
+          </div>
+
+          <div id="requestTrendsRow" class="setting-row stack">
+            <div>
+              <div class="setting-name">Admin History</div>
+              <div class="setting-desc">Recent account and admin-management actions.</div>
+            </div>
+            <div class="setting-form-actions">
+              <button id="refreshAccountHistoryBtn" class="btn-sm" type="button">Refresh History</button>
+            </div>
+            <ul id="accountHistoryList" class="req-list"></ul>
+          </div>
         </div>
 
         <div id="panelAudioJack" class="settings-panel">

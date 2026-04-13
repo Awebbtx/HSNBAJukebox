@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jukebox Admin - Stats</title>
+    <title>Jukebox Admin - My Account</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,14 +13,14 @@
     <link rel="stylesheet" href="/admin.css" />
     <link rel="stylesheet" href="/admin-pages.css" />
   </head>
-  <body data-admin-page="stats">
+  <body data-admin-page="account">
     <nav class="admin-page-nav" aria-label="Admin Sections">
       <a href="/admin-audio.html">Audio</a>
       <a href="/admin-scheduler.html">Scheduler</a>
-      <a href="/admin-stats.html" class="is-active">Stats</a>
+      <a href="/admin-stats.html">Stats</a>
       <a href="/admin-system.html">System</a>
       <a href="/admin-staff.html">Staff</a>
-      <a href="/admin-account.html">My Account</a>
+      <a href="/admin-account.html" class="is-active">My Account</a>
       <a href="/admin-adoptable.html">Adoptable Filters</a>
     </nav>
     <main class="shell">
@@ -98,15 +98,15 @@
       <section class="card settings-card">
         <div class="card-label">SETTINGS</div>
         <div class="settings-tabs">
-          <button id="tabAccount" class="settings-tab" data-tab="account">Account</button>
-          <button id="tabRequestAccess" class="settings-tab active" data-tab="request">Request Access</button>
+          <button id="tabAccount" class="settings-tab active" data-tab="account">Account</button>
+          <button id="tabRequestAccess" class="settings-tab" data-tab="request">Request Access</button>
           <button id="tabAudioJack" class="settings-tab" data-tab="audio-jack">Audio Jack</button>
           <button id="tabSpotify" class="settings-tab" data-tab="spotify">Spotify Enrollment</button>
           <button id="tabAsm" class="settings-tab" data-tab="asm">ASM</button>
         </div>
 
-        <div id="panelAccount" class="settings-panel">
-          <div id="requestDefaultLimitRow" class="setting-row stack">
+        <div id="panelAccount" class="settings-panel active">
+          <div class="setting-row stack">
             <div>
               <div class="setting-name">My Account</div>
               <div id="accountStatusText" class="setting-desc">Loading account profile...</div>
@@ -120,7 +120,7 @@
             </div>
           </div>
 
-          <div id="createStaffRow" class="setting-row stack">
+          <div class="setting-row stack">
             <div>
               <div class="setting-name">Change Password</div>
               <div class="setting-desc">Use your current password to set a new one.</div>
@@ -133,61 +133,9 @@
               <button id="saveAccountPasswordBtn" class="btn-sm" type="button">Change Password</button>
             </div>
           </div>
-
-          <div id="staffAccountsRow" class="setting-row stack">
-            <div>
-              <div class="setting-name">Admin Users</div>
-              <div class="setting-desc">Create additional admin accounts for this system.</div>
-            </div>
-            <div class="setting-form-grid">
-              <input id="newAdminUsernameInput" type="email" maxlength="120" placeholder="Email address" />
-              <input id="newAdminDisplayNameInput" type="text" maxlength="60" placeholder="Display name" />
-              <input id="newAdminPasswordInput" type="password" autocomplete="new-password" placeholder="Temporary password (8+ chars)" />
-            </div>
-            <div class="setting-form-actions">
-              <button id="createAdminUserBtn" class="btn-sm" type="button">Create Admin User</button>
-            </div>
-            <ul id="adminUsersList" class="req-list"></ul>
-          </div>
-
-          <div id="requestTrendsRow" class="setting-row stack">
-            <div>
-              <div class="setting-name">Admin History</div>
-              <div class="setting-desc">Recent account and admin-management actions.</div>
-            </div>
-            <div class="setting-form-actions">
-              <button id="refreshAccountHistoryBtn" class="btn-sm" type="button">Refresh History</button>
-            </div>
-            <ul id="accountHistoryList" class="req-list"></ul>
-          </div>
         </div>
 
-        <div id="panelRequestAccess" class="settings-panel active">
-          <div class="setting-row stack">
-            <div>
-              <div class="setting-name">Song Stats</div>
-              <div class="setting-desc">Play, skip, and vote totals across all sessions.</div>
-            </div>
-            <div class="setting-form-actions">
-              <button id="refreshRequestStatsBtn" class="btn-sm" type="button">Refresh Stats</button>
-            </div>
-            <div class="inline-list">
-              <span class="pill">Most Played</span>
-            </div>
-            <ul id="topPlayedAdminList" class="req-list"></ul>
-            <div class="inline-list">
-              <span class="pill">Most Skipped</span>
-            </div>
-            <ul id="topSkippedAdminList" class="req-list"></ul>
-            <div class="inline-list">
-              <span class="pill">Top Upvoted</span>
-            </div>
-            <ul id="topUpvotedAdminList" class="req-list"></ul>
-            <div class="inline-list">
-              <span class="pill">Top Downvoted</span>
-            </div>
-            <ul id="topDownvotedAdminList" class="req-list"></ul>
-          </div>
+        <div id="panelRequestAccess" class="settings-panel">
         </div>
 
         <div id="panelAudioJack" class="settings-panel">
@@ -220,14 +168,12 @@
               <button id="spotifyRefreshBtn" class="btn-sm">Refresh</button>
             </div>
           </div>
-
           <div class="setting-row stack">
             <div>
               <div class="setting-name">Backend Summary</div>
               <div id="spotifyAccountText" class="setting-desc">Checking status...</div>
             </div>
           </div>
-
           <div class="setting-row stack">
             <div>
               <div class="setting-name">Detected Settings</div>
@@ -243,28 +189,26 @@
             <button id="asmSubtabSlideshow" class="settings-tab" type="button">Slideshow</button>
             <button id="asmSubtabDiagnostics" class="settings-tab" type="button">Diagnostics</button>
           </div>
-
           <div id="asmPanelConnection" class="settings-panel active asm-subpanel">
             <div class="setting-row stack">
-            <div>
-              <div class="setting-name">ASM Service Connection</div>
-              <div id="asmStatusText" class="setting-desc">Configure Shelter Manager service credentials for adoptable slideshow.</div>
+              <div>
+                <div class="setting-name">ASM Service Connection</div>
+                <div id="asmStatusText" class="setting-desc">Configure Shelter Manager service credentials for adoptable slideshow.</div>
+              </div>
+              <div class="setting-form-grid">
+                <input id="asmServiceUrlInput" type="text" placeholder="ASM Service URL" />
+                <input id="asmAccountInput" type="text" placeholder="ASM Account (if cloud hosted)" />
+                <input id="asmApiKeyInput" type="password" placeholder="ASM API Key" />
+                <input id="asmUsernameInput" type="text" placeholder="ASM Username (optional if using API key)" />
+                <input id="asmPasswordInput" type="password" placeholder="ASM Password (optional if using API key)" />
+                <input id="asmMethodInput" type="text" placeholder="ASM adoptable method" />
+                <input id="asmCacheSecondsInput" type="number" min="30" step="30" placeholder="Cache seconds" />
+              </div>
+              <div class="setting-form-actions">
+                <button id="saveAsmConfigBtn" class="btn-sm">Save ASM Config</button>
+                <button id="testAsmConfigBtn" class="btn-sm">Test Connection</button>
+              </div>
             </div>
-            <div class="setting-form-grid">
-              <input id="asmServiceUrlInput" type="text" placeholder="ASM Service URL" />
-              <input id="asmAccountInput" type="text" placeholder="ASM Account (if cloud hosted)" />
-              <input id="asmApiKeyInput" type="password" placeholder="ASM API Key" />
-              <input id="asmUsernameInput" type="text" placeholder="ASM Username (optional if using API key)" />
-              <input id="asmPasswordInput" type="password" placeholder="ASM Password (optional if using API key)" />
-              <input id="asmMethodInput" type="text" placeholder="ASM adoptable method" />
-              <input id="asmCacheSecondsInput" type="number" min="30" step="30" placeholder="Cache seconds" />
-            </div>
-            <div class="setting-form-actions">
-              <button id="saveAsmConfigBtn" class="btn-sm">Save ASM Config</button>
-              <button id="testAsmConfigBtn" class="btn-sm">Test Connection</button>
-            </div>
-            </div>
-
             <div class="setting-row stack">
               <div>
                 <div class="setting-name">ASM Sync Details</div>
@@ -272,7 +216,6 @@
               </div>
             </div>
           </div>
-
           <div id="asmPanelSlideshow" class="settings-panel asm-subpanel">
             <div class="setting-row stack">
               <div>
@@ -307,7 +250,6 @@
               </div>
             </div>
           </div>
-
           <div id="asmPanelDiagnostics" class="settings-panel asm-subpanel">
             <div class="setting-row stack">
               <div>
@@ -332,7 +274,6 @@
               </div>
             </div>
           </div>
-
           <div class="setting-row asm-settings-footer">
             <div>
               <div class="setting-name">Apply ASM Settings</div>

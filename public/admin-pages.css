@@ -82,6 +82,25 @@ body[data-admin-page="users"] #panelAccount {
   display: block !important;
 }
 
+body[data-admin-page="account"] .np-card,
+body[data-admin-page="account"] .queue-card,
+body[data-admin-page="account"] .stats-card,
+body[data-admin-page="account"] .playlist-card {
+  display: none;
+}
+
+body[data-admin-page="account"] .settings-tabs,
+body[data-admin-page="account"] #panelRequestAccess,
+body[data-admin-page="account"] #panelAudioJack,
+body[data-admin-page="account"] #panelSpotify,
+body[data-admin-page="account"] #panelAsm {
+  display: none !important;
+}
+
+body[data-admin-page="account"] #panelAccount {
+  display: block !important;
+}
+
 body[data-admin-page="staff"] .np-card,
 body[data-admin-page="staff"] .queue-card,
 body[data-admin-page="staff"] .stats-card,
