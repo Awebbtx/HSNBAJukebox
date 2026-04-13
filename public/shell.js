@@ -155,10 +155,9 @@ navLinks.forEach((link) => {
       }
       localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
       setSignInNavMode("signin");
-      if (frame.dataset.page === "/requests.html") {
-        frame.src = "/requests.html";
-        frame.dataset.page = "/requests.html";
-      }
+      frame.src = "/requests.html?_=" + Date.now();
+      frame.dataset.page = "/requests.html";
+      setActiveLink("/requests.html");
       refreshSessionUi();
       return;
     }
