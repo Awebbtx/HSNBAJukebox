@@ -1129,9 +1129,8 @@ async function loadAudioJackSettings() {
     els.audioJackVolumeInput.value = `${volume}`;
     els.audioJackVolumeValue.textContent = `${volume}%`;
     setAudioJackMutedToUi(Boolean(data.muted));
-    els.audioJackStatusText.textContent = `Card ${data.card ?? 0} • ${data.muted ? "Muted" : "Live"}`;
   } catch (e) {
-    els.audioJackStatusText.textContent = e.message;
+    console.warn(`Unable to load AUX settings: ${e.message}`);
   }
 }
 
@@ -1148,7 +1147,6 @@ async function saveAudioJackSettings() {
   els.audioJackVolumeInput.value = `${volume}`;
   els.audioJackVolumeValue.textContent = `${volume}%`;
   setAudioJackMutedToUi(Boolean(data.muted));
-  els.audioJackStatusText.textContent = `Card ${data.card ?? 0} • ${data.muted ? "Muted" : "Live"}`;
 }
 
 async function loadAudioAutomationSettings() {
