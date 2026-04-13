@@ -2723,7 +2723,7 @@ app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) 
       mopidyRpc("core.playback.get_state").catch(() => "unknown")
     ]);
     const now = new Date();
-    const serverTime = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const serverTime = now.toLocaleTimeString('en-US', { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: 'America/Chicago' });
     res.json({
       ok: true,
       streamDeliveryEnabled: state.audioAutomation.streamDeliveryEnabled !== false,
