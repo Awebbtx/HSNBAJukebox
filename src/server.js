@@ -67,6 +67,7 @@ const USER_DB_PATH = path.resolve(__dirname, "../data/user-db.json");
 const ADMIN_DB_PATH = path.resolve(__dirname, "../data/admin-db.json");
 const SLIDESHOW_CONFIG_PATH = path.resolve(__dirname, "../data/slideshow-config.json");
 const AUDIO_AUTOMATION_CONFIG_PATH = path.resolve(__dirname, "../data/audio-automation.json");
+const SPOTIFY_TOKENS_PATH = path.resolve(__dirname, "../data/spotify-tokens.json");
 const SPECIAL_PAGE_UPLOAD_DIR = path.resolve(__dirname, "../public/uploads/special-pages");
 const SPECIAL_PAGE_UPLOAD_WEB_PATH = "/uploads/special-pages";
 const SPECIAL_PAGE_CATEGORIES = [
@@ -1646,6 +1647,32 @@ function persistEnvSetting(key, value) {
   }
 }
 
+function saveSpotifyTokens() {
+  try {
+    if (state.tokens) {
+      fs.writeFileSync(SPOTIFY_TOKENS_PATH, JSON.stringify(state.tokens), "utf8");
+    } else if (fs.existsSync(SPOTIFY_TOKENS_PATH)) {
+      fs.unlinkSync(SPOTIFY_TOKENS_PATH);
+    }
+  } catch (error) {
+    console.warn(`Unable to persist Spotify tokens: ${error.message}`);
+  }
+}
+
+function loadSpotifyTokens() {
+  try {
+    if (fs.existsSync(SPOTIFY_TOKENS_PATH)) {
+      const tokens = JSON.parse(fs.readFileSync(SPOTIFY_TOKENS_PATH, "utf8"));
+      if (tokens?.access_token && tokens?.refresh_token) {
+        state.tokens = tokens;
+        console.log("Loaded Spotify tokens from disk.");
+      }
+    }
+  } catch (error) {
+    console.warn(`Unable to load Spotify tokens: ${error.message}`);
+  }
+}
+
 function readIniFile(filePath) {
   const result = {};
   if (!fs.existsSync(filePath)) {
@@ -2065,6 +2092,7 @@ async function getValidAccessToken() {
       clientSecret: state.spotify.clientSecret,
       refreshToken: state.tokens.refresh_token
     });
+    saveSpotifyTokens();
   }
 
   return state.tokens.access_token;
@@ -3110,6 +3138,7 @@ app.post("/api/admin/settings/spotify", requireAdmin, (req, res) => {
     : clientSecretCandidate;
   state.spotify.redirectUri = redirectUri || `${BASE_URL}/auth/callback`;
   state.tokens = null;
+  saveSpotifyTokens();
 
   persistEnvSetting("SPOTIFY_CLIENT_ID", state.spotify.clientId);
   persistEnvSetting("SPOTIFY_CLIENT_SECRET", state.spotify.clientSecret);
@@ -3126,6 +3155,7 @@ app.post("/api/admin/settings/spotify", requireAdmin, (req, res) => {
 
 app.post("/api/admin/settings/spotify/disconnect", requireAdmin, (_req, res) => {
   state.tokens = null;
+  saveSpotifyTokens();
   state.spotify.activeDeviceId = null;
   persistEnvSetting("SPOTIFY_DEVICE_ID", "");
   res.json({ ok: true });
@@ -4044,6 +4074,7 @@ app.get("/auth/callback", async (req, res) => {
       code: req.query.code,
       redirectUri: state.spotify.redirectUri
     });
+    saveSpotifyTokens();
 
     res.redirect(state.oauthReturnPath || "/");
   } catch (error) {
@@ -4375,5 +4406,6 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
 });
 
 app.listen(PORT, () => {
+  loadSpotifyTokens();
   console.log(`Jukebox server running at ${BASE_URL}`);
 });
