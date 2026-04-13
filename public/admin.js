@@ -1620,11 +1620,12 @@ function renderTopList(listEl, rows, scoreKey) {
 }
 
 async function loadAdminRequestStats() {
+  if (!els.topPlayedAdminList && !els.topUpvotedAdminList) return;
   const data = await api("/api/admin/requests/stats");
-  renderTopList(els.topPlayedAdminList, data.topPlayed || [], "playCount");
-  renderTopList(els.topSkippedAdminList, data.topSkipped || [], "skipCount");
-  renderTopList(els.topUpvotedAdminList, data.topUpvoted || [], "upvotes");
-  renderTopList(els.topDownvotedAdminList, data.topDownvoted || [], "downvotes");
+  if (els.topPlayedAdminList) renderTopList(els.topPlayedAdminList, data.topPlayed || [], "playCount");
+  if (els.topSkippedAdminList) renderTopList(els.topSkippedAdminList, data.topSkipped || [], "skipCount");
+  if (els.topUpvotedAdminList) renderTopList(els.topUpvotedAdminList, data.topUpvoted || [], "upvotes");
+  if (els.topDownvotedAdminList) renderTopList(els.topDownvotedAdminList, data.topDownvoted || [], "downvotes");
 }
 
 // ── Spotify backend settings ─────────────────────────────────────────────────
