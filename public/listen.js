@@ -50,11 +50,24 @@ function reconnect() {
 els.playBtn.addEventListener("click", playStream);
 els.reloadBtn.addEventListener("click", reconnect);
 
+let _reconnectTimer = null;
+function scheduleReconnect(statusText) {
+  setStatus(statusText);
+  if (_reconnectTimer) window.clearTimeout(_reconnectTimer);
+  _reconnectTimer = window.setTimeout(() => {
+    _reconnectTimer = null;
+    reconnect();
+  }, 3000);
+}
+
 if (els.liveAudio) {
-  els.liveAudio.addEventListener("playing", () => setStatus("Live stream is playing."));
+  els.liveAudio.addEventListener("playing", () => {
+    if (_reconnectTimer) { window.clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+    setStatus("Live stream is playing.");
+  });
   els.liveAudio.addEventListener("waiting", () => setStatus("Buffering..."));
-  els.liveAudio.addEventListener("stalled", () => setStatus("Stream stalled. Tap Reconnect."));
-  els.liveAudio.addEventListener("error", () => setStatus("Stream unavailable right now. Try Reconnect."));
+  els.liveAudio.addEventListener("stalled", () => scheduleReconnect("Stream stalled. Reconnecting..."));
+  els.liveAudio.addEventListener("error", () => scheduleReconnect("Stream unavailable. Reconnecting..."));
 } else {
   setStatus("Live stream control unavailable.");
 }

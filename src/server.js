@@ -68,6 +68,8 @@ const ADMIN_DB_PATH = path.resolve(__dirname, "../data/admin-db.json");
 const SLIDESHOW_CONFIG_PATH = path.resolve(__dirname, "../data/slideshow-config.json");
 const AUDIO_AUTOMATION_CONFIG_PATH = path.resolve(__dirname, "../data/audio-automation.json");
 const SPOTIFY_TOKENS_PATH = path.resolve(__dirname, "../data/spotify-tokens.json");
+const LOCAL_QUEUE_PATH = path.resolve(__dirname, "../data/local-queue.json");
+const OAUTH_PENDING_PATH = path.resolve(__dirname, "../data/oauth-pending.json");
 const SPECIAL_PAGE_UPLOAD_DIR = path.resolve(__dirname, "../public/uploads/special-pages");
 const SPECIAL_PAGE_UPLOAD_WEB_PATH = "/uploads/special-pages";
 const SPECIAL_PAGE_CATEGORIES = [
@@ -96,6 +98,7 @@ app.use(express.static(path.resolve(__dirname, "../public")));
 const state = {
   oauthState: null,
   oauthReturnPath: "/",
+  oauthDerivedRedirectUri: null,
   tokens: null,
   spotify: {
     clientId: `${process.env.SPOTIFY_CLIENT_ID || ""}`.trim(),
@@ -1348,6 +1351,7 @@ loadUserDb();
 loadAdminDb();
 loadSlideshowConfig();
 loadAudioAutomationConfig();
+loadLocalQueue();
 startAudioAutomationScheduler();
 
 function buildAsmServiceUrl(method, extraParams = {}) {
@@ -1670,6 +1674,36 @@ function loadSpotifyTokens() {
     }
   } catch (error) {
     console.warn(`Unable to load Spotify tokens: ${error.message}`);
+  }
+}
+
+function saveLocalQueue() {
+  try {
+    const dir = path.dirname(LOCAL_QUEUE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(LOCAL_QUEUE_PATH, JSON.stringify(state.localQueue, null, 2), "utf8");
+  } catch (error) {
+    console.warn(`Unable to persist local queue: ${error.message}`);
+  }
+}
+
+function loadLocalQueue() {
+  try {
+    if (fs.existsSync(LOCAL_QUEUE_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_QUEUE_PATH, "utf8"));
+      if (Array.isArray(parsed)) {
+        state.localQueue = parsed.filter(
+          (item) => item && typeof item === "object" && item.id && item.uri && item.name
+        );
+        if (state.localQueue.length) {
+          console.log(`Loaded ${state.localQueue.length} local queue item(s) from disk.`);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`Unable to load local queue: ${error.message}`);
   }
 }
 
@@ -4046,11 +4080,33 @@ app.get("/auth/login", (req, res) => {
     state.oauthReturnPath = "/";
   }
 
-  state.oauthState = createAuthState();
+  // Derive the callback URL from the incoming request so it works regardless
+  // of whether the user is on LAN (192.168.1.11), Tailscale (100.67.211.48),
+  // or any other host. All derived URIs must be registered in Spotify Dashboard.
+  const proto = req.headers["x-forwarded-proto"] || (req.socket.encrypted ? "https" : "http");
+  const host = req.headers["x-forwarded-host"] || req.headers.host || "";
+  const derivedRedirectUri = host ? `${proto}://${host}/auth/callback` : state.spotify.redirectUri;
+
+  const oauthPending = {
+    state: createAuthState(),
+    redirectUri: derivedRedirectUri,
+    returnPath: state.oauthReturnPath,
+    expiresAt: Date.now() + 10 * 60 * 1000
+  };
+
+  state.oauthState = oauthPending.state;
+  state.oauthDerivedRedirectUri = derivedRedirectUri;
+
+  try {
+    const dir = path.dirname(OAUTH_PENDING_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(OAUTH_PENDING_PATH, JSON.stringify(oauthPending), "utf8");
+  } catch { /* non-fatal */ }
+
   const authorizeUrl = createAuthorizeUrl({
     clientId: state.spotify.clientId,
-    redirectUri: state.spotify.redirectUri,
-    state: state.oauthState
+    redirectUri: derivedRedirectUri,
+    state: oauthPending.state
   });
 
   res.redirect(authorizeUrl);
@@ -4058,8 +4114,21 @@ app.get("/auth/login", (req, res) => {
 
 app.get("/auth/callback", async (req, res) => {
   try {
+    // Recover pending OAuth state from disk in case the server restarted
+    // between /auth/login and the Spotify callback.
+    if (!state.oauthState && fs.existsSync(OAUTH_PENDING_PATH)) {
+      try {
+        const pending = JSON.parse(fs.readFileSync(OAUTH_PENDING_PATH, "utf8"));
+        if (pending?.expiresAt > Date.now()) {
+          state.oauthState = pending.state;
+          state.oauthDerivedRedirectUri = pending.redirectUri;
+          state.oauthReturnPath = pending.returnPath || "/";
+        }
+      } catch { /* non-fatal */ }
+    }
+
     if (req.query.state !== state.oauthState) {
-      res.status(400).send("Invalid OAuth state.");
+      res.status(400).send("Invalid OAuth state. Please try connecting again.");
       return;
     }
 
@@ -4068,13 +4137,19 @@ app.get("/auth/callback", async (req, res) => {
       return;
     }
 
+    const callbackUri = state.oauthDerivedRedirectUri || state.spotify.redirectUri;
     state.tokens = await exchangeCodeForToken({
       clientId: state.spotify.clientId,
       clientSecret: state.spotify.clientSecret,
       code: req.query.code,
-      redirectUri: state.spotify.redirectUri
+      redirectUri: callbackUri
     });
     saveSpotifyTokens();
+
+    // Clean up pending state file
+    state.oauthState = null;
+    state.oauthDerivedRedirectUri = null;
+    try { if (fs.existsSync(OAUTH_PENDING_PATH)) fs.unlinkSync(OAUTH_PENDING_PATH); } catch { /* non-fatal */ }
 
     res.redirect(state.oauthReturnPath || "/");
   } catch (error) {
@@ -4219,6 +4294,7 @@ app.post("/api/queue", (req, res) => {
   };
 
   state.localQueue.push(item);
+  saveLocalQueue();
   res.status(201).json({ item, queueLength: state.localQueue.length });
 });
 
@@ -4226,6 +4302,7 @@ app.delete("/api/queue/:id", (req, res) => {
   const before = state.localQueue.length;
   state.localQueue = state.localQueue.filter((item) => item.id !== req.params.id);
   const removed = before !== state.localQueue.length;
+  if (removed) saveLocalQueue();
   res.json({ ok: removed, queueLength: state.localQueue.length });
 });
 
@@ -4331,9 +4408,11 @@ app.post("/api/queue/play-next", async (_req, res) => {
       body: { uris: [item.uri] }
     });
 
+    saveLocalQueue();
     res.json({ ok: true, item });
   } catch (error) {
     state.localQueue.unshift(item);
+    saveLocalQueue();
     res.status(500).json({ error: error.message });
   }
 });
