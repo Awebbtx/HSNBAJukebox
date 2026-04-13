@@ -12,7 +12,7 @@ const els = {
   searchInput: document.getElementById("searchInput"),
   searchResults: document.getElementById("searchResults"),
   queueList: document.getElementById("queueList"),
-  topRequestedList: document.getElementById("topRequestedList"),
+
   topUpvotedList: document.getElementById("topUpvotedList"),
   queueCount: document.getElementById("queueCount"),
   currentTrack: document.getElementById("currentTrack"),
@@ -174,7 +174,6 @@ function renderStatsList(container, rows, labelKey) {
 
 async function loadStats() {
   const data = await api("/api/requests/stats");
-  renderStatsList(els.topRequestedList, data.topRequested || [], "requestCount");
   renderStatsList(els.topUpvotedList, data.topUpvoted || [], "upvotes");
 }
 
