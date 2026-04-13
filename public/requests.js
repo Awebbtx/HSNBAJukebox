@@ -118,17 +118,11 @@ function toQueueItem(track, showAddButton = false) {
       <div class="track-title">${escapeHtml(track.name || "Unknown")}</div>
       <div class="track-meta">${escapeHtml(byline.join(" • "))}</div>
       ${track.requestedBy ? `<div class="tag">Added by ${escapeHtml(track.requestedBy)}</div>` : ""}
-      <div class="track-meta">👍 ${Number(track.upvotes || 0)} • 👎 ${Number(track.downvotes || 0)}</div>
     </div>
     <div class="item-actions">
-      <button class="btn-sm vote-up ${Number(track.userVote || 0) === 1 ? "active-vote" : ""}" type="button">▲</button>
-      <button class="btn-sm vote-down ${Number(track.userVote || 0) === -1 ? "active-vote" : ""}" type="button">▼</button>
       ${showAddButton ? '<button class="btn-accent" type="button">Add</button>' : ""}
     </div>
   `;
-
-  li.querySelector(".vote-up")?.addEventListener("click", () => submitVote(track, 1));
-  li.querySelector(".vote-down")?.addEventListener("click", () => submitVote(track, -1));
 
   if (showAddButton) {
     li.querySelector(".btn-accent")?.addEventListener("click", async () => {
