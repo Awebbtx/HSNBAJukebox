@@ -7,12 +7,14 @@ const ALLOWED = new Set([
   "/requests.html",
   "/adoptable-stream.html",
   "/admin.html",
+  "/admin-account.html",
   "/local-player.html"
 ]);
 
 const frame = document.getElementById("contentFrame");
 const navLinks = Array.from(document.querySelectorAll("[data-page]"));
 const adminSessionUser = document.getElementById("adminSessionUser");
+const myAccountNavBtn = document.getElementById("myAccountNavBtn");
 const ADMIN_TOKEN_KEY = "jukebox.admin.token";
 
 function normalizePage(rawPath) {
@@ -35,6 +37,7 @@ async function refreshAdminSessionUser() {
   const token = sessionStorage.getItem(ADMIN_TOKEN_KEY) || "";
   if (!token) {
     adminSessionUser.hidden = true;
+    if (myAccountNavBtn) myAccountNavBtn.hidden = true;
     adminSessionUser.textContent = "Not signed in";
     return;
   }
@@ -46,6 +49,7 @@ async function refreshAdminSessionUser() {
     });
     if (!res.ok) {
       adminSessionUser.hidden = true;
+      if (myAccountNavBtn) myAccountNavBtn.hidden = true;
       adminSessionUser.textContent = "Not signed in";
       return;
     }
@@ -53,8 +57,10 @@ async function refreshAdminSessionUser() {
     const label = data.displayName || data.username || "Admin";
     adminSessionUser.textContent = `Signed in: ${label}`;
     adminSessionUser.hidden = false;
+    if (myAccountNavBtn) myAccountNavBtn.hidden = false;
   } catch {
     adminSessionUser.hidden = true;
+    if (myAccountNavBtn) myAccountNavBtn.hidden = true;
     adminSessionUser.textContent = "Not signed in";
   }
 }
