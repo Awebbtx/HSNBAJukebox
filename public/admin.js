@@ -1567,23 +1567,41 @@ async function loadStaffSettings() {
         <span class="req-count">${item.isAdmin ? "Admin" : "Standard"}</span>
         <span class="req-count">${item.usedToday}/${item.requestLimit} today</span>
         <input class="staff-limit-input" data-action="limit" type="number" min="1" step="1" value="${Number(item.requestLimit || 1)}" />
-        <button class="btn-sm" data-action="save-limit">Save Limit</button>
-        <button class="btn-sm" data-action="toggle-admin">${item.isAdmin ? "Remove Admin" : "Make Admin"}</button>
-        <button class="btn-sm" data-action="reset-password">Reset PW</button>
-        <button class="btn-sm" data-action="toggle">${item.active ? "Disable" : "Enable"}</button>
-        <button class="btn-sm danger" data-action="delete">Delete</button>
+        <button class="btn-sm staff-action-btn" data-action="toggle-admin">${item.isAdmin ? "Remove Admin" : "Make Admin"}</button>
+        <button class="btn-sm staff-action-btn" data-action="reset-password">Reset PW</button>
+        <button class="btn-sm staff-action-btn" data-action="toggle">${item.active ? "Disable" : "Enable"}</button>
+        <button class="btn-sm danger staff-action-btn" data-action="delete">Delete</button>
       `;
-      li.querySelector('[data-action="save-limit"]').addEventListener("click", async () => {
+      const limitInput = li.querySelector('[data-action="limit"]');
+      let lastLimitValue = Number(item.requestLimit || 1);
+      let applyingLimit = false;
+      const applyLimit = async () => {
+        if (!limitInput || applyingLimit) return;
+        const nextLimit = Math.max(1, Number(limitInput.value || lastLimitValue || 1));
+        limitInput.value = `${nextLimit}`;
+        if (nextLimit === lastLimitValue) return;
+        applyingLimit = true;
         try {
-          const limit = Number(li.querySelector('[data-action="limit"]').value || item.requestLimit || 1);
           await api(`/api/admin/staff/${item.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ requestLimit: Math.max(1, limit) })
+            body: JSON.stringify({ requestLimit: nextLimit })
           });
+          lastLimitValue = nextLimit;
           await loadStaffSettings();
           toast("User limit updated");
         } catch (e) {
           toast(e.message, true);
+          limitInput.value = `${lastLimitValue}`;
+        } finally {
+          applyingLimit = false;
+        }
+      };
+      limitInput.addEventListener("change", applyLimit);
+      limitInput.addEventListener("blur", applyLimit);
+      limitInput.addEventListener("keydown", async (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          await applyLimit();
         }
       });
       li.querySelector('[data-action="toggle"]').addEventListener("click", async () => {

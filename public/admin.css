@@ -395,7 +395,7 @@ input[type="range"] {
 
 .staff-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto auto auto auto;
+  grid-template-columns: minmax(120px, 1fr) auto auto auto 84px repeat(4, 108px);
   gap: 0.4rem;
   align-items: center;
 }
@@ -407,6 +407,13 @@ input[type="range"] {
   border-radius: 8px;
   color: var(--ink);
   padding: 0.25rem 0.45rem;
+}
+
+.staff-action-btn {
+  width: 108px;
+  min-width: 108px;
+  max-width: 108px;
+  text-align: center;
 }
 
 .req-item.empty { color: var(--muted); font-size: 0.9rem; }
