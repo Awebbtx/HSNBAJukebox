@@ -1189,9 +1189,7 @@ function findUserByUsername(username) {
 
 function normalizeAdminDb(raw) {
   const db = raw && typeof raw === "object" ? raw : {};
-  const admins = Array.isArray(db.admins) ? db.admins : [];
   const history = Array.isArray(db.history) ? db.history : [];
-  const staffAccounts = Array.isArray(db.staffAccounts) ? db.staffAccounts : [];
   const usersRaw = Array.isArray(db.users) ? db.users : [];
   const staffDefaults = db.staffDefaults && typeof db.staffDefaults === "object" ? db.staffDefaults : {};
   const usedEmails = new Set();
@@ -1211,58 +1209,6 @@ function normalizeAdminDb(raw) {
       id: `${item.id || crypto.randomUUID()}`,
       username,
       displayName: sanitizeAdminDisplayName(item.displayName || item.username || "User"),
-      firstName: sanitizeFirstName(item.firstName),
-      lastInitial: sanitizeLastInitial(item.lastInitial),
-      passwordSalt: `${item.passwordSalt || ""}`,
-      passwordHash: `${item.passwordHash || ""}`,
-      requestLimit: Math.max(1, Number(item.requestLimit || staffDefaults.requestLimit || state?.userDb?.defaults?.requestLimit || MAX_PENDING_PER_USER || 3)),
-      groups,
-      active: item.active !== false,
-      createdAt: item.createdAt || new Date().toISOString(),
-      updatedAt: item.updatedAt || new Date().toISOString(),
-      lastLoginAt: item.lastLoginAt || null
-    });
-  }
-
-  for (const item of admins) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-    const usernameResult = normalizeEmailUsername(item.username, { requireValid: false });
-    const username = ensureUniqueEmail(usernameResult.email, usedEmails);
-    unifiedUsers.push({
-      id: `${item.id || crypto.randomUUID()}`,
-      username,
-      displayName: sanitizeAdminDisplayName(item.displayName || item.username || "Admin"),
-      firstName: "",
-      lastInitial: "",
-      passwordSalt: `${item.passwordSalt || ""}`,
-      passwordHash: `${item.passwordHash || ""}`,
-      requestLimit: Math.max(1, Number(staffDefaults.requestLimit || state?.userDb?.defaults?.requestLimit || MAX_PENDING_PER_USER || 3)),
-      groups: ["admins"],
-      active: item.active !== false,
-      createdAt: item.createdAt || new Date().toISOString(),
-      updatedAt: item.updatedAt || new Date().toISOString(),
-      lastLoginAt: item.lastLoginAt || null
-    });
-  }
-
-  for (const item of staffAccounts) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-    const usernameResult = normalizeEmailUsername(item.username, { requireValid: false });
-    const username = ensureUniqueEmail(usernameResult.email, usedEmails);
-    const groups = Array.isArray(item.groups)
-      ? item.groups.map((entry) => `${entry || ""}`.trim().toLowerCase()).filter(Boolean)
-      : [];
-    if (item.isAdmin === true && !groups.includes("admins")) {
-      groups.push("admins");
-    }
-    unifiedUsers.push({
-      id: `${item.id || crypto.randomUUID()}`,
-      username,
-      displayName: sanitizeAdminDisplayName(item.displayName || formatStaffDisplayName(item) || item.username || "User"),
       firstName: sanitizeFirstName(item.firstName),
       lastInitial: sanitizeLastInitial(item.lastInitial),
       passwordSalt: `${item.passwordSalt || ""}`,
@@ -1355,46 +1301,23 @@ function bootstrapDefaultAdminIfNeeded() {
   saveAdminDb();
 }
 
-function bootstrapStaffMigrationIfNeeded() {
-  if (!state.adminDb || !state.userDb || !Array.isArray(state.adminDb.users)) {
-    return;
-  }
-  if (state.adminDb.users.length > 0) {
-    return;
-  }
-
-  // Legacy migration: old staff from userDb used numeric codes and cannot be migrated
-  // to the new username/password schema automatically. User accounts will need
-  // to be recreated via the admin console.
-  state.adminDb.users = [];
-
-  if (!state.adminDb.staffDefaults) {
-    state.adminDb.staffDefaults = {
-      requestLimit: Math.max(1, Number(state.userDb.defaults?.requestLimit || MAX_PENDING_PER_USER || 3))
-    };
-  }
-}
-
 function loadAdminDb() {
   try {
     if (!fs.existsSync(ADMIN_DB_PATH)) {
       state.adminDb = normalizeAdminDb(null);
       bootstrapDefaultAdminIfNeeded();
-      bootstrapStaffMigrationIfNeeded();
       saveAdminDb();
       return state.adminDb;
     }
     const text = fs.readFileSync(ADMIN_DB_PATH, "utf8");
     state.adminDb = normalizeAdminDb(JSON.parse(text));
     bootstrapDefaultAdminIfNeeded();
-    bootstrapStaffMigrationIfNeeded();
     saveAdminDb();
     return state.adminDb;
   } catch (error) {
     console.warn(`Failed to load admin db: ${error.message}`);
     state.adminDb = normalizeAdminDb(null);
     bootstrapDefaultAdminIfNeeded();
-    bootstrapStaffMigrationIfNeeded();
     saveAdminDb();
     return state.adminDb;
   }
