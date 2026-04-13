@@ -2144,11 +2144,21 @@ app.post("/api/admin/session/from-employee", requireEmployee, (req, res) => {
 });
 
 app.get("/api/admin/account/me", requireAdmin, (req, res) => {
-  const admin = req.adminAccount;
+  const admin = getUserById(req.adminAccount?.id || "");
+  if (!admin) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
   res.json({
     id: admin.id,
     username: admin.username,
     displayName: admin.displayName,
+    firstName: admin.firstName || "",
+    lastInitial: admin.lastInitial || "",
+    requestLimit: Math.max(1, Number(admin.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER)),
+    groups: Array.isArray(admin.groups) ? admin.groups : [],
+    isAdmin: isUserAdmin(admin),
+    active: admin.active !== false,
     createdAt: admin.createdAt,
     updatedAt: admin.updatedAt,
     lastLoginAt: admin.lastLoginAt
@@ -2156,19 +2166,29 @@ app.get("/api/admin/account/me", requireAdmin, (req, res) => {
 });
 
 app.patch("/api/admin/account/profile", requireAdmin, (req, res) => {
+  const account = getUserById(req.adminAccount?.id || "");
+  if (!account) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
   const displayName = sanitizeAdminDisplayName(req.body?.displayName);
   if (!displayName) {
     res.status(400).json({ error: "displayName is required." });
     return;
   }
-  req.adminAccount.displayName = displayName;
-  req.adminAccount.updatedAt = new Date().toISOString();
+  account.displayName = displayName;
+  account.updatedAt = new Date().toISOString();
   saveAdminDb();
-  logAdminHistory(req.adminAccount.id, "profile-update", `Display name changed to ${displayName}`);
+  logAdminHistory(account.id, "profile-update", `Display name changed to ${displayName}`);
   res.json({ ok: true, displayName });
 });
 
 app.post("/api/admin/account/password", requireAdmin, (req, res) => {
+  const account = getUserById(req.adminAccount?.id || "");
+  if (!account) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
   const currentPassword = `${req.body?.currentPassword || ""}`;
   const newPassword = `${req.body?.newPassword || ""}`;
 
@@ -2180,17 +2200,17 @@ app.post("/api/admin/account/password", requireAdmin, (req, res) => {
     res.status(400).json({ error: "New password must be at least 8 characters." });
     return;
   }
-  if (!verifyPassword(currentPassword, req.adminAccount.passwordSalt, req.adminAccount.passwordHash)) {
+  if (!verifyPassword(currentPassword, account.passwordSalt, account.passwordHash)) {
     res.status(401).json({ error: "Current password is incorrect." });
     return;
   }
 
   const next = hashPassword(newPassword);
-  req.adminAccount.passwordSalt = next.salt;
-  req.adminAccount.passwordHash = next.hash;
-  req.adminAccount.updatedAt = new Date().toISOString();
+  account.passwordSalt = next.salt;
+  account.passwordHash = next.hash;
+  account.updatedAt = new Date().toISOString();
   saveAdminDb();
-  logAdminHistory(req.adminAccount.id, "password-change", "Password was changed");
+  logAdminHistory(account.id, "password-change", "Password was changed");
   res.json({ ok: true });
 });
 
