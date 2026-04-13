@@ -1474,6 +1474,7 @@ async function saveAccountPassword() {
 }
 
 async function loadStaffSettings() {
+  if (!els.staffStatusText) return;
   try {
     const data = await api("/api/admin/staff");
     els.defaultRequestLimitInput.value = `${Number(data.defaults?.requestLimit || 3)}`;
