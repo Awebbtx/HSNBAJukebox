@@ -9,6 +9,7 @@ let currentPlaybackState = null;
 let playbackTimer = null;
 let queueTimer = null;
 let volumeDebounce = null;
+let audioJackDebounce = null;
 let settingsTab = "request";
 let asmSubtab = "connection";
 const pageMode = document.body?.dataset?.adminPage || "full";
@@ -1924,6 +1925,14 @@ if (els.topSaveBtn) {
 
 els.audioJackVolumeInput.addEventListener("input", () => {
   els.audioJackVolumeValue.textContent = `${Number(els.audioJackVolumeInput.value || 0)}%`;
+  window.clearTimeout(audioJackDebounce);
+  audioJackDebounce = window.setTimeout(async () => {
+    try {
+      await saveAudioJackSettings();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }, 250);
 });
 
 els.audioJackRefreshBtn.addEventListener("click", async () => {
@@ -1931,12 +1940,23 @@ els.audioJackRefreshBtn.addEventListener("click", async () => {
   toast("Audio jack settings refreshed");
 });
 
-els.audioJackSaveBtn.addEventListener("click", async () => {
-  try {
-    await saveAudioJackSettings();
-    toast("Audio jack settings saved");
-  } catch (e) { toast(e.message, true); }
-});
+if (els.audioJackMutedToggle) {
+  els.audioJackMutedToggle.addEventListener("change", async () => {
+    try {
+      await saveAudioJackSettings();
+      toast("AUX mute updated");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.audioJackSaveBtn) {
+  els.audioJackSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveAudioJackSettings();
+      toast("Audio jack settings saved");
+    } catch (e) { toast(e.message, true); }
+  });
+}
 
 if (els.streamDeliveryRefreshBtn) {
   els.streamDeliveryRefreshBtn.addEventListener("click", async () => {
