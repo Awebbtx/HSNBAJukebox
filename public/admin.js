@@ -1563,11 +1563,9 @@ async function loadStaffSettings() {
       li.className = "req-item staff-row";
       li.innerHTML = `
         <span class="req-name">${escapeHtml(item.displayName || `${item.firstName} ${item.lastInitial}.`)}</span>
-        <span class="req-count">@${escapeHtml(item.username || "")}</span>
-        <span class="req-count">${item.isAdmin ? "Admin" : "Standard"}</span>
         <span class="req-count">${item.usedToday}/${item.requestLimit} today</span>
         <input class="staff-limit-input" data-action="limit" type="number" min="1" step="1" value="${Number(item.requestLimit || 1)}" />
-        <button class="btn-sm staff-action-btn" data-action="toggle-admin">${item.isAdmin ? "Remove Admin" : "Make Admin"}</button>
+        <label class="staff-admin-cell"><input type="checkbox" data-action="toggle-admin" ${item.isAdmin ? "checked" : ""} /> Admin</label>
         <button class="btn-sm staff-action-btn" data-action="reset-password">Reset PW</button>
         <button class="btn-sm staff-action-btn" data-action="toggle">${item.active ? "Disable" : "Enable"}</button>
         <button class="btn-sm danger staff-action-btn" data-action="delete">Delete</button>
@@ -1633,16 +1631,19 @@ async function loadStaffSettings() {
           toast(e.message, true);
         }
       });
-      li.querySelector('[data-action="toggle-admin"]').addEventListener("click", async () => {
+      li.querySelector('[data-action="toggle-admin"]').addEventListener("change", async (event) => {
+        const checkbox = event.target;
+        const makeAdmin = Boolean(checkbox.checked);
         try {
-          const groups = item.isAdmin ? [] : ["admins"];
+          const groups = makeAdmin ? ["admins"] : [];
           await api(`/api/admin/staff/${item.id}`, {
             method: "PATCH",
             body: JSON.stringify({ groups })
           });
           await loadStaffSettings();
-          toast(item.isAdmin ? "Admin rights removed" : "Admin rights granted");
+          toast(makeAdmin ? "Admin rights granted" : "Admin rights removed");
         } catch (e) {
+          checkbox.checked = !makeAdmin;
           toast(e.message, true);
         }
       });

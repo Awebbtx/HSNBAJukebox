@@ -395,7 +395,7 @@ input[type="range"] {
 
 .staff-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto auto auto 84px repeat(4, 108px);
+  grid-template-columns: minmax(160px, 1fr) auto 84px 88px repeat(3, 108px);
   gap: 0.4rem;
   align-items: center;
 }
@@ -414,6 +414,15 @@ input[type="range"] {
   min-width: 108px;
   max-width: 108px;
   text-align: center;
+}
+
+.staff-admin-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
 }
 
 .req-item.empty { color: var(--muted); font-size: 0.9rem; }
