@@ -769,6 +769,14 @@ async function api(url, opts = {}) {
   return payload;
 }
 
+function notifyShellSessionUpdate(scope) {
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: "jukebox-session-update", scope }, window.location.origin);
+    }
+  } catch {}
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 async function login(username, password) {
@@ -779,6 +787,7 @@ async function login(username, password) {
   adminToken = result.token;
   sessionStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
   localStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
+  notifyShellSessionUpdate("admin");
   await connectAdminToStreamSession();
 }
 
@@ -796,6 +805,8 @@ async function logout() {
   sessionStorage.removeItem(ADMIN_TOKEN_KEY);
   localStorage.removeItem(ADMIN_TOKEN_KEY);
   localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
+  notifyShellSessionUpdate("admin");
+  notifyShellSessionUpdate("employee");
   adminToken = "";
   stopPolling();
   els.loginDialog.showModal();
@@ -2219,6 +2230,8 @@ async function bootstrap() {
         sessionStorage.removeItem(ADMIN_TOKEN_KEY);
         localStorage.removeItem(ADMIN_TOKEN_KEY);
         localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
+        notifyShellSessionUpdate("admin");
+        notifyShellSessionUpdate("employee");
         adminToken = "";
         els.loginDialog.showModal();
       } else {

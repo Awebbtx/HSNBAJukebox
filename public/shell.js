@@ -158,6 +158,13 @@ window.addEventListener("popstate", () => {
   loadPage(params.get("page"), false);
 });
 
+window.addEventListener("message", (event) => {
+  if (event.origin !== window.location.origin) return;
+  if (event.data?.type === "jukebox-session-update") {
+    refreshSessionUi();
+  }
+});
+
 window.addEventListener("focus", () => {
   refreshSessionUi();
 });

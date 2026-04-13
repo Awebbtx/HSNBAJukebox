@@ -24,6 +24,14 @@ const els = {
 let authToken = localStorage.getItem(storageKey) || "";
 let refreshTimer = null;
 
+function notifyShellSessionUpdate(scope = "employee") {
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: "jukebox-session-update", scope }, window.location.origin);
+    }
+  } catch {}
+}
+
 function escapeHtml(value) {
   return `${value || ""}`
     .replaceAll("&", "&amp;")
@@ -249,6 +257,7 @@ async function createSession(event) {
 
     authToken = result.token;
     localStorage.setItem(storageKey, authToken);
+    notifyShellSessionUpdate("employee");
     els.staffPasswordInput.value = "";
     els.joinDialog.close();
 
@@ -290,6 +299,7 @@ async function bootstrap() {
     await initializeBoard();
   } catch (_error) {
     localStorage.removeItem(storageKey);
+    notifyShellSessionUpdate("employee");
     authToken = "";
     els.joinDialog.showModal();
   }
