@@ -1292,9 +1292,7 @@ async function loadAudioAutomationSettings() {
     renderAudioAutomationList();
     updateAudioAutomationButtons();
     const jackControlSummary = `${data.audioJackCard ?? "?"}:${data.audioJackControl || "unknown"}`;
-    const masterSummary = Number.isFinite(Number(data.masterVolume)) ? `${Number(data.masterVolume)}%` : "unknown";
-    const hardwareSummary = data.hardwarePathReady ? "Hardware path ready" : "Hardware path missing alsasink";
-    els.audioAutomationStatusText.textContent = `Server scheduler active • Playback ${data.playbackState || "unknown"} • Master ${masterSummary} • Jack ${data.audioJack?.muted ? "muted" : "live"} (${jackControlSummary}) • ${hardwareSummary}${data.serverTime ? ` • Server time ${data.serverTime}` : ""}`;
+    els.audioAutomationStatusText.textContent = "";
     els.audioAutomationSummaryPills.innerHTML = [
       `Schedules ${audioAutomationSchedules.length}`
     ].map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
