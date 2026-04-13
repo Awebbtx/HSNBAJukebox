@@ -1365,26 +1365,27 @@ async function saveExplicitSetting() {
 }
 
 async function loadAccountSettings() {
+  if (!els.accountStatusText) return;
   try {
-    const [me, users, history] = await Promise.all([
-      api("/api/admin/account/me"),
-      api("/api/admin/account/users"),
-      api("/api/admin/account/history?limit=25")
-    ]);
+    const fetchList = [api("/api/admin/account/me")];
+    if (els.adminUsersList) fetchList.push(api("/api/admin/account/users"));
+    if (els.accountHistoryList) fetchList.push(api("/api/admin/account/history?limit=25"));
+    const [me, users, history] = await Promise.all(fetchList);
 
     els.accountUsernameInput.value = me.username || "";
     els.accountDisplayNameInput.value = me.displayName || "";
     els.accountStatusText.textContent = `Signed in as ${me.displayName || me.username} (${me.username})`;
 
-    els.adminUsersList.innerHTML = "";
-    const userRows = users.users || [];
-    if (!userRows.length) {
-      const li = document.createElement("li");
-      li.className = "req-item empty";
-      li.textContent = "No users found.";
-      els.adminUsersList.append(li);
-    } else {
-      userRows.forEach((user) => {
+    if (els.adminUsersList) {
+      els.adminUsersList.innerHTML = "";
+      const userRows = (users && users.users) || [];
+      if (!userRows.length) {
+        const li = document.createElement("li");
+        li.className = "req-item empty";
+        li.textContent = "No users found.";
+        els.adminUsersList.append(li);
+      } else {
+        userRows.forEach((user) => {
         const li = document.createElement("li");
         li.className = "req-item";
         const status = user.active ? "Active" : "Disabled";
@@ -1421,27 +1422,30 @@ async function loadAccountSettings() {
           }
         });
         els.adminUsersList.append(li);
-      });
+        });
+      }
     }
 
-    els.accountHistoryList.innerHTML = "";
-    const events = history.history || [];
-    if (!events.length) {
-      const li = document.createElement("li");
-      li.className = "req-item empty";
-      li.textContent = "No history yet.";
-      els.accountHistoryList.append(li);
-    } else {
-      events.forEach((entry) => {
+    if (els.accountHistoryList) {
+      els.accountHistoryList.innerHTML = "";
+      const events = (history && history.history) || [];
+      if (!events.length) {
         const li = document.createElement("li");
-        li.className = "req-item";
-        const when = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : "";
-        li.innerHTML = `
-          <span class="req-name">${escapeHtml(entry.actor || "system")} • ${escapeHtml(entry.action || "event")}</span>
-          <span class="req-count">${escapeHtml(when)}</span>
-        `;
+        li.className = "req-item empty";
+        li.textContent = "No history yet.";
         els.accountHistoryList.append(li);
-      });
+      } else {
+        events.forEach((entry) => {
+          const li = document.createElement("li");
+          li.className = "req-item";
+          const when = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : "";
+          li.innerHTML = `
+            <span class="req-name">${escapeHtml(entry.actor || "system")} • ${escapeHtml(entry.action || "event")}</span>
+            <span class="req-count">${escapeHtml(when)}</span>
+          `;
+          els.accountHistoryList.append(li);
+        });
+      }
     }
   } catch (e) {
     els.accountStatusText.textContent = e.message;
