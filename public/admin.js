@@ -138,6 +138,9 @@ const els = {
   refreshRequestStatsBtn: document.getElementById("refreshRequestStatsBtn"),
   topRequestedAdminList: document.getElementById("topRequestedAdminList"),
   topUpvotedAdminList: document.getElementById("topUpvotedAdminList"),
+  topPlayedAdminList: document.getElementById("topPlayedAdminList"),
+  topSkippedAdminList: document.getElementById("topSkippedAdminList"),
+  topDownvotedAdminList: document.getElementById("topDownvotedAdminList"),
 
   accountStatusText: document.getElementById("accountStatusText"),
   accountUsernameInput: document.getElementById("accountUsernameInput"),
@@ -1618,8 +1621,10 @@ function renderTopList(listEl, rows, scoreKey) {
 
 async function loadAdminRequestStats() {
   const data = await api("/api/admin/requests/stats");
-  renderTopList(els.topRequestedAdminList, data.topRequested || [], "requestCount");
+  renderTopList(els.topPlayedAdminList, data.topPlayed || [], "playCount");
+  renderTopList(els.topSkippedAdminList, data.topSkipped || [], "skipCount");
   renderTopList(els.topUpvotedAdminList, data.topUpvoted || [], "upvotes");
+  renderTopList(els.topDownvotedAdminList, data.topDownvoted || [], "downvotes");
 }
 
 // ── Spotify backend settings ─────────────────────────────────────────────────

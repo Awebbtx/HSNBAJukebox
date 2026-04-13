@@ -133,6 +133,7 @@ const state = {
   adminSessions: new Map(),
   userDb: null,
   adminDb: null,
+  lastKnownCurrentTrackUri: null,
   explicitFilter: EXPLICIT_FILTER_ENABLED,
   audioAutomation: {
     streamDeliveryEnabled: true,
@@ -174,6 +175,8 @@ function normalizeUserDb(raw) {
   const dateKey = `${daily.dateKey || ""}`.trim() || getLocalDateKey();
   const perUser = daily.perUser && typeof daily.perUser === "object" ? daily.perUser : {};
 
+  const trackStats = db.trackStats && typeof db.trackStats === "object" ? db.trackStats : {};
+
   return {
     version: 1,
     defaults: {
@@ -210,7 +213,8 @@ function normalizeUserDb(raw) {
     daily: {
       dateKey,
       perUser
-    }
+    },
+    trackStats
   };
 }
 
@@ -1041,6 +1045,46 @@ function getTopUpvoted(limit = 10) {
       score: Math.max(0, Number(item.upvotes || 0)) - Math.max(0, Number(item.downvotes || 0))
     }))
     .sort((a, b) => (b.upvotes - a.upvotes) || (b.score - a.score))
+    .slice(0, Math.max(1, limit));
+}
+
+function getTopDownvoted(limit = 10) {
+  return Object.values(state.userDb.votes || {})
+    .map((item) => ({
+      uri: item.uri,
+      name: item.name || "Unknown",
+      artists: item.artists || "",
+      album: item.album || "",
+      downvotes: Math.max(0, Number(item.downvotes || 0))
+    }))
+    .filter((item) => item.downvotes > 0)
+    .sort((a, b) => b.downvotes - a.downvotes)
+    .slice(0, Math.max(1, limit));
+}
+
+function recordTrackStat(uri, name, artists, album, field) {
+  if (!uri || !state.userDb) return;
+  const stats = state.userDb.trackStats;
+  if (!stats[uri]) {
+    stats[uri] = { uri, name: name || "Unknown", artists: artists || "", album: album || "", playCount: 0, skipCount: 0 };
+  }
+  if (name && !stats[uri].name) stats[uri].name = name;
+  if (artists && !stats[uri].artists) stats[uri].artists = artists;
+  stats[uri][field] = (stats[uri][field] || 0) + 1;
+  saveUserDb();
+}
+
+function getTopPlayed(limit = 10) {
+  return Object.values(state.userDb.trackStats || {})
+    .filter((t) => (t.playCount || 0) > 0)
+    .sort((a, b) => b.playCount - a.playCount)
+    .slice(0, Math.max(1, limit));
+}
+
+function getTopSkipped(limit = 10) {
+  return Object.values(state.userDb.trackStats || {})
+    .filter((t) => (t.skipCount || 0) > 0)
+    .sort((a, b) => b.skipCount - a.skipCount)
     .slice(0, Math.max(1, limit));
 }
 
@@ -2611,8 +2655,10 @@ app.post("/api/admin/staff/default-limit", requireAdmin, (req, res) => {
 
 app.get("/api/admin/requests/stats", requireAdmin, (_req, res) => {
   res.json({
-    topRequested: getTopRequested(10),
+    topPlayed: getTopPlayed(10),
+    topSkipped: getTopSkipped(10),
     topUpvoted: getTopUpvoted(10),
+    topDownvoted: getTopDownvoted(10),
     daily: {
       dateKey: state.userDb.daily.dateKey,
       perUser: state.userDb.daily.perUser
@@ -3196,9 +3242,14 @@ app.get("/api/admin/playback/state", requireAdmin, async (_req, res) => {
       mopidyRpc("core.playback.get_time_position"),
       mopidyRpc("core.mixer.get_volume")
     ]);
+    const mapped = currentTrack ? mapMopidyTrack(currentTrack) : null;
+    if (mapped?.uri && mapped.uri !== state.lastKnownCurrentTrackUri) {
+      state.lastKnownCurrentTrackUri = mapped.uri;
+      recordTrackStat(mapped.uri, mapped.name, mapped.artists, mapped.album, "playCount");
+    }
     res.json({
       state: playbackState || "stopped",
-      current: currentTrack ? mapMopidyTrack(currentTrack) : null,
+      current: mapped,
       positionMs: position || 0,
       volume: volume ?? 80
     });
@@ -3207,12 +3258,10 @@ app.get("/api/admin/playback/state", requireAdmin, async (_req, res) => {
   }
 });
 
-for (const action of ["play", "pause", "next", "previous"]) {
-  const rpcMethod = action === "next"
-    ? "core.playback.next"
-    : action === "previous"
-      ? "core.playback.previous"
-      : `core.playback.${action}`;
+for (const action of ["play", "pause", "previous"]) {
+  const rpcMethod = action === "previous"
+    ? "core.playback.previous"
+    : `core.playback.${action}`;
 
   app.post(`/api/admin/playback/${action}`, requireAdmin, async (_req, res) => {
     try {
@@ -3223,6 +3272,20 @@ for (const action of ["play", "pause", "next", "previous"]) {
     }
   });
 }
+
+app.post("/api/admin/playback/next", requireAdmin, async (_req, res) => {
+  try {
+    const currentTrack = await mopidyRpc("core.playback.get_current_track").catch(() => null);
+    if (currentTrack) {
+      const mapped = mapMopidyTrack(currentTrack);
+      if (mapped?.uri) recordTrackStat(mapped.uri, mapped.name, mapped.artists, mapped.album, "skipCount");
+    }
+    await mopidyRpc("core.playback.next");
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // ── Admin volume ──────────────────────────────────────────────────────────────
 
@@ -3655,6 +3718,7 @@ app.post("/api/requests/vote", requireEmployee, rateLimitEmployeeRequests, async
         const currentUri = `${currentTrack?.uri || ""}`;
         if (currentUri && currentUri === uri) {
           await mopidyRpc("core.playback.next");
+          recordTrackStat(uri, name, artists, album, "skipCount");
           autoSkipped = true;
         }
       }

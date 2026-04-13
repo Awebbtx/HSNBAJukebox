@@ -165,20 +165,28 @@
         <div id="panelRequestAccess" class="settings-panel active">
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Request Trends</div>
-              <div class="setting-desc">Top requested and top upvoted songs.</div>
+              <div class="setting-name">Song Stats</div>
+              <div class="setting-desc">Play, skip, and vote totals across all sessions.</div>
             </div>
             <div class="setting-form-actions">
               <button id="refreshRequestStatsBtn" class="btn-sm" type="button">Refresh Stats</button>
             </div>
             <div class="inline-list">
-              <span class="pill">Top Requested</span>
+              <span class="pill">Most Played</span>
             </div>
-            <ul id="topRequestedAdminList" class="req-list"></ul>
+            <ul id="topPlayedAdminList" class="req-list"></ul>
+            <div class="inline-list">
+              <span class="pill">Most Skipped</span>
+            </div>
+            <ul id="topSkippedAdminList" class="req-list"></ul>
             <div class="inline-list">
               <span class="pill">Top Upvoted</span>
             </div>
             <ul id="topUpvotedAdminList" class="req-list"></ul>
+            <div class="inline-list">
+              <span class="pill">Top Downvoted</span>
+            </div>
+            <ul id="topDownvotedAdminList" class="req-list"></ul>
           </div>
         </div>
 
