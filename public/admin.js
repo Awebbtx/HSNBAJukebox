@@ -762,7 +762,9 @@ async function api(url, opts = {}) {
     const detail = payload.suggestion
       ? `${payload.error || `HTTP ${res.status}`} Suggested: ${payload.suggestion}`
       : (payload.error || `HTTP ${res.status}`);
-    throw new Error(detail);
+    const error = new Error(detail);
+    error.status = res.status;
+    throw error;
   }
   return payload;
 }
@@ -2192,7 +2194,7 @@ async function bootstrap() {
       await initializeApp();
     } catch (err) {
       console.error("initializeApp failed:", err);
-      const isAuthError = err?.message?.includes("401") || err?.message?.includes("403") || err?.message?.includes("Unauthorized") || err?.message?.includes("Forbidden");
+      const isAuthError = err?.status === 401 || err?.status === 403 || err?.message?.includes("401") || err?.message?.includes("403") || err?.message?.includes("Unauthorized") || err?.message?.includes("Forbidden");
       if (isAuthError) {
         sessionStorage.removeItem(ADMIN_TOKEN_KEY);
         localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
