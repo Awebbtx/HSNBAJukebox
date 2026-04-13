@@ -2144,74 +2144,107 @@ app.post("/api/admin/session/from-employee", requireEmployee, (req, res) => {
 });
 
 app.get("/api/admin/account/me", requireAdmin, (req, res) => {
-  const admin = getUserById(req.adminAccount?.id || "");
-  if (!admin) {
-    res.status(404).json({ error: "Account not found." });
-    return;
+  try {
+    const admin = req.adminAccount;
+    if (!admin || !admin.id) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
+    // Refresh from database to get latest profile data
+    const current = getUserById(admin.id);
+    if (!current) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
+    res.json({
+      id: current.id,
+      username: current.username,
+      displayName: current.displayName,
+      firstName: current.firstName || "",
+      lastInitial: current.lastInitial || "",
+      requestLimit: Math.max(1, Number(current.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER)),
+      groups: Array.isArray(current.groups) ? current.groups : [],
+      isAdmin: isUserAdmin(current),
+      active: current.active !== false,
+      createdAt: current.createdAt,
+      updatedAt: current.updatedAt,
+      lastLoginAt: current.lastLoginAt
+    });
+  } catch (error) {
+    console.error("GET /api/admin/account/me error:", error);
+    res.status(500).json({ error: "Internal server error." });
   }
-  res.json({
-    id: admin.id,
-    username: admin.username,
-    displayName: admin.displayName,
-    firstName: admin.firstName || "",
-    lastInitial: admin.lastInitial || "",
-    requestLimit: Math.max(1, Number(admin.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER)),
-    groups: Array.isArray(admin.groups) ? admin.groups : [],
-    isAdmin: isUserAdmin(admin),
-    active: admin.active !== false,
-    createdAt: admin.createdAt,
-    updatedAt: admin.updatedAt,
-    lastLoginAt: admin.lastLoginAt
-  });
 });
 
 app.patch("/api/admin/account/profile", requireAdmin, (req, res) => {
-  const account = getUserById(req.adminAccount?.id || "");
-  if (!account) {
-    res.status(404).json({ error: "Account not found." });
-    return;
+  try {
+    const account = req.adminAccount;
+    if (!account || !account.id) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
+    // Refresh from database to ensure we're updating the latest version
+    const current = getUserById(account.id);
+    if (!current) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
+    const displayName = sanitizeAdminDisplayName(req.body?.displayName);
+    if (!displayName) {
+      res.status(400).json({ error: "displayName is required." });
+      return;
+    }
+    current.displayName = displayName;
+    current.updatedAt = new Date().toISOString();
+    saveAdminDb();
+    logAdminHistory(account.id, "profile-update", `Display name changed to ${displayName}`);
+    res.json({ ok: true, displayName });
+  } catch (error) {
+    console.error("PATCH /api/admin/account/profile error:", error);
+    res.status(500).json({ error: "Internal server error." });
   }
-  const displayName = sanitizeAdminDisplayName(req.body?.displayName);
-  if (!displayName) {
-    res.status(400).json({ error: "displayName is required." });
-    return;
-  }
-  account.displayName = displayName;
-  account.updatedAt = new Date().toISOString();
-  saveAdminDb();
-  logAdminHistory(account.id, "profile-update", `Display name changed to ${displayName}`);
-  res.json({ ok: true, displayName });
 });
 
 app.post("/api/admin/account/password", requireAdmin, (req, res) => {
-  const account = getUserById(req.adminAccount?.id || "");
-  if (!account) {
-    res.status(404).json({ error: "Account not found." });
-    return;
-  }
-  const currentPassword = `${req.body?.currentPassword || ""}`;
-  const newPassword = `${req.body?.newPassword || ""}`;
+  try {
+    const account = req.adminAccount;
+    if (!account || !account.id) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
+    // Refresh from database to ensure we're updating the latest version
+    const current = getUserById(account.id);
+    if (!current) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
+    const currentPassword = `${req.body?.currentPassword || ""}`;
+    const newPassword = `${req.body?.newPassword || ""}`;
 
-  if (!currentPassword || !newPassword) {
-    res.status(400).json({ error: "currentPassword and newPassword are required." });
-    return;
-  }
-  if (newPassword.length < 8) {
-    res.status(400).json({ error: "New password must be at least 8 characters." });
-    return;
-  }
-  if (!verifyPassword(currentPassword, account.passwordSalt, account.passwordHash)) {
-    res.status(401).json({ error: "Current password is incorrect." });
-    return;
-  }
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: "currentPassword and newPassword are required." });
+      return;
+    }
+    if (newPassword.length < 8) {
+      res.status(400).json({ error: "New password must be at least 8 characters." });
+      return;
+    }
+    if (!verifyPassword(currentPassword, current.passwordSalt, current.passwordHash)) {
+      res.status(401).json({ error: "Current password is incorrect." });
+      return;
+    }
 
-  const next = hashPassword(newPassword);
-  account.passwordSalt = next.salt;
-  account.passwordHash = next.hash;
-  account.updatedAt = new Date().toISOString();
-  saveAdminDb();
-  logAdminHistory(account.id, "password-change", "Password was changed");
-  res.json({ ok: true });
+    const next = hashPassword(newPassword);
+    current.passwordSalt = next.salt;
+    current.passwordHash = next.hash;
+    current.updatedAt = new Date().toISOString();
+    saveAdminDb();
+    logAdminHistory(account.id, "password-change", "Password was changed");
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("POST /api/admin/account/password error:", error);
+    res.status(500).json({ error: "Internal server error." });
+  }
 });
 
 app.get("/api/admin/account/history", requireAdmin, (req, res) => {
