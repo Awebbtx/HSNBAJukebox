@@ -3457,6 +3457,7 @@ app.get("/api/requests/me", requireEmployee, async (req, res) => {
     const pendingCount = staff ? getDailyRequestsUsed(staff.id) : await getPendingCountForToken(req.employeeToken);
     res.json({
       displayName: req.employeeSession.displayName,
+      isAdmin: isUserAdmin(staff),
       maxPending,
       pendingCount,
       resetAt: `${getLocalDateKey()}T23:59:59`

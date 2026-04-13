@@ -19,6 +19,7 @@ const adminSessionUser = document.getElementById("adminSessionUser");
 const myAccountNavBtn = document.getElementById("myAccountNavBtn");
 const ADMIN_TOKEN_KEY = "jukebox.admin.token";
 const EMPLOYEE_TOKEN_KEY = "jukebox.employee.token";
+let employeeSessionIsAdmin = false;
 
 function normalizePage(rawPath) {
   const path = `${rawPath || ""}`.trim();
@@ -46,6 +47,7 @@ async function refreshEmployeeSessionButton() {
   if (!signInNavBtn) return;
   const token = localStorage.getItem(EMPLOYEE_TOKEN_KEY) || "";
   if (!token) {
+    employeeSessionIsAdmin = false;
     setSignInNavMode("signin");
     return;
   }
@@ -57,11 +59,15 @@ async function refreshEmployeeSessionButton() {
     });
     if (!res.ok) {
       localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
+      employeeSessionIsAdmin = false;
       setSignInNavMode("signin");
       return;
     }
+    const data = await res.json().catch(() => ({}));
+    employeeSessionIsAdmin = data?.isAdmin === true;
     setSignInNavMode("signout");
   } catch {
+    employeeSessionIsAdmin = false;
     setSignInNavMode("signin");
   }
 }
@@ -69,9 +75,10 @@ async function refreshEmployeeSessionButton() {
 async function refreshAdminSessionUser() {
   if (!adminSessionUser) return;
   const token = sessionStorage.getItem(ADMIN_TOKEN_KEY) || localStorage.getItem(ADMIN_TOKEN_KEY) || "";
+  let hasAdminTokenSession = false;
   if (!token) {
     adminSessionUser.hidden = true;
-    if (adminNavBtn) adminNavBtn.hidden = true;
+    if (adminNavBtn) adminNavBtn.hidden = !employeeSessionIsAdmin;
     if (myAccountNavBtn) myAccountNavBtn.hidden = true;
     adminSessionUser.textContent = "Not signed in";
     return;
@@ -86,12 +93,13 @@ async function refreshAdminSessionUser() {
       sessionStorage.removeItem(ADMIN_TOKEN_KEY);
       localStorage.removeItem(ADMIN_TOKEN_KEY);
       adminSessionUser.hidden = true;
-      if (adminNavBtn) adminNavBtn.hidden = true;
+      if (adminNavBtn) adminNavBtn.hidden = !employeeSessionIsAdmin;
       if (myAccountNavBtn) myAccountNavBtn.hidden = true;
       adminSessionUser.textContent = "Not signed in";
       return;
     }
     const data = await res.json();
+    hasAdminTokenSession = true;
     const label = data.displayName || data.username || "Admin";
     adminSessionUser.textContent = `Signed in: ${label}`;
     adminSessionUser.hidden = false;
@@ -101,17 +109,19 @@ async function refreshAdminSessionUser() {
     sessionStorage.removeItem(ADMIN_TOKEN_KEY);
     localStorage.removeItem(ADMIN_TOKEN_KEY);
     adminSessionUser.hidden = true;
-    if (adminNavBtn) adminNavBtn.hidden = true;
+    if (adminNavBtn) adminNavBtn.hidden = !employeeSessionIsAdmin;
     if (myAccountNavBtn) myAccountNavBtn.hidden = true;
     adminSessionUser.textContent = "Not signed in";
+  }
+
+  if (!hasAdminTokenSession && adminNavBtn) {
+    adminNavBtn.hidden = !employeeSessionIsAdmin;
   }
 }
 
 async function refreshSessionUi() {
-  await Promise.all([
-    refreshAdminSessionUser(),
-    refreshEmployeeSessionButton()
-  ]);
+  await refreshEmployeeSessionButton();
+  await refreshAdminSessionUser();
 }
 
 function loadPage(page, pushHistory = true) {
