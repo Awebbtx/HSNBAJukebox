@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jukebox Admin - System</title>
+    <title>Jukebox Admin - Scheduler</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,12 +13,12 @@
     <link rel="stylesheet" href="/admin.css" />
     <link rel="stylesheet" href="/admin-pages.css" />
   </head>
-  <body data-admin-page="system">
+  <body data-admin-page="scheduler">
     <nav class="admin-page-nav" aria-label="Admin Sections">
       <a href="/admin-audio.html">Audio</a>
-      <a href="/admin-scheduler.html">Scheduler</a>
+      <a href="/admin-scheduler.html" class="is-active">Scheduler</a>
       <a href="/admin-stats.html">Stats</a>
-      <a href="/admin-system.html" class="is-active">System</a>
+      <a href="/admin-system.html">System</a>
       <a href="/admin-staff.html">Staff</a>
       <a href="/admin-users.html">Users</a>
       <a href="/admin-adoptable.html">Adoptable Filters</a>
@@ -55,32 +55,28 @@
         </div>
 
         <div class="volume-row">
-          <span class="vol-icon" title="Volume">🔊</span>
+          <span class="vol-icon" title="Master Volume">Master Volume</span>
           <input type="range" id="volumeSlider" min="0" max="100" value="80" />
           <span id="volVal" class="vol-val">80%</span>
         </div>
 
+        <div class="volume-row">
+          <span class="vol-icon" title="AUX OUT">AUX OUT</span>
+          <input id="audioJackVolumeInput" type="range" min="0" max="100" step="1" value="0" />
+          <span id="audioJackVolumeValue" class="vol-val">0%</span>
+        </div>
+        <div class="setting-form-row">
+          <label class="setting-desc"><input id="audioJackMutedToggle" type="checkbox" /> Mute AUX OUT</label>
+          <button id="audioJackRefreshBtn" class="btn-sm" type="button">Refresh AUX</button>
+          <button id="audioJackSaveBtn" class="btn-sm" type="button">Save AUX</button>
+        </div>
+        <div id="audioJackStatusText" class="setting-desc">Reading AUX OUT settings...</div>
+
         <div class="modes-row">
+          <button id="explicitToggle" class="mode-btn" data-active="false">🚫 Explicit Filter</button>
           <button id="repeatBtn" class="mode-btn" data-active="false">⟰ Repeat</button>
-          <button id="randomBtn" class="mode-btn" data-active="false">⤢ Shuffle mode</button>
+          <button id="randomBtn" class="mode-btn" data-active="false">⤢ Randomize Queue</button>
         </div>
-      </section>
-
-      <section class="card queue-card">
-        <div class="card-head">
-          <span class="card-label">QUEUE</span>
-          <span id="queueCount" class="badge"></span>
-          <div class="queue-actions">
-            <button id="shuffleBtn" class="btn-sm">⤢ Shuffle</button>
-            <button id="clearBtn" class="btn-sm danger">⊘ Clear</button>
-          </div>
-        </div>
-        <ul id="queueList" class="q-list"></ul>
-      </section>
-
-      <section class="card stats-card">
-        <div class="card-label">ACTIVE REQUESTERS</div>
-        <ul id="requesterList" class="req-list"></ul>
       </section>
 
       <section class="card playlist-card">
@@ -93,6 +89,23 @@
           <button id="savePlaylistBtn" class="btn-sm">Save Queue</button>
         </div>
         <ul id="playlistList" class="playlist-list"></ul>
+      </section>
+
+      <section class="card queue-card">
+        <div class="card-head">
+          <span class="card-label">QUEUE</span>
+          <span id="queueCount" class="badge"></span>
+          <div class="queue-actions">
+            <button id="shuffleBtn" class="btn-sm">⤢ Randomize</button>
+            <button id="clearBtn" class="btn-sm danger">⊘ Clear</button>
+          </div>
+        </div>
+        <ul id="queueList" class="q-list"></ul>
+      </section>
+
+      <section class="card stats-card">
+        <div class="card-label">ACTIVE REQUESTERS</div>
+        <ul id="requesterList" class="req-list"></ul>
       </section>
 
       <section class="card settings-card">
@@ -219,21 +232,58 @@
         </div>
 
         <div id="panelAudioJack" class="settings-panel">
-          <div class="setting-row stack">
+          <div id="streamDeliveryRow" class="setting-row stack">
             <div>
-              <div class="setting-name">Hardware Output Jack Volume</div>
-              <div id="audioJackStatusText" class="setting-desc">Reading ALSA Master settings...</div>
-            </div>
-            <div class="setting-form-row">
-              <input id="audioJackVolumeInput" type="range" min="0" max="100" step="1" value="0" />
-              <span id="audioJackVolumeValue" class="meta">0%</span>
-            </div>
-            <div class="setting-form-row">
-              <label class="setting-desc"><input id="audioJackMutedToggle" type="checkbox" /> Mute hardware output</label>
-              <button id="audioJackRefreshBtn" class="btn-sm" type="button">Refresh</button>
+              <div class="setting-name">Iframe Stream Delivery</div>
+              <div id="streamDeliveryStatusText" class="setting-desc">Loading stream delivery status...</div>
             </div>
             <div class="setting-form-actions">
-              <button id="audioJackSaveBtn" class="btn-sm" type="button">Save / Apply Audio Jack</button>
+              <button id="streamDeliveryStartBtn" class="btn-sm" type="button">Start Stream Delivery</button>
+              <button id="streamDeliveryStopBtn" class="btn-sm danger" type="button">Stop Stream Delivery</button>
+              <button id="streamDeliveryRefreshBtn" class="btn-sm" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div id="audioAutomationSchedulerRow" class="setting-row stack">
+            <div>
+              <div class="setting-name">Audio Automation Scheduler</div>
+              <div id="audioAutomationStatusText" class="setting-desc">Server-side schedules can control stream delivery, playback, and audio jack mute state.</div>
+            </div>
+            <div id="audioAutomationSummaryPills" class="inline-list"></div>
+            <div id="audioAutomationList" class="schedule-list"></div>
+            <div class="special-page-editor">
+              <input id="audioAutomationIdInput" type="hidden" />
+              <div class="setting-form-grid">
+                <input id="audioAutomationLabelInput" type="text" maxlength="80" placeholder="Schedule label" />
+                <select id="audioAutomationTargetInput">
+                  <option value="stream">Iframe Stream</option>
+                  <option value="playback">Playback Engine</option>
+                  <option value="audio-jack">External Audio Jack</option>
+                </select>
+                <select id="audioAutomationActionInput"></select>
+                <input id="audioAutomationTimeInput" type="time" />
+              </div>
+              <div class="setting-row stack">
+                <div class="setting-desc">Repeat on these days</div>
+                <div id="audioAutomationDaysWrap" class="schedule-days-wrap">
+                  <label class="schedule-day-chip"><input type="checkbox" value="0" /> Sun</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="1" /> Mon</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="2" /> Tue</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="3" /> Wed</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="4" /> Thu</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="5" /> Fri</label>
+                  <label class="schedule-day-chip"><input type="checkbox" value="6" /> Sat</label>
+                </div>
+              </div>
+              <div class="setting-form-row">
+                <label class="setting-desc"><input id="audioAutomationEnabledInput" type="checkbox" checked /> Enabled</label>
+              </div>
+              <div class="setting-form-actions">
+                <button id="newAudioAutomationBtn" class="btn-sm" type="button">New</button>
+                <button id="saveAudioAutomationBtn" class="btn-sm" type="button">Save Schedule</button>
+                <button id="runAudioAutomationNowBtn" class="btn-sm" type="button">Run Now</button>
+                <button id="deleteAudioAutomationBtn" class="btn-sm danger" type="button">Delete</button>
+              </div>
             </div>
           </div>
         </div>

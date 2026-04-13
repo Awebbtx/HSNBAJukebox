@@ -37,6 +37,10 @@ body[data-admin-page="audio"] #panelAudioJack {
   display: block !important;
 }
 
+body[data-admin-page="audio"] #audioAutomationSchedulerRow {
+  display: none !important;
+}
+
 body[data-admin-page="system"] .np-card,
 body[data-admin-page="system"] .queue-card,
 body[data-admin-page="system"] .stats-card,
@@ -91,6 +95,58 @@ body[data-admin-page="staff"] #panelAsm {
 
 body[data-admin-page="staff"] #panelRequestAccess {
   display: block !important;
+}
+
+body[data-admin-page="staff"] #requestTrendsRow {
+  display: none !important;
+}
+
+body[data-admin-page="scheduler"] .np-card,
+body[data-admin-page="scheduler"] .queue-card,
+body[data-admin-page="scheduler"] .stats-card,
+body[data-admin-page="scheduler"] .playlist-card {
+  display: none;
+}
+
+body[data-admin-page="scheduler"] .settings-tabs,
+body[data-admin-page="scheduler"] #panelAccount,
+body[data-admin-page="scheduler"] #panelRequestAccess,
+body[data-admin-page="scheduler"] #panelSpotify,
+body[data-admin-page="scheduler"] #panelAsm {
+  display: none !important;
+}
+
+body[data-admin-page="scheduler"] #panelAudioJack {
+  display: block !important;
+}
+
+body[data-admin-page="scheduler"] #streamDeliveryRow {
+  display: none !important;
+}
+
+body[data-admin-page="stats"] .np-card,
+body[data-admin-page="stats"] .queue-card,
+body[data-admin-page="stats"] .stats-card,
+body[data-admin-page="stats"] .playlist-card {
+  display: none;
+}
+
+body[data-admin-page="stats"] .settings-tabs,
+body[data-admin-page="stats"] #panelAccount,
+body[data-admin-page="stats"] #panelAudioJack,
+body[data-admin-page="stats"] #panelSpotify,
+body[data-admin-page="stats"] #panelAsm {
+  display: none !important;
+}
+
+body[data-admin-page="stats"] #panelRequestAccess {
+  display: block !important;
+}
+
+body[data-admin-page="stats"] #requestDefaultLimitRow,
+body[data-admin-page="stats"] #createStaffRow,
+body[data-admin-page="stats"] #staffAccountsRow {
+  display: none !important;
 }
 
 body[data-admin-page="adoptable"] .np-card,

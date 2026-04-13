@@ -58,9 +58,13 @@ const SPECIAL_PAGE_CATEGORIES = [
 
 if (pageMode === "audio") {
   settingsTab = "audio-jack";
+} else if (pageMode === "scheduler") {
+  settingsTab = "audio-jack";
 } else if (pageMode === "system") {
   settingsTab = "spotify";
 } else if (pageMode === "staff") {
+  settingsTab = "request";
+} else if (pageMode === "stats") {
   settingsTab = "request";
 } else if (pageMode === "users") {
   settingsTab = "account";

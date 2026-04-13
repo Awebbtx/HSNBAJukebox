@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jukebox Admin - System</title>
+    <title>Jukebox Admin - Stats</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,12 +13,12 @@
     <link rel="stylesheet" href="/admin.css" />
     <link rel="stylesheet" href="/admin-pages.css" />
   </head>
-  <body data-admin-page="system">
+  <body data-admin-page="stats">
     <nav class="admin-page-nav" aria-label="Admin Sections">
       <a href="/admin-audio.html">Audio</a>
       <a href="/admin-scheduler.html">Scheduler</a>
-      <a href="/admin-stats.html">Stats</a>
-      <a href="/admin-system.html" class="is-active">System</a>
+      <a href="/admin-stats.html" class="is-active">Stats</a>
+      <a href="/admin-system.html">System</a>
       <a href="/admin-staff.html">Staff</a>
       <a href="/admin-users.html">Users</a>
       <a href="/admin-adoptable.html">Adoptable Filters</a>
@@ -106,7 +106,7 @@
         </div>
 
         <div id="panelAccount" class="settings-panel">
-          <div class="setting-row stack">
+          <div id="requestDefaultLimitRow" class="setting-row stack">
             <div>
               <div class="setting-name">My Account</div>
               <div id="accountStatusText" class="setting-desc">Loading account profile...</div>
@@ -120,7 +120,7 @@
             </div>
           </div>
 
-          <div class="setting-row stack">
+          <div id="createStaffRow" class="setting-row stack">
             <div>
               <div class="setting-name">Change Password</div>
               <div class="setting-desc">Use your current password to set a new one.</div>
@@ -134,7 +134,7 @@
             </div>
           </div>
 
-          <div class="setting-row stack">
+          <div id="staffAccountsRow" class="setting-row stack">
             <div>
               <div class="setting-name">Admin Users</div>
               <div class="setting-desc">Create additional admin accounts for this system.</div>
@@ -150,7 +150,7 @@
             <ul id="adminUsersList" class="req-list"></ul>
           </div>
 
-          <div class="setting-row stack">
+          <div id="requestTrendsRow" class="setting-row stack">
             <div>
               <div class="setting-name">Admin History</div>
               <div class="setting-desc">Recent account and admin-management actions.</div>
