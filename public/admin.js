@@ -1563,7 +1563,7 @@ async function loadStaffSettings() {
       li.className = "req-item staff-row";
       li.innerHTML = `
         <span class="req-name">${escapeHtml(item.displayName || `${item.firstName} ${item.lastInitial}.`)}</span>
-        <span class="req-count">${item.usedToday}/${item.requestLimit} today</span>
+        <span class="req-count">${item.usedToday}/${item.requestLimit}</span>
         <input class="staff-limit-input" data-action="limit" type="number" min="1" step="1" value="${Number(item.requestLimit || 1)}" />
         <label class="staff-admin-cell"><input type="checkbox" data-action="toggle-admin" ${item.isAdmin ? "checked" : ""} /> Admin</label>
         <button class="btn-sm staff-action-btn" data-action="reset-password">Reset PW</button>
