@@ -1617,7 +1617,7 @@ async function loadStaffSettings() {
           const groups = item.isAdmin ? [] : ["admins"];
           await api(`/api/admin/staff/${item.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ groups, isAdmin: !item.isAdmin })
+            body: JSON.stringify({ groups })
           });
           await loadStaffSettings();
           toast(item.isAdmin ? "Admin rights removed" : "Admin rights granted");
