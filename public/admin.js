@@ -1962,8 +1962,15 @@ async function loadPlaylist(uri, replace) {
 if (els.explicitToggle) {
   els.explicitToggle.addEventListener("click", async () => {
     const newVal = els.explicitToggle.dataset.active !== "true";
+    const prevVal = !newVal;
     els.explicitToggle.dataset.active = String(newVal);
-    toast(`Explicit filter ${newVal ? "enabled" : "disabled"} (not saved yet)`);
+    try {
+      await saveExplicitSetting();
+      toast(`Explicit filter ${newVal ? "enabled" : "disabled"}`);
+    } catch (e) {
+      els.explicitToggle.dataset.active = String(prevVal);
+      toast(e.message, true);
+    }
   });
 }
 
@@ -2066,23 +2073,6 @@ if (els.specialPageTextColorInput) {
     if (!color) return;
     runRichTextCommandWithValue("foreColor", color);
   });
-}
-
-async function saveTopSettings() {
-  try {
-    await Promise.all([
-      saveExplicitSetting()
-    ]);
-    toast("Settings saved");
-  } catch (e) { toast(e.message, true); }
-}
-
-if (els.saveRequestAccessSettingsBtn) {
-  els.saveRequestAccessSettingsBtn.addEventListener("click", saveTopSettings);
-}
-
-if (els.topSaveBtn) {
-  els.topSaveBtn.addEventListener("click", saveTopSettings);
 }
 
 els.audioJackVolumeInput.addEventListener("input", () => {
