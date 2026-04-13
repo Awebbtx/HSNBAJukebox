@@ -145,6 +145,22 @@ navLinks.forEach((link) => {
       }
       localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
       setSignInNavMode("signin");
+      if (frame.dataset.page === "/requests.html") {
+        frame.src = "/requests.html";
+        frame.dataset.page = "/requests.html";
+      }
+      refreshSessionUi();
+      return;
+    }
+    if (link === signInNavBtn && signInNavBtn?.dataset?.authAction !== "signout") {
+      event.preventDefault();
+      const normalized = "/requests.html";
+      frame.src = normalized;
+      frame.dataset.page = normalized;
+      setActiveLink(normalized);
+      const params = new URLSearchParams(window.location.search);
+      params.set("page", normalized);
+      window.history.pushState({ page: normalized }, "", `/?${params.toString()}`);
       refreshSessionUi();
       return;
     }
