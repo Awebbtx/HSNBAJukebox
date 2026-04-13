@@ -3909,6 +3909,13 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
       return;
     }
 
+    const tlTracks = await mopidyRpc("core.tracklist.get_tl_tracks");
+    const alreadyQueued = (tlTracks || []).some((entry) => (entry.track?.uri || "") === uri);
+    if (alreadyQueued) {
+      res.status(409).json({ error: "That song is already in the queue." });
+      return;
+    }
+
     const added = await mopidyRpc("core.tracklist.add", { uris: [uri] });
     const createdAt = new Date().toISOString();
     const result = (added || []).map((entry) => {
