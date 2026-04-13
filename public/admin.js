@@ -1156,7 +1156,7 @@ async function loadAudioAutomationSettings() {
     audioAutomationSchedules = Array.isArray(data.schedules) ? data.schedules : [];
     renderAudioAutomationList();
     updateAudioAutomationButtons();
-    els.audioAutomationStatusText.textContent = `Server scheduler active • Playback ${data.playbackState || "unknown"} • Jack ${data.audioJack?.muted ? "muted" : "live"}`;
+    els.audioAutomationStatusText.textContent = `Server scheduler active • Playback ${data.playbackState || "unknown"} • Jack ${data.audioJack?.muted ? "muted" : "live"}${data.serverTime ? ` • Server time ${data.serverTime}` : ""}`;  
     els.audioAutomationSummaryPills.innerHTML = [
       data.streamDeliveryEnabled ? "Iframe stream live" : "Iframe stream stopped",
       `Active listeners ${Number(data.activeListeners || 0)}`,

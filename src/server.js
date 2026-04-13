@@ -2674,6 +2674,8 @@ app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) 
       getAudioJackSettings(),
       mopidyRpc("core.playback.get_state").catch(() => "unknown")
     ]);
+    const now = new Date();
+    const serverTime = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     res.json({
       ok: true,
       streamDeliveryEnabled: state.audioAutomation.streamDeliveryEnabled !== false,
@@ -2681,7 +2683,8 @@ app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) 
       schedules: sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []),
       targetActions: AUDIO_AUTOMATION_TARGET_ACTIONS,
       audioJack,
-      playbackState: `${playbackState || "unknown"}`
+      playbackState: `${playbackState || "unknown"}`,
+      serverTime
     });
   } catch (error) {
     res.status(500).json({ error: error.message || "Unable to load audio automation settings" });
