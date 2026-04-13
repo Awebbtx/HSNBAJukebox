@@ -13,9 +13,11 @@ const ALLOWED = new Set([
 
 const frame = document.getElementById("contentFrame");
 const navLinks = Array.from(document.querySelectorAll("[data-page]"));
+const signInNavBtn = document.getElementById("signInNavBtn");
 const adminSessionUser = document.getElementById("adminSessionUser");
 const myAccountNavBtn = document.getElementById("myAccountNavBtn");
 const ADMIN_TOKEN_KEY = "jukebox.admin.token";
+const EMPLOYEE_TOKEN_KEY = "jukebox.employee.token";
 
 function normalizePage(rawPath) {
   const path = `${rawPath || ""}`.trim();
@@ -30,6 +32,37 @@ function setActiveLink(page) {
     const on = link.dataset.page === page;
     link.classList.toggle("is-active", on);
   });
+}
+
+function setSignInNavMode(mode) {
+  if (!signInNavBtn) return;
+  const signOut = mode === "signout";
+  signInNavBtn.dataset.authAction = signOut ? "signout" : "signin";
+  signInNavBtn.textContent = signOut ? "Sign Out" : "Sign In";
+}
+
+async function refreshEmployeeSessionButton() {
+  if (!signInNavBtn) return;
+  const token = localStorage.getItem(EMPLOYEE_TOKEN_KEY) || "";
+  if (!token) {
+    setSignInNavMode("signin");
+    return;
+  }
+  try {
+    const res = await fetch("/api/requests/me", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    if (!res.ok) {
+      localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
+      setSignInNavMode("signin");
+      return;
+    }
+    setSignInNavMode("signout");
+  } catch {
+    setSignInNavMode("signin");
+  }
 }
 
 async function refreshAdminSessionUser() {
@@ -65,6 +98,13 @@ async function refreshAdminSessionUser() {
   }
 }
 
+async function refreshSessionUi() {
+  await Promise.all([
+    refreshAdminSessionUser(),
+    refreshEmployeeSessionButton()
+  ]);
+}
+
 function loadPage(page, pushHistory = true) {
   const normalized = normalizePage(page);
   if (frame.dataset.page !== normalized) {
@@ -79,12 +119,26 @@ function loadPage(page, pushHistory = true) {
     window.history.pushState({ page: normalized }, "", `/?${params.toString()}`);
   }
 
-  refreshAdminSessionUser();
+  refreshSessionUi();
 }
 
 
 navLinks.forEach((link) => {
   link.addEventListener("click", (event) => {
+    if (link === signInNavBtn && signInNavBtn?.dataset?.authAction === "signout") {
+      event.preventDefault();
+      const token = localStorage.getItem(EMPLOYEE_TOKEN_KEY) || "";
+      if (token) {
+        fetch("/api/requests/session/logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch(() => {});
+      }
+      localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
+      setSignInNavMode("signin");
+      refreshSessionUi();
+      return;
+    }
     event.preventDefault();
     loadPage(link.dataset.page, true);
   });
@@ -96,19 +150,19 @@ window.addEventListener("popstate", () => {
 });
 
 window.addEventListener("focus", () => {
-  refreshAdminSessionUser();
+  refreshSessionUi();
 });
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
-    refreshAdminSessionUser();
+    refreshSessionUi();
   }
 });
 
 frame.addEventListener("load", () => {
-  refreshAdminSessionUser();
+  refreshSessionUi();
 });
 
 const initialParams = new URLSearchParams(window.location.search);
 loadPage(initialParams.get("page"), false);
-refreshAdminSessionUser();
+refreshSessionUi();
