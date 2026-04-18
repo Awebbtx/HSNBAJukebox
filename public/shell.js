@@ -73,14 +73,11 @@ async function refreshEmployeeSessionButton() {
 }
 
 async function refreshAdminSessionUser() {
-  if (!adminSessionUser) return;
   const token = sessionStorage.getItem(ADMIN_TOKEN_KEY) || localStorage.getItem(ADMIN_TOKEN_KEY) || "";
   let hasAdminTokenSession = false;
   if (!token) {
-    adminSessionUser.hidden = true;
     if (adminNavBtn) adminNavBtn.hidden = !employeeSessionIsAdmin;
     if (myAccountNavBtn) myAccountNavBtn.hidden = true;
-    adminSessionUser.textContent = "Not signed in";
     return;
   }
   try {
@@ -92,26 +89,19 @@ async function refreshAdminSessionUser() {
     if (!res.ok) {
       sessionStorage.removeItem(ADMIN_TOKEN_KEY);
       localStorage.removeItem(ADMIN_TOKEN_KEY);
-      adminSessionUser.hidden = true;
       if (adminNavBtn) adminNavBtn.hidden = !employeeSessionIsAdmin;
       if (myAccountNavBtn) myAccountNavBtn.hidden = true;
-      adminSessionUser.textContent = "Not signed in";
       return;
     }
     const data = await res.json();
     hasAdminTokenSession = true;
-    const label = data.displayName || data.username || "Admin";
-    adminSessionUser.textContent = `Signed in: ${label}`;
-    adminSessionUser.hidden = false;
     if (adminNavBtn) adminNavBtn.hidden = false;
     if (myAccountNavBtn) myAccountNavBtn.hidden = false;
   } catch {
     sessionStorage.removeItem(ADMIN_TOKEN_KEY);
     localStorage.removeItem(ADMIN_TOKEN_KEY);
-    adminSessionUser.hidden = true;
     if (adminNavBtn) adminNavBtn.hidden = !employeeSessionIsAdmin;
     if (myAccountNavBtn) myAccountNavBtn.hidden = true;
-    adminSessionUser.textContent = "Not signed in";
   }
 
   if (!hasAdminTokenSession && adminNavBtn) {
