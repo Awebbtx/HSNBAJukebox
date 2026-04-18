@@ -52,6 +52,11 @@ body[data-admin-page="system"] .playlist-card {
   display: none;
 }
 
+body[data-admin-page="system"] #panelAccount,
+body[data-admin-page="system"] #panelRequestAccess {
+  display: none !important;
+}
+
 
 
 body[data-admin-page="users"] .np-card,
