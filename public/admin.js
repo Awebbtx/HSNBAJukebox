@@ -2092,11 +2092,11 @@ if (els.explicitToggle) {
   });
 }
 
-els.tabAccount.addEventListener("click", () => setSettingsTab("account"));
-els.tabRequestAccess.addEventListener("click", () => setSettingsTab("request"));
-els.tabAudioJack.addEventListener("click", () => setSettingsTab("audio-jack"));
-els.tabSpotify.addEventListener("click", () => setSettingsTab("spotify"));
-els.tabAsm.addEventListener("click", () => setSettingsTab("asm"));
+els.tabAccount?.addEventListener("click", () => setSettingsTab("account"));
+els.tabRequestAccess?.addEventListener("click", () => setSettingsTab("request"));
+els.tabAudioJack?.addEventListener("click", () => setSettingsTab("audio-jack"));
+els.tabSpotify?.addEventListener("click", () => setSettingsTab("spotify"));
+els.tabAsm?.addEventListener("click", () => setSettingsTab("asm"));
 els.asmSubtabConnection.addEventListener("click", () => setAsmSubtab("connection"));
 els.asmSubtabSlideshow.addEventListener("click", () => setAsmSubtab("slideshow"));
 els.asmSubtabDiagnostics.addEventListener("click", () => setAsmSubtab("diagnostics"));
