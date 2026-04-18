@@ -24,7 +24,8 @@
       <a href="/admin-adoptable.html">Adoptable Stream</a>
       <a href="/admin-custom-slides.html">Custom Slides</a>
     </nav>
-    <main class="shell">
+    <main class="shell">
+
       <section class="card np-card">
         <div class="card-label">NOW PLAYING</div>
         <div id="trackTitle" class="np-title">—</div>
@@ -197,6 +198,19 @@
         </div>
 
         <div id="panelAudioJack" class="settings-panel">
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Server Clock &amp; Timezone</div>
+              <div id="systemClockStatusText" class="setting-desc">Controls the timezone used by all server-side schedulers (audio automation, daily request windows, custom slide scheduling).</div>
+            </div>
+            <div id="systemClockPills" class="inline-list"></div>
+            <div class="setting-form-row">
+              <input id="systemTimezoneInput" type="text" maxlength="80" placeholder="IANA timezone — e.g. America/Chicago" style="flex:1" />
+              <button id="saveSystemTimezoneBtn" class="btn-sm" type="button">Save Timezone</button>
+              <button id="refreshSystemClockBtn" class="btn-sm" type="button">Refresh</button>
+            </div>
+          </div>
+
           <div class="setting-row stack">
             <div>
               <div class="setting-name">Hardware Output Jack Volume</div>

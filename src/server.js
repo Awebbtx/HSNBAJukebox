@@ -27,6 +27,7 @@ const EMPLOYEE_SESSION_TTL_MINUTES = Number(process.env.EMPLOYEE_SESSION_TTL_MIN
 const REQUESTS_RATE_WINDOW_MS = Number(process.env.REQUESTS_RATE_WINDOW_MS || 60000);
 const REQUESTS_RATE_MAX = Number(process.env.REQUESTS_RATE_MAX || 40);
 const ADMIN_BOOTSTRAP_PASSWORD = process.env.ADMIN_BOOTSTRAP_PASSWORD || "";
+const SERVER_TZ_DEFAULT = process.env.SERVER_TZ || "America/Chicago";
 let audioJackAlsaCard = `${process.env.AUDIO_JACK_ALSA_CARD || "0"}`.trim() || "0";
 let audioJackAlsaControl = `${process.env.AUDIO_JACK_ALSA_CONTROL || "Master"}`.trim() || "Master";
 const AUDIO_JACK_STORE_ON_CHANGE = `${process.env.AUDIO_JACK_STORE_ON_CHANGE || "true"}`.toLowerCase() !== "false";
@@ -70,6 +71,7 @@ const AUDIO_AUTOMATION_CONFIG_PATH = path.resolve(__dirname, "../data/audio-auto
 const SPOTIFY_TOKENS_PATH = path.resolve(__dirname, "../data/spotify-tokens.json");
 const LOCAL_QUEUE_PATH = path.resolve(__dirname, "../data/local-queue.json");
 const OAUTH_PENDING_PATH = path.resolve(__dirname, "../data/oauth-pending.json");
+const SYSTEM_CONFIG_PATH = path.resolve(__dirname, "../data/system-config.json");
 const SPECIAL_PAGE_UPLOAD_DIR = path.resolve(__dirname, "../public/uploads/special-pages");
 const SPECIAL_PAGE_UPLOAD_WEB_PATH = "/uploads/special-pages";
 const SPECIAL_PAGE_CATEGORIES = [
@@ -165,10 +167,8 @@ const state = {
 };
 
 function getLocalDateKey(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  const { year: y, month: m, day: d } = getServerTzParts(date);
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 function normalizeUserDb(raw) {
@@ -447,13 +447,54 @@ function loadAudioAutomationConfig() {
   }
 }
 
+const _tzDayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+let _activeTz = SERVER_TZ_DEFAULT;
+let _tzFmt = buildTzFmt(_activeTz);
+
+function buildTzFmt(tz) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short",
+    hour12: false
+  });
+}
+
+function setActiveTimezone(tz) {
+  const safe = `${tz || ""}`.trim();
+  if (!safe) throw new Error("Timezone cannot be empty.");
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: safe });
+  } catch {
+    throw new Error(`Invalid IANA timezone: ${safe}`);
+  }
+  _activeTz = safe;
+  _tzFmt = buildTzFmt(safe);
+}
+
+function getActiveTimezone() {
+  return _activeTz;
+}
+
+function getServerTzParts(date = new Date()) {
+  const parts = Object.fromEntries(_tzFmt.formatToParts(date).map(({ type, value }) => [type, value]));
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour) % 24,
+    minute: Number(parts.minute),
+    weekday: _tzDayNames.indexOf(parts.weekday)
+  };
+}
+
 function getLocalMinuteKey(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  const hh = String(date.getHours()).padStart(2, "0");
-  const mm = String(date.getMinutes()).padStart(2, "0");
-  return `${y}-${m}-${d}T${hh}:${mm}`;
+  const { year: y, month: m, day: d, hour: hh, minute: mm } = getServerTzParts(date);
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
 function disconnectActiveLiveStreams() {
@@ -545,8 +586,8 @@ async function processAudioAutomationSchedules(now = new Date()) {
       state.audioAutomationRuntime.recentExecutionKeys.delete(key);
     }
   }
-  const day = now.getDay();
-  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const { hour: _h, minute: _m, weekday: day } = getServerTzParts(now);
+  const time = `${String(_h).padStart(2, "0")}:${String(_m).padStart(2, "0")}`;
   const schedules = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []);
   for (const rule of schedules) {
     if (!rule.enabled || !rule.days.includes(day) || rule.time !== time) {
@@ -1351,6 +1392,7 @@ loadUserDb();
 loadAdminDb();
 loadSlideshowConfig();
 loadAudioAutomationConfig();
+loadSystemConfig();
 loadLocalQueue();
 startAudioAutomationScheduler();
 
@@ -2967,7 +3009,7 @@ app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) 
     ]);
     const audioOutput = getMopidyAudioOutputDiagnostics();
     const now = new Date();
-    const serverTime = now.toLocaleTimeString('en-US', { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: 'America/Chicago' });
+    const serverTime = now.toLocaleTimeString('en-US', { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: getActiveTimezone() });
     res.json({
       ok: true,
       streamDeliveryEnabled: state.audioAutomation.streamDeliveryEnabled !== false,
@@ -4487,4 +4529,55 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
 app.listen(PORT, () => {
   loadSpotifyTokens();
   console.log(`Jukebox server running at ${BASE_URL}`);
+});
+
+// ── System config (timezone) ──────────────────────────────────────────────────
+
+function loadSystemConfig() {
+  try {
+    if (!fs.existsSync(SYSTEM_CONFIG_PATH)) return;
+    const text = fs.readFileSync(SYSTEM_CONFIG_PATH, "utf8");
+    const config = JSON.parse(text);
+    if (config.serverTimezone) {
+      setActiveTimezone(config.serverTimezone);
+    }
+  } catch (err) {
+    console.warn(`Failed to load system config: ${err.message}`);
+  }
+}
+
+function saveSystemConfig() {
+  const dir = path.dirname(SYSTEM_CONFIG_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(SYSTEM_CONFIG_PATH, JSON.stringify({ serverTimezone: getActiveTimezone() }, null, 2), "utf8");
+}
+
+app.get("/api/admin/settings/system", requireAdmin, (_req, res) => {
+  const now = new Date();
+  const tz = getActiveTimezone();
+  res.json({
+    ok: true,
+    serverTimezone: tz,
+    serverTime: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: tz }),
+    serverDate: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz })
+  });
+});
+
+app.patch("/api/admin/settings/system", requireAdmin, (req, res) => {
+  const { serverTimezone } = req.body || {};
+  if (!serverTimezone) return res.status(400).json({ error: "serverTimezone is required." });
+  try {
+    setActiveTimezone(`${serverTimezone}`.trim());
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  saveSystemConfig();
+  const now = new Date();
+  const tz = getActiveTimezone();
+  res.json({
+    ok: true,
+    serverTimezone: tz,
+    serverTime: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: tz }),
+    serverDate: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz })
+  });
 });

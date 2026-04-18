@@ -170,6 +170,11 @@ const els = {
   audioJackSaveBtn: document.getElementById("audioJackSaveBtn"),
   audioJackCardSelect: document.getElementById("audioJackCardSelect"),
   audioJackControlSelect: document.getElementById("audioJackControlSelect"),
+  systemTimezoneInput: document.getElementById("systemTimezoneInput"),
+  systemClockStatusText: document.getElementById("systemClockStatusText"),
+  systemClockPills: document.getElementById("systemClockPills"),
+  saveSystemTimezoneBtn: document.getElementById("saveSystemTimezoneBtn"),
+  refreshSystemClockBtn: document.getElementById("refreshSystemClockBtn"),
   streamDeliveryToggleBtn: document.getElementById("streamDeliveryToggleBtn"),
   streamDeliveryStatusText: document.getElementById("streamDeliveryStatusText"),
   audioAutomationStatusText: document.getElementById("audioAutomationStatusText"),
@@ -990,6 +995,7 @@ async function initializeApp() {
     ["audio-jack", loadAudioJackSettings],
     ["audio-jack-routing", loadAudioJackRoutingSettings],
     ["audio-automation", loadAudioAutomationSettings],
+    ["system", loadSystemSettings],
     ["playlists", loadPlaylists],
     ["staff", loadStaffSettings],
     ["request-stats", loadAdminRequestStats],
@@ -1202,6 +1208,43 @@ async function loadAudioJackSettings() {
   } catch (e) {
     console.warn(`Unable to load AUX settings: ${e.message}`);
   }
+}
+
+async function loadSystemSettings() {
+  if (!els.systemTimezoneInput) return;
+  try {
+    const data = await api("/api/admin/settings/system");
+    els.systemTimezoneInput.value = data.serverTimezone || "";
+    if (els.systemClockPills) {
+      els.systemClockPills.innerHTML = [
+        data.serverTimezone,
+        data.serverDate,
+        data.serverTime
+      ].filter(Boolean).map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
+    }
+    if (els.systemClockStatusText) {
+      els.systemClockStatusText.textContent = "Controls the timezone used by all server-side schedulers (audio automation, daily request windows, custom slide scheduling).";
+    }
+  } catch (e) {
+    if (els.systemClockStatusText) els.systemClockStatusText.textContent = e.message;
+  }
+}
+
+async function saveSystemTimezone() {
+  const tz = `${els.systemTimezoneInput?.value || ""}`.trim();
+  if (!tz) throw new Error("Enter an IANA timezone (e.g. America/Chicago).");
+  const data = await api("/api/admin/settings/system", {
+    method: "PATCH",
+    body: JSON.stringify({ serverTimezone: tz })
+  });
+  if (els.systemClockPills) {
+    els.systemClockPills.innerHTML = [
+      data.serverTimezone,
+      data.serverDate,
+      data.serverTime
+    ].filter(Boolean).map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
+  }
+  toast(`Timezone set to ${data.serverTimezone}`);
 }
 
 async function loadAudioJackRoutingSettings(selectedCard = "") {
@@ -2205,6 +2248,23 @@ if (els.audioJackSaveBtn) {
     try {
       await saveAudioJackRoutingSettings();
       toast("AUX routing applied");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.saveSystemTimezoneBtn) {
+  els.saveSystemTimezoneBtn.addEventListener("click", async () => {
+    try {
+      await saveSystemTimezone();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.refreshSystemClockBtn) {
+  els.refreshSystemClockBtn.addEventListener("click", async () => {
+    try {
+      await loadSystemSettings();
+      toast("Server clock refreshed");
     } catch (e) { toast(e.message, true); }
   });
 }

@@ -1,5 +1,5 @@
 param(
-  [string]$ProxmoxHost = "100.84.163.40",
+  [string]$ProxmoxHost = "192.168.1.254",
   [int]$ContainerId = 103,
   [string]$SshUser = "root",
   [string]$SshKeyPath = "$env:USERPROFILE\.ssh\id_ed25519_proxmox_teststand",
