@@ -28,6 +28,7 @@ let animals = [];
 let slides = [];
 let currentIndex = 0;
 let slideTimer = null;
+let adoptablesRefreshTimer = null;
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "readyToday",
   "species",
@@ -261,8 +262,9 @@ function applySlideshowSettings(settings = {}) {
 
 async function loadAdoptables(force = false) {
   try {
-    const url = `/api/adoptables/slideshow?limit=${Math.max(1, Number(slideshowSettings.defaultLimit || 20))}${force ? "&refresh=1" : ""}`;
-    const res = await fetch(url);
+    const cacheBust = `&_ts=${Date.now()}`;
+    const url = `/api/adoptables/slideshow?limit=${Math.max(1, Number(slideshowSettings.defaultLimit || 20))}${force ? "&refresh=1" : ""}${cacheBust}`;
+    const res = await fetch(url, { cache: "no-store" });
     const payload = await res.json().catch(() => ({}));
 
     if (!res.ok) {
@@ -293,6 +295,15 @@ async function loadAdoptables(force = false) {
   }
 }
 
+function startAdoptablesRefreshTimer() {
+  if (adoptablesRefreshTimer) {
+    window.clearInterval(adoptablesRefreshTimer);
+  }
+  adoptablesRefreshTimer = window.setInterval(() => {
+    loadAdoptables().catch(() => {});
+  }, 30000);
+}
+
 els.fullscreenBtn.addEventListener("click", () => toggleFullscreen());
 document.addEventListener("fullscreenchange", syncFullscreenButton);
 
@@ -303,4 +314,5 @@ els.refreshAnimalsBtn.addEventListener("click", () => loadAdoptables(true));
 (async () => {
   syncFullscreenButton();
   await loadAdoptables();
+  startAdoptablesRefreshTimer();
 })();

@@ -4095,6 +4095,9 @@ app.get("/api/adoptables/image/:animalId", async (req, res) => {
 });
 
 app.get("/api/adoptables/slideshow", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   const force = `${req.query.refresh || ""}` === "1";
   const limit = Math.max(1, Math.min(50, Number(req.query.limit || state.slideshow.defaultLimit || 20)));
   const result = await getAsmAdoptables(force);
