@@ -4,6 +4,7 @@ const EMPLOYEE_TOKEN_KEY = "jukebox.employee.token";
 let adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY) || localStorage.getItem(ADMIN_TOKEN_KEY) || "";
 let audioJackDebounce = null;
 let logsTimer = null;
+let streamHealthTimer = null;
 
 const els = {
   loginDialog: document.getElementById("loginDialog"),
@@ -22,6 +23,12 @@ const els = {
   diagSummary: document.getElementById("diagSummary"),
   diagBody: document.getElementById("diagBody"),
   diagRefreshBtn: document.getElementById("diagRefreshBtn"),
+  streamHealthSummary: document.getElementById("streamHealthSummary"),
+  streamHealthPills: document.getElementById("streamHealthPills"),
+  streamHealthAutoRefreshToggle: document.getElementById("streamHealthAutoRefreshToggle"),
+  streamHealthRefreshBtn: document.getElementById("streamHealthRefreshBtn"),
+  bufferingSummary: document.getElementById("bufferingSummary"),
+  bufferingBody: document.getElementById("bufferingBody"),
   logSummary: document.getElementById("logSummary"),
   logBody: document.getElementById("logBody"),
   logUnitSelect: document.getElementById("logUnitSelect"),
@@ -186,6 +193,66 @@ function stopLogsPolling() {
   }
 }
 
+function stopStreamHealthPolling() {
+  if (streamHealthTimer) {
+    window.clearInterval(streamHealthTimer);
+    streamHealthTimer = null;
+  }
+}
+
+function renderStreamHealth(data) {
+  const stats = data?.stats || {};
+  const pills = [];
+  pills.push(`<span class="pill">Listeners: ${Number(data?.activeListeners || 0)}</span>`);
+  pills.push(`<span class="pill">Delivery: ${data?.streamDeliveryEnabled === false ? "Off" : "On"}</span>`);
+  pills.push(`<span class="pill">Mopidy: ${data?.mopidyOnline ? "Online" : "Offline"}</span>`);
+  pills.push(`<span class="pill">Icecast: ${data?.icecastReachable ? "Reachable" : "Unreachable"}</span>`);
+  pills.push(`<span class="pill">Upstream Errors: ${Number(stats.totalUpstreamErrors || 0)}</span>`);
+  pills.push(`<span class="pill">Proxy Errors: ${Number(stats.totalProxyErrors || 0)}</span>`);
+  els.streamHealthPills.innerHTML = pills.join("");
+
+  const updatedAt = stats.lastEventAt || data?.events?.[0]?.at || "";
+  els.streamHealthSummary.textContent = updatedAt
+    ? `Updated ${new Date(updatedAt).toLocaleTimeString()} • Connections ${Number(stats.totalClientConnections || 0)} • Disconnects ${Number(stats.totalClientDisconnects || 0)}`
+    : "No stream traffic observed yet.";
+
+  const events = Array.isArray(data?.events) ? data.events : [];
+  if (!events.length) {
+    els.bufferingSummary.textContent = "No stream events recorded yet.";
+    els.bufferingBody.textContent = "No stream events recorded yet.";
+    return;
+  }
+
+  const noisyEvents = events.filter((entry) => ["upstream-error", "upstream-unavailable", "upstream-closed", "proxy-error", "client-disconnected"].includes(entry?.type));
+  els.bufferingSummary.textContent = noisyEvents.length
+    ? `${noisyEvents.length} potential buffering indicators in the latest ${events.length} events.`
+    : `No obvious buffering indicators in the latest ${events.length} events.`;
+
+  els.bufferingBody.textContent = events
+    .map((entry) => {
+      const at = entry?.at ? new Date(entry.at).toLocaleTimeString() : "--:--:--";
+      const type = `${entry?.type || "event"}`;
+      const detail = entry?.detail && typeof entry.detail === "object" ? JSON.stringify(entry.detail) : `${entry?.detail || ""}`;
+      return `[${at}] ${type}${detail ? ` | ${detail}` : ""}`;
+    })
+    .join("\n");
+}
+
+async function loadStreamHealth() {
+  const data = await api("/api/admin/debug/stream-health?limit=60");
+  renderStreamHealth(data);
+}
+
+function startStreamHealthPolling() {
+  stopStreamHealthPolling();
+  if (!els.streamHealthAutoRefreshToggle?.checked) return;
+  streamHealthTimer = window.setInterval(async () => {
+    try {
+      await loadStreamHealth();
+    } catch {}
+  }, 4000);
+}
+
 function startLogsPolling() {
   stopLogsPolling();
   if (!els.logAutoRefreshToggle?.checked) return;
@@ -201,9 +268,11 @@ async function initialize() {
     loadAudioJackRoutingSettings(),
     loadAudioJackSettings(),
     loadDiagnostics(),
+    loadStreamHealth(),
     loadServiceLogs()
   ]);
   startLogsPolling();
+  startStreamHealthPolling();
 }
 
 els.loginForm.addEventListener("submit", async (event) => {
@@ -276,11 +345,24 @@ els.audioJackMuteToggleBtn.addEventListener("click", async () => {
 
 els.diagRefreshBtn.addEventListener("click", async () => {
   try {
-    await loadDiagnostics();
+    await Promise.all([loadDiagnostics(), loadStreamHealth()]);
     toast("Diagnostics refreshed");
   } catch (error) {
     toast(error.message, true);
   }
+});
+
+els.streamHealthRefreshBtn.addEventListener("click", async () => {
+  try {
+    await loadStreamHealth();
+    toast("Stream health refreshed");
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+els.streamHealthAutoRefreshToggle.addEventListener("change", () => {
+  startStreamHealthPolling();
 });
 
 els.logRefreshBtn.addEventListener("click", async () => {
@@ -336,4 +418,5 @@ els.logAutoRefreshToggle.addEventListener("change", () => {
 
 window.addEventListener("beforeunload", () => {
   stopLogsPolling();
+  stopStreamHealthPolling();
 });

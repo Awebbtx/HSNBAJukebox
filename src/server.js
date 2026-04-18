@@ -150,6 +150,20 @@ const state = {
   },
   audioAutomationRuntime: {
     activeLiveStreams: new Set(),
+    streamStats: {
+      totalClientConnections: 0,
+      totalClientDisconnects: 0,
+      totalUpstreamErrors: 0,
+      totalProxyErrors: 0,
+      lastUpstreamStatus: null,
+      lastError: "",
+      lastClientConnectedAt: "",
+      lastClientDisconnectedAt: "",
+      lastUpstreamConnectedAt: "",
+      lastUpstreamEndedAt: "",
+      lastEventAt: ""
+    },
+    streamEvents: [],
     recentExecutionKeys: new Map(),
     timer: null
   },
@@ -165,6 +179,22 @@ const state = {
     bodyPreview: ""
   }
 };
+
+const STREAM_EVENT_LIMIT = 160;
+
+function addStreamEvent(type, detail = {}) {
+  const event = {
+    at: new Date().toISOString(),
+    type: `${type || "event"}`.trim() || "event",
+    detail: detail && typeof detail === "object" ? detail : { message: `${detail || ""}` }
+  };
+  state.audioAutomationRuntime.streamEvents.push(event);
+  if (state.audioAutomationRuntime.streamEvents.length > STREAM_EVENT_LIMIT) {
+    state.audioAutomationRuntime.streamEvents.splice(0, state.audioAutomationRuntime.streamEvents.length - STREAM_EVENT_LIMIT);
+  }
+  state.audioAutomationRuntime.streamStats.lastEventAt = event.at;
+  return event;
+}
 
 function getLocalDateKey(date = new Date()) {
   const { year: y, month: m, day: d } = getServerTzParts(date);
@@ -2236,34 +2266,95 @@ app.get("/adoptable-stream", (_req, res) => {
 });
 
 app.get("/live.mp3", async (_req, res) => {
+  const runtime = state.audioAutomationRuntime;
+  const stats = runtime.streamStats;
+  stats.totalClientConnections += 1;
+  stats.lastClientConnectedAt = new Date().toISOString();
+  addStreamEvent("client-connected", {
+    activeListeners: runtime.activeLiveStreams.size + 1,
+    streamDeliveryEnabled: state.audioAutomation.streamDeliveryEnabled !== false
+  });
+
   if (state.audioAutomation.streamDeliveryEnabled === false) {
+    stats.totalProxyErrors += 1;
+    stats.lastError = "Live stream delivery is currently scheduled off.";
+    addStreamEvent("stream-delivery-disabled", {
+      activeListeners: runtime.activeLiveStreams.size,
+      message: stats.lastError
+    });
     res.status(503).json({ error: "Live stream delivery is currently scheduled off." });
     return;
   }
+
+  let cleaned = false;
   try {
     const upstream = await fetch("http://127.0.0.1:8000/stream.mp3");
+    stats.lastUpstreamStatus = Number(upstream.status || 0) || null;
     if (!upstream.ok || !upstream.body) {
+      stats.totalUpstreamErrors += 1;
+      stats.lastError = `Live stream upstream unavailable (HTTP ${upstream.status || 0}).`;
+      addStreamEvent("upstream-unavailable", {
+        status: Number(upstream.status || 0) || null,
+        hasBody: Boolean(upstream.body)
+      });
       res.status(503).json({ error: "Live stream is not available yet." });
       return;
     }
+
+    stats.lastUpstreamConnectedAt = new Date().toISOString();
+    addStreamEvent("upstream-connected", {
+      status: stats.lastUpstreamStatus,
+      activeListeners: runtime.activeLiveStreams.size + 1
+    });
 
     const streamEntry = {
       res,
       upstream: upstream.body
     };
-    state.audioAutomationRuntime.activeLiveStreams.add(streamEntry);
+    runtime.activeLiveStreams.add(streamEntry);
     const cleanup = () => {
-      state.audioAutomationRuntime.activeLiveStreams.delete(streamEntry);
+      if (cleaned) return;
+      cleaned = true;
+      runtime.activeLiveStreams.delete(streamEntry);
+      stats.totalClientDisconnects += 1;
+      stats.lastClientDisconnectedAt = new Date().toISOString();
+      addStreamEvent("client-disconnected", {
+        activeListeners: runtime.activeLiveStreams.size
+      });
     };
     res.on("close", cleanup);
     res.on("finish", cleanup);
-    upstream.body.on?.("close", cleanup);
-    upstream.body.on?.("end", cleanup);
+    upstream.body.on?.("close", () => {
+      stats.lastUpstreamEndedAt = new Date().toISOString();
+      addStreamEvent("upstream-closed", {
+        activeListeners: runtime.activeLiveStreams.size
+      });
+      cleanup();
+    });
+    upstream.body.on?.("end", () => {
+      stats.lastUpstreamEndedAt = new Date().toISOString();
+      addStreamEvent("upstream-ended", {
+        activeListeners: runtime.activeLiveStreams.size
+      });
+      cleanup();
+    });
+    upstream.body.on?.("error", (error) => {
+      stats.totalUpstreamErrors += 1;
+      stats.lastError = error?.message || "Upstream stream error";
+      addStreamEvent("upstream-error", {
+        error: stats.lastError
+      });
+    });
 
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-store");
     upstream.body.pipe(res);
   } catch (error) {
+    stats.totalProxyErrors += 1;
+    stats.lastError = error.message || "Live stream unavailable.";
+    addStreamEvent("proxy-error", {
+      error: stats.lastError
+    });
     res.status(503).json({ error: error.message || "Live stream unavailable." });
   }
 });
@@ -3096,6 +3187,45 @@ app.get("/api/admin/debug/logs", requireAdmin, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message || "Unable to read service logs" });
+  }
+});
+
+app.get("/api/admin/debug/stream-health", requireAdmin, async (req, res) => {
+  try {
+    const runtime = state.audioAutomationRuntime;
+    const stats = runtime.streamStats || {};
+    const requestedLimit = Number(req.query?.limit || 40);
+    const limit = Math.max(10, Math.min(200, Number.isFinite(requestedLimit) ? requestedLimit : 40));
+    const events = runtime.streamEvents.slice(-limit).reverse();
+
+    const [mopidyOnline, icecastReachable] = await Promise.all([
+      mopidyRpc("core.get_uri_schemes").then(() => true).catch(() => false),
+      fetch("http://127.0.0.1:8000/").then((r) => r.ok).catch(() => false)
+    ]);
+
+    res.json({
+      ok: true,
+      streamDeliveryEnabled: state.audioAutomation.streamDeliveryEnabled !== false,
+      activeListeners: runtime.activeLiveStreams.size,
+      mopidyOnline,
+      icecastReachable,
+      stats: {
+        totalClientConnections: Number(stats.totalClientConnections || 0),
+        totalClientDisconnects: Number(stats.totalClientDisconnects || 0),
+        totalUpstreamErrors: Number(stats.totalUpstreamErrors || 0),
+        totalProxyErrors: Number(stats.totalProxyErrors || 0),
+        lastUpstreamStatus: Number.isFinite(Number(stats.lastUpstreamStatus)) ? Number(stats.lastUpstreamStatus) : null,
+        lastError: `${stats.lastError || ""}`,
+        lastClientConnectedAt: `${stats.lastClientConnectedAt || ""}`,
+        lastClientDisconnectedAt: `${stats.lastClientDisconnectedAt || ""}`,
+        lastUpstreamConnectedAt: `${stats.lastUpstreamConnectedAt || ""}`,
+        lastUpstreamEndedAt: `${stats.lastUpstreamEndedAt || ""}`,
+        lastEventAt: `${stats.lastEventAt || ""}`
+      },
+      events
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Unable to read stream health" });
   }
 });
 

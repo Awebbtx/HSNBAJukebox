@@ -70,6 +70,26 @@
 
         <div class="setting-row stack">
           <div>
+            <div class="setting-name">Stream Health</div>
+            <div id="streamHealthSummary" class="setting-desc">Checking live stream health...</div>
+          </div>
+          <div id="streamHealthPills" class="inline-list"></div>
+          <div class="setting-form-actions">
+            <label class="setting-desc"><input id="streamHealthAutoRefreshToggle" type="checkbox" checked /> Auto refresh</label>
+            <button id="streamHealthRefreshBtn" class="btn-sm" type="button">Refresh Stream Health</button>
+          </div>
+        </div>
+
+        <div class="setting-row stack">
+          <div>
+            <div class="setting-name">Buffering Diagnostics</div>
+            <div id="bufferingSummary" class="setting-desc">Recent stream events and disconnect/error signals.</div>
+          </div>
+          <pre id="bufferingBody" class="diagnostic-pre">No stream events recorded yet.</pre>
+        </div>
+
+        <div class="setting-row stack">
+          <div>
             <div class="setting-name">Service Log Flow</div>
             <div id="logSummary" class="setting-desc">Streaming recent service logs.</div>
           </div>
