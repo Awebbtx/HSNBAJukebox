@@ -1030,16 +1030,16 @@ async function initializeApp() {
 
 function setSettingsTab(name) {
   settingsTab = ["account", "request", "audio-jack", "spotify", "asm"].includes(name) ? name : "request";
-  els.tabAccount.classList.toggle("active", settingsTab === "account");
-  els.tabRequestAccess.classList.toggle("active", settingsTab === "request");
-  els.tabAudioJack.classList.toggle("active", settingsTab === "audio-jack");
-  els.tabSpotify.classList.toggle("active", settingsTab === "spotify");
-  els.tabAsm.classList.toggle("active", settingsTab === "asm");
-  els.panelAccount.classList.toggle("active", settingsTab === "account");
-  els.panelRequestAccess.classList.toggle("active", settingsTab === "request");
-  els.panelAudioJack.classList.toggle("active", settingsTab === "audio-jack");
-  els.panelSpotify.classList.toggle("active", settingsTab === "spotify");
-  els.panelAsm.classList.toggle("active", settingsTab === "asm");
+  els.tabAccount?.classList.toggle("active", settingsTab === "account");
+  els.tabRequestAccess?.classList.toggle("active", settingsTab === "request");
+  els.tabAudioJack?.classList.toggle("active", settingsTab === "audio-jack");
+  els.tabSpotify?.classList.toggle("active", settingsTab === "spotify");
+  els.tabAsm?.classList.toggle("active", settingsTab === "asm");
+  els.panelAccount?.classList.toggle("active", settingsTab === "account");
+  els.panelRequestAccess?.classList.toggle("active", settingsTab === "request");
+  els.panelAudioJack?.classList.toggle("active", settingsTab === "audio-jack");
+  els.panelSpotify?.classList.toggle("active", settingsTab === "spotify");
+  els.panelAsm?.classList.toggle("active", settingsTab === "asm");
 }
 
 function populateAudioAutomationActionOptions(target, selectedAction = "") {
