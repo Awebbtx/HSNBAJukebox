@@ -52,17 +52,7 @@ body[data-admin-page="system"] .playlist-card {
   display: none;
 }
 
-body[data-admin-page="system"] .settings-tabs,
-body[data-admin-page="system"] #panelAccount,
-body[data-admin-page="system"] #panelRequestAccess,
-body[data-admin-page="system"] #panelSpotify,
-body[data-admin-page="system"] #panelAsm {
-  display: none !important;
-}
 
-body[data-admin-page="system"] #panelAudioJack {
-  display: block !important;
-}
 
 body[data-admin-page="users"] .np-card,
 body[data-admin-page="users"] .queue-card,
