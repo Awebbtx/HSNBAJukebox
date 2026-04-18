@@ -24,7 +24,8 @@
       <a href="/admin-adoptable.html" class="is-active">Adoptable Stream</a>
       <a href="/admin-custom-slides.html">Custom Slides</a>
     </nav>
-    <main class="shell">
+    <main class="shell">
+
       <section class="card np-card">
         <div class="card-label">NOW PLAYING</div>
         <div id="trackTitle" class="np-title">—</div>
@@ -320,91 +321,13 @@
                 <div id="slideshowDisplayFieldsContainer" class="slideshow-display-grid"></div>
               </div>
 
-              <div id="rotationRulesRow" class="setting-row stack">
+              <div class="setting-row stack">
                 <div>
-                  <div class="setting-name">Rotation Rules</div>
-                  <div class="setting-desc">Control how many adoptables appear per special page and how often alerts are injected.</div>
+                  <div class="setting-name">Custom Slides</div>
+                  <div class="setting-desc">Special slide rotation, alerts, and non-adoptable pages are managed from the Custom Slides page.</div>
                 </div>
-                <div class="setting-form-grid">
-                  <input id="adoptablesPerSpecialInput" type="number" min="1" step="1" placeholder="Adoptables per special page" />
-                  <input id="alertEveryXSlidesInput" type="number" min="2" step="1" placeholder="Alert every X slides" />
-                </div>
-                <div class="setting-form-grid">
-                  <input id="specialImageMaxMbInput" type="number" min="1" max="12" step="1" placeholder="Special image max MB" />
-                </div>
-              </div>
-
-              <div id="specialPagesRow" class="setting-row stack">
-                <div>
-                  <div class="setting-name">Special Pages</div>
-                  <div class="setting-desc">Create and manage non-adoptable slides such as thanks, events, TNR details, volunteer calls, and alerts.</div>
-                  <div id="specialImageStorageText" class="setting-desc"></div>
-                </div>
-                <div id="specialPagesList" class="special-pages-list"></div>
-                <div class="special-page-editor">
-                  <input id="specialPageIdInput" type="hidden" />
-                  <div class="setting-form-grid">
-                    <input id="specialPageTitleInput" type="text" maxlength="100" placeholder="Page title" />
-                    <select id="specialPageCategoryInput">
-                      <option>Special Thanks</option>
-                      <option>Employee of the Month</option>
-                      <option>Volunteer of the Month</option>
-                      <option>Upcoming Events</option>
-                      <option>TNR Program</option>
-                      <option>Become a Volunteer</option>
-                      <option selected>General PSA and Alerts</option>
-                    </select>
-                    <select id="specialPageTemplateInput">
-                      <option value="split" selected>Split 50/50 (image left, text right)</option>
-                      <option value="image">Full image</option>
-                    </select>
-                    <input id="specialPageDurationInput" type="number" min="4" max="60" step="1" placeholder="Display seconds" />
-                  </div>
-                  <div class="setting-form-row special-page-toggles">
-                    <label class="setting-desc"><input id="specialPageActiveInput" type="checkbox" checked /> Active</label>
-                    <label class="setting-desc"><input id="specialPageAlertInput" type="checkbox" /> Alert</label>
-                  </div>
-                  <div class="setting-form-grid">
-                    <input id="specialPageStartAtInput" type="datetime-local" />
-                    <input id="specialPageEndAtInput" type="datetime-local" />
-                  </div>
-                  <div class="setting-form-row">
-                    <input id="specialPageImageInput" type="file" accept="image/png,image/jpeg,image/webp" />
-                    <input id="specialPageImageNameInput" type="text" readonly placeholder="No image selected" />
-                  </div>
-                  <small id="specialPageImageHint" class="setting-desc"></small>
-                  <div class="rich-editor-toolbar" id="specialPageRichToolbar">
-                    <button type="button" data-cmd="bold">Bold</button>
-                    <button type="button" data-cmd="italic">Italic</button>
-                    <button type="button" data-cmd="underline">Underline</button>
-                    <button type="button" data-cmd="insertUnorderedList">Bullets</button>
-                    <button type="button" data-cmd="insertOrderedList">Numbered</button>
-                    <label class="rich-inline-control" for="specialPageFontSizeInput">Size
-                      <select id="specialPageFontSizeInput">
-                        <option value="">Default</option>
-                        <option value="1">XS</option>
-                        <option value="2">S</option>
-                        <option value="3">M</option>
-                        <option value="4">L</option>
-                        <option value="5">XL</option>
-                        <option value="6">2XL</option>
-                        <option value="7">3XL</option>
-                      </select>
-                    </label>
-                    <label class="rich-inline-control" for="specialPageTextColorInput">Color
-                      <input id="specialPageTextColorInput" type="color" value="#dceaf5" />
-                    </label>
-                    <button type="button" data-cmd="createLink">Link</button>
-                    <button type="button" data-cmd="removeFormat">Clear</button>
-                  </div>
-                  <div id="specialPageRichTextInput" class="rich-editor" contenteditable="true" aria-label="Special page rich text"></div>
-                  <div class="setting-form-actions">
-                    <button id="newSpecialPageBtn" class="btn-sm" type="button">New</button>
-                    <button id="saveSpecialPageBtn" class="btn-sm" type="button">Save Page</button>
-                    <button id="deleteSpecialPageBtn" class="btn-sm danger" type="button">Delete</button>
-                    <button id="viewSpecialPageImageBtn" class="btn-sm" type="button">View Image</button>
-                    <button id="removeSpecialPageImageBtn" class="btn-sm danger" type="button">Delete Image</button>
-                  </div>
+                <div class="setting-form-actions">
+                  <a href="/admin-custom-slides.html" class="btn-sm">Open Custom Slides</a>
                 </div>
               </div>
             </div>

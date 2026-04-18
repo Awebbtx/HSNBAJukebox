@@ -67,7 +67,7 @@ if (pageMode === "audio") {
 } else if (pageMode === "scheduler") {
   settingsTab = "audio-jack";
 } else if (pageMode === "system") {
-  settingsTab = "spotify";
+  settingsTab = "audio-jack";
 } else if (pageMode === "staff") {
   settingsTab = "request";
 } else if (pageMode === "stats") {

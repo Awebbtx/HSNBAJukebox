@@ -1,6 +1,7 @@
 param(
   [string]$ProxmoxHost = "192.168.1.254",
   [int]$ContainerId = 103,
+  [string[]]$ContainerHosts = @("172.16.10.5", "192.168.1.11"),
   [string]$SshUser = "root",
   [string]$SshKeyPath = "$env:USERPROFILE\.ssh\id_ed25519_proxmox_teststand",
   [string]$RemoteAppPath = "/opt/HSNBA",
@@ -22,6 +23,29 @@ function Invoke-Step {
   }
 }
 
+function Test-SshTarget {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TargetHost
+  )
+
+  ssh -i $SshKeyPath -o BatchMode=yes -o ConnectTimeout=8 "${SshUser}@${TargetHost}" "true" *> $null
+  return $LASTEXITCODE -eq 0
+}
+
+function Find-ReachableContainerHost {
+  foreach ($candidateHost in $ContainerHosts) {
+    if ([string]::IsNullOrWhiteSpace($candidateHost)) {
+      continue
+    }
+    if (Test-SshTarget -TargetHost $candidateHost) {
+      return $candidateHost
+    }
+  }
+
+  return $null
+}
+
 if (-not (Test-Path -LiteralPath $SshKeyPath)) {
   throw "SSH key not found: $SshKeyPath"
 }
@@ -34,41 +58,90 @@ $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $archiveName = "hsnba-app-$timestamp.tar.gz"
 $localArchive = Join-Path $env:TEMP $archiveName
 $remoteArchive = "/tmp/$archiveName"
+$deploymentMode = $null
+$targetHost = $null
+$reachableContainerHost = Find-ReachableContainerHost
+
+if ($reachableContainerHost) {
+  $deploymentMode = "direct"
+  $targetHost = $reachableContainerHost
+}
+elseif (Test-SshTarget -TargetHost $ProxmoxHost) {
+  $deploymentMode = "proxmox"
+  $targetHost = $ProxmoxHost
+}
+else {
+  throw "Unable to reach any direct container host ($($ContainerHosts -join ', ')) or Proxmox host $ProxmoxHost"
+}
 
 try {
   Invoke-Step "Create release archive from HEAD" {
     git archive --format=tar.gz -o $localArchive HEAD
   }
 
-  Invoke-Step "Upload archive to Proxmox host" {
-    scp -i $SshKeyPath $localArchive "${SshUser}@${ProxmoxHost}:$remoteArchive"
-  }
+  if ($deploymentMode -eq "proxmox") {
+    Write-Host "Using Proxmox host: $ProxmoxHost"
 
-  Invoke-Step "Push archive into container" {
-    ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct push $ContainerId $remoteArchive /tmp/$archiveName"
-  }
+    Invoke-Step "Upload archive to Proxmox host" {
+      scp -i $SshKeyPath $localArchive "${SshUser}@${ProxmoxHost}:$remoteArchive"
+    }
 
-  Invoke-Step "Extract release in container" {
-    ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- sh -lc 'set -e; mkdir -p $RemoteAppPath; tar -xzf /tmp/$archiveName -C $RemoteAppPath'"
-  }
+    Invoke-Step "Push archive into container" {
+      ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct push $ContainerId $remoteArchive /tmp/$archiveName"
+    }
 
-  if (-not $SkipNpmInstall) {
-    Invoke-Step "Install production dependencies" {
-      ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- sh -lc 'set -e; cd $RemoteAppPath; npm install --omit=dev --no-audit --no-fund'"
+    Invoke-Step "Extract release in container" {
+      ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- sh -lc 'set -e; mkdir -p $RemoteAppPath; tar -xzf /tmp/$archiveName -C $RemoteAppPath'"
+    }
+
+    if (-not $SkipNpmInstall) {
+      Invoke-Step "Install production dependencies" {
+        ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- sh -lc 'set -e; cd $RemoteAppPath; npm install --omit=dev --no-audit --no-fund'"
+      }
+    }
+
+    Invoke-Step "Restart jukebox service" {
+      ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- systemctl restart hsnba-jukebox"
+    }
+
+    Invoke-Step "Check jukebox service status" {
+      ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- systemctl is-active hsnba-jukebox"
     }
   }
+  else {
+    Write-Host "Using direct container host: $targetHost"
 
-  Invoke-Step "Restart jukebox service" {
-    ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- systemctl restart hsnba-jukebox"
-  }
+    Invoke-Step "Upload archive to container" {
+      scp -i $SshKeyPath $localArchive "${SshUser}@${targetHost}:$remoteArchive"
+    }
 
-  Invoke-Step "Check jukebox service status" {
-    ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- systemctl is-active hsnba-jukebox"
+    Invoke-Step "Extract release in container" {
+      ssh -i $SshKeyPath "${SshUser}@${targetHost}" "sh -lc 'set -e; mkdir -p $RemoteAppPath; tar -xzf $remoteArchive -C $RemoteAppPath'"
+    }
+
+    if (-not $SkipNpmInstall) {
+      Invoke-Step "Install production dependencies" {
+        ssh -i $SshKeyPath "${SshUser}@${targetHost}" "sh -lc 'set -e; cd $RemoteAppPath; npm install --omit=dev --no-audit --no-fund'"
+      }
+    }
+
+    Invoke-Step "Restart jukebox service" {
+      ssh -i $SshKeyPath "${SshUser}@${targetHost}" "systemctl restart hsnba-jukebox"
+    }
+
+    Invoke-Step "Check jukebox service status" {
+      ssh -i $SshKeyPath "${SshUser}@${targetHost}" "systemctl is-active hsnba-jukebox"
+    }
   }
 
   Write-Host ""
   Write-Host "Deployment complete."
-  Write-Host "Host: $ProxmoxHost  Container: $ContainerId  Path: $RemoteAppPath"
+  if ($deploymentMode -eq "proxmox") {
+    Write-Host "Host: $ProxmoxHost  Container: $ContainerId  Path: $RemoteAppPath"
+  }
+  else {
+    Write-Host "Container Host: $targetHost  Path: $RemoteAppPath"
+  }
 }
 finally {
   if (Test-Path -LiteralPath $localArchive) {
