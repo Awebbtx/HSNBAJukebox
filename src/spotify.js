@@ -7,6 +7,8 @@ const spotifyApiBase = "https://api.spotify.com/v1";
 const scopes = [
   "user-read-private",
   "user-read-email",
+  "playlist-read-private",
+  "playlist-read-collaborative",
   "user-top-read",
   "user-read-playback-state",
   "user-read-currently-playing",

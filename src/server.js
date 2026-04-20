@@ -8044,17 +8044,24 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
       res.status(503).json({ error: "Spotify is not authenticated. Complete OAuth at /auth/login first." });
       return;
     }
-    // Fetch first page — up to 100 tracks (no fields filter to avoid URL encoding issues)
-    const data = await spotifyApiRequest({
+    const playlistData = await spotifyApiRequest({
       accessToken,
       method: "GET",
       path: `/playlists/${playlistId}`,
       query: { market: "US" }
     });
-    const name = data?.name || playlistId;
-    const rawItems = data?.tracks?.items || [];
+    const name = playlistData?.name || playlistId;
+
+    const tracksData = await spotifyApiRequest({
+      accessToken,
+      method: "GET",
+      path: `/playlists/${playlistId}/tracks`,
+      query: { market: "US", limit: 50 }
+    });
+
+    const rawItems = tracksData?.items || [];
     const tracks = rawItems
-      .map((item) => item?.track)
+      .map((item) => item?.track || item?.item)
       .filter((t) => t?.uri && t.uri.startsWith("spotify:track:"))
       .map((t) => ({
         uri: t.uri,
@@ -8073,11 +8080,11 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
       return;
     }
     const saved = await mopidyRpc("core.playlists.save", { playlist: { ...playlist, tracks: mopidyTracks } });
-    res.json({ ok: true, playlistId, name, uri: saved?.uri || playlist.uri, total: data?.tracks?.total || tracks.length, saved: mopidyTracks.length, tracks });
+    res.json({ ok: true, playlistId, name, uri: saved?.uri || playlist.uri, total: tracksData?.total || playlistData?.tracks?.total || tracks.length, saved: mopidyTracks.length, tracks });
   } catch (err) {
     const msg = err?.message || "Unknown error";
     if (msg.includes("401") || msg.includes("403")) {
-      res.status(503).json({ error: "Spotify authentication failed. Re-authenticate at /auth/login." });
+      res.status(503).json({ error: "Spotify authentication failed or is missing playlist-read scope. Re-authenticate at /auth/login." });
     } else if (msg.includes("404")) {
       res.status(404).json({ error: "Playlist not found. It may be private or the ID is invalid." });
     } else {
