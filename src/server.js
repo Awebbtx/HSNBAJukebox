@@ -82,6 +82,10 @@ const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
 const ENV_FILE_PATH = path.resolve(__dirname, "../.env");
 const USER_DB_PATH = path.resolve(__dirname, "../data/user-db.json");
 const ADMIN_DB_PATH = path.resolve(__dirname, "../data/admin-db.json");
+const ADMIN_DB_BACKUP_PATH = path.resolve(__dirname, "../data/admin-db.backup.json");
+const ADMIN_DB_SNAPSHOT_DIR = path.resolve(__dirname, "../data/admin-db-snapshots");
+const ADMIN_DB_SNAPSHOT_INTERVAL_MS = Math.max(5 * 60 * 1000, Number(process.env.ADMIN_DB_SNAPSHOT_INTERVAL_MS || 60 * 60 * 1000));
+const ADMIN_DB_SNAPSHOT_KEEP = Math.max(10, Number(process.env.ADMIN_DB_SNAPSHOT_KEEP || 72));
 const SLIDESHOW_CONFIG_PATH = path.resolve(__dirname, "../data/slideshow-config.json");
 const AUDIO_AUTOMATION_CONFIG_PATH = path.resolve(__dirname, "../data/audio-automation.json");
 const SPOTIFY_TOKENS_PATH = path.resolve(__dirname, "../data/spotify-tokens.json");
@@ -1780,7 +1784,17 @@ function saveAdminDb() {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(ADMIN_DB_PATH, JSON.stringify(state.adminDb, null, 2), "utf8");
+  const serialized = JSON.stringify(state.adminDb, null, 2);
+  const tempPath = `${ADMIN_DB_PATH}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    if (fs.existsSync(ADMIN_DB_PATH)) {
+      fs.copyFileSync(ADMIN_DB_PATH, ADMIN_DB_BACKUP_PATH);
+    }
+  } catch {
+    // Backup failures should not block credential writes.
+  }
+  fs.writeFileSync(tempPath, serialized, "utf8");
+  fs.renameSync(tempPath, ADMIN_DB_PATH);
 }
 
 function logAdminHistory(adminId, action, detail = "") {
@@ -1835,18 +1849,28 @@ function loadAdminDb() {
     if (!fs.existsSync(ADMIN_DB_PATH)) {
       state.adminDb = normalizeAdminDb(null);
       bootstrapDefaultAdminIfNeeded();
-      saveAdminDb();
     } else {
       const text = fs.readFileSync(ADMIN_DB_PATH, "utf8");
       state.adminDb = normalizeAdminDb(JSON.parse(text));
       bootstrapDefaultAdminIfNeeded();
-      saveAdminDb();
     }
   } catch (error) {
     console.warn(`Failed to load admin db: ${error.message}`);
-    state.adminDb = normalizeAdminDb(null);
-    bootstrapDefaultAdminIfNeeded();
-    saveAdminDb();
+    try {
+      if (fs.existsSync(ADMIN_DB_BACKUP_PATH)) {
+        const backupText = fs.readFileSync(ADMIN_DB_BACKUP_PATH, "utf8");
+        state.adminDb = normalizeAdminDb(JSON.parse(backupText));
+        bootstrapDefaultAdminIfNeeded();
+        saveAdminDb();
+      } else {
+        state.adminDb = normalizeAdminDb(null);
+        bootstrapDefaultAdminIfNeeded();
+      }
+    } catch (backupError) {
+      console.warn(`Failed to load admin db backup: ${backupError.message}`);
+      state.adminDb = normalizeAdminDb(null);
+      bootstrapDefaultAdminIfNeeded();
+    }
   }
   state.adminDbLoadedAt = Date.now();
   return state.adminDb;
@@ -1863,6 +1887,77 @@ function refreshAdminDbIfStale() {
   }
 }
 
+function ensureAdminDbSnapshotDir() {
+  if (!fs.existsSync(ADMIN_DB_SNAPSHOT_DIR)) {
+    fs.mkdirSync(ADMIN_DB_SNAPSHOT_DIR, { recursive: true });
+  }
+}
+
+function listAdminDbSnapshots() {
+  try {
+    ensureAdminDbSnapshotDir();
+    return fs.readdirSync(ADMIN_DB_SNAPSHOT_DIR)
+      .filter((name) => name.startsWith("admin-db-") && name.endsWith(".json"))
+      .map((name) => {
+        const fullPath = path.join(ADMIN_DB_SNAPSHOT_DIR, name);
+        const stat = fs.statSync(fullPath);
+        return {
+          fileName: name,
+          size: stat.size,
+          createdAt: stat.mtime.toISOString()
+        };
+      })
+      .sort((a, b) => `${b.fileName}`.localeCompare(`${a.fileName}`));
+  } catch {
+    return [];
+  }
+}
+
+function pruneAdminDbSnapshots() {
+  const snapshots = listAdminDbSnapshots();
+  if (snapshots.length <= ADMIN_DB_SNAPSHOT_KEEP) {
+    return;
+  }
+  for (const item of snapshots.slice(ADMIN_DB_SNAPSHOT_KEEP)) {
+    try {
+      fs.unlinkSync(path.join(ADMIN_DB_SNAPSHOT_DIR, item.fileName));
+    } catch {
+      // Best effort prune.
+    }
+  }
+}
+
+function writeAdminDbSnapshot(reason = "periodic") {
+  if (!state.adminDb) {
+    return null;
+  }
+  ensureAdminDbSnapshotDir();
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeReason = `${reason || "manual"}`.replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
+  const fileName = `admin-db-${stamp}-${safeReason}.json`;
+  const fullPath = path.join(ADMIN_DB_SNAPSHOT_DIR, fileName);
+  fs.writeFileSync(fullPath, JSON.stringify(state.adminDb, null, 2), "utf8");
+  pruneAdminDbSnapshots();
+  return fileName;
+}
+
+function restoreAdminDbSnapshot(fileName) {
+  const cleanName = path.basename(`${fileName || ""}`);
+  if (!cleanName || cleanName !== fileName || !cleanName.startsWith("admin-db-") || !cleanName.endsWith(".json")) {
+    throw new Error("Invalid snapshot file name.");
+  }
+  const snapshotPath = path.join(ADMIN_DB_SNAPSHOT_DIR, cleanName);
+  if (!fs.existsSync(snapshotPath)) {
+    throw new Error("Snapshot not found.");
+  }
+  const text = fs.readFileSync(snapshotPath, "utf8");
+  state.adminDb = normalizeAdminDb(JSON.parse(text));
+  bootstrapDefaultAdminIfNeeded();
+  saveAdminDb();
+  state.adminDbLoadedAt = Date.now();
+  return cleanName;
+}
+
 function getAdminBySessionToken(token) {
   const claims = verifyAdminJwt(token);
   if (!claims?.sub) return null;
@@ -1876,6 +1971,11 @@ function getAdminBySessionToken(token) {
 
 loadUserDb();
 loadAdminDb();
+try {
+  writeAdminDbSnapshot("startup");
+} catch (error) {
+  console.warn(`Startup admin DB snapshot failed: ${error.message}`);
+}
 loadSlideshowConfig();
 loadAudioAutomationConfig();
 loadSystemConfig();
@@ -3227,6 +3327,17 @@ const cleanupTimer = setInterval(() => {
 
 cleanupTimer.unref();
 
+const adminDbSnapshotTimer = setInterval(() => {
+  try {
+    refreshAdminDbIfStale();
+    writeAdminDbSnapshot("periodic");
+  } catch (error) {
+    console.warn(`Admin DB snapshot failed: ${error.message}`);
+  }
+}, ADMIN_DB_SNAPSHOT_INTERVAL_MS);
+
+adminDbSnapshotTimer.unref();
+
 async function getValidAccessToken() {
   if (!state.tokens?.access_token) {
     throw new Error("Not authenticated with Spotify.");
@@ -3968,6 +4079,42 @@ app.post("/api/admin/account/users/:id/send-password-reset", requireAdmin, requi
     res.json({ ok: true, ...result });
   } catch (error) {
     res.status(400).json({ error: error.message || "Failed to send password reset email." });
+  }
+});
+
+app.get("/api/admin/account/admin-db-snapshots", requireAdmin, requireManageUsers, (_req, res) => {
+  const snapshots = listAdminDbSnapshots();
+  res.json({
+    keep: ADMIN_DB_SNAPSHOT_KEEP,
+    intervalMs: ADMIN_DB_SNAPSHOT_INTERVAL_MS,
+    snapshots
+  });
+});
+
+app.post("/api/admin/account/admin-db-snapshots", requireAdmin, requireManageUsers, (req, res) => {
+  const reason = `${req.body?.reason || "manual"}`.trim() || "manual";
+  try {
+    refreshAdminDbIfStale();
+    const fileName = writeAdminDbSnapshot(reason);
+    logAdminHistory(req.adminAccount.id, "admin-db-snapshot", `Created admin DB snapshot ${fileName}`);
+    res.status(201).json({ ok: true, fileName });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to create snapshot." });
+  }
+});
+
+app.post("/api/admin/account/admin-db-snapshots/restore", requireAdmin, requireManageUsers, (req, res) => {
+  const fileName = `${req.body?.fileName || ""}`.trim();
+  if (!fileName) {
+    res.status(400).json({ error: "fileName is required." });
+    return;
+  }
+  try {
+    const restored = restoreAdminDbSnapshot(fileName);
+    logAdminHistory(req.adminAccount.id, "admin-db-restore", `Restored admin DB from snapshot ${restored}`);
+    res.json({ ok: true, restored: restored, users: (state.adminDb?.users || []).length });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Failed to restore snapshot." });
   }
 });
 
