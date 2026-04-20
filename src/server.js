@@ -2202,19 +2202,109 @@ function saveAcGeocodeCache() {
   }
 }
 
+const LINKED_REPORT_FIELD_LABEL_MAP = Object.freeze({
+  fosteredTo: "Fostered To",
+  ownerAddress: "Owner Address",
+  homeTelephone: "Home Phone",
+  mobileTelephone: "Mobile Phone",
+  workTelephone: "Work Phone",
+  emailAddress: "Email Address",
+  animalId: "Animal ID",
+  shelterCode: "Shelter Code",
+  animalName: "Animal Name",
+  breedName: "Breed",
+  dateOfBirth: "Date of Birth",
+  animalAge: "Animal Age",
+  logTypeName: "Log Type",
+  shortCode: "Short Code",
+  displayLocation: "Location",
+  createdBy: "Created By",
+  theDate: "Date",
+  identichipNumber: "Microchip Number",
+  animalTypeName: "Animal Type",
+  speciesName: "Species",
+  sexName: "Sex",
+  locationFound: "Location Found",
+  categoryName: "Category",
+  outOrIn: "Intake / Outcome",
+  holdDate: "Hold Date",
+  daysOnShelter: "Days in Shelter",
+  pic: "Photo",
+  lastChangedDate: "Last Updated",
+  ownerName: "Owner Name",
+  ownerId: "Owner ID",
+  ownerSurname: "Owner Last Name",
+  ownerForenames: "Owner First Name(s)",
+  ownerTown: "Owner City",
+  ownerCounty: "Owner County",
+  ownerPostcode: "Owner Postal Code",
+  paymentName: "Payment Method",
+  donationName: "Donation Type",
+  asmAnimalUrl: "ASM Animal Link",
+  neuteredDate: "Neutered Date",
+  adoptionDate: "Adoption Date",
+  value: "Value"
+});
+
+function formatLinkedReportFieldLabel(key = "") {
+  const rawKey = `${key || ""}`.trim();
+  if (!rawKey) {
+    return "";
+  }
+  if (LINKED_REPORT_FIELD_LABEL_MAP[rawKey]) {
+    return LINKED_REPORT_FIELD_LABEL_MAP[rawKey];
+  }
+
+  const spaced = rawKey
+    .replaceAll("_", " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!spaced) {
+    return rawKey;
+  }
+
+  return spaced
+    .split(" ")
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (lower === "id") return "ID";
+      if (lower === "url") return "URL";
+      if (lower === "asm") return "ASM";
+      if (lower === "dob") return "DOB";
+      if (lower === "tnr") return "TNR";
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
+function sanitizeLinkedReportFieldLabel(rawLabel, key) {
+  const keyText = `${key || ""}`.trim();
+  const labelText = `${rawLabel || ""}`.trim();
+  const normalize = (value) => `${value || ""}`.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (labelText && normalize(labelText) !== normalize(keyText)) {
+    return labelText.slice(0, 80);
+  }
+  return formatLinkedReportFieldLabel(keyText).slice(0, 80);
+}
+
 function sanitizeLinkedReportFields(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((f) => f && typeof f === "object")
-    .map((f, i) => ({
-      key: `${f.key || ""}`.trim().slice(0, 100),
-      label: `${f.label || ""}`.trim().slice(0, 80),
-      expanded: Boolean(f.expanded),
-      groupBy: Boolean(f.groupBy),
-      chartLeft: Boolean(f.chartLeft),
-      chartRight: Boolean(f.chartRight),
-      order: Number.isFinite(Number(f.order)) ? Number(f.order) : i
-    }))
+    .map((f, i) => {
+      const key = `${f.key || ""}`.trim().slice(0, 100);
+      return {
+        key,
+        label: sanitizeLinkedReportFieldLabel(f.label, key),
+        expanded: Boolean(f.expanded),
+        groupBy: Boolean(f.groupBy),
+        chartLeft: Boolean(f.chartLeft),
+        chartRight: Boolean(f.chartRight),
+        order: Number.isFinite(Number(f.order)) ? Number(f.order) : i
+      };
+    })
     .filter((f) => f.key)
     .sort((a, b) => a.order - b.order)
     .slice(0, 60);
@@ -2248,7 +2338,16 @@ function loadLinkedReports() {
     const text = fs.readFileSync(LINKED_REPORTS_PATH, "utf8");
     const parsed = JSON.parse(text);
     if (Array.isArray(parsed)) {
-      state.linkedReports = parsed;
+      const normalized = parsed
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+          ...item,
+          fields: sanitizeLinkedReportFields(item.fields || [])
+        }));
+      state.linkedReports = normalized;
+      if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+        saveLinkedReports();
+      }
     }
   } catch (error) {
     console.warn(`Could not load linked reports: ${error.message}`);

@@ -20,6 +20,63 @@ function esc(v) {
   return `${v ?? ""}`.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+const FRIENDLY_FIELD_LABEL_MAP = Object.freeze({
+  fosteredTo: "Fostered To",
+  ownerAddress: "Owner Address",
+  homeTelephone: "Home Phone",
+  mobileTelephone: "Mobile Phone",
+  workTelephone: "Work Phone",
+  emailAddress: "Email Address",
+  animalId: "Animal ID",
+  shelterCode: "Shelter Code",
+  animalName: "Animal Name",
+  breedName: "Breed",
+  dateOfBirth: "Date of Birth",
+  animalAge: "Animal Age",
+  logTypeName: "Log Type",
+  shortCode: "Short Code",
+  displayLocation: "Location",
+  createdBy: "Created By",
+  theDate: "Date",
+  identichipNumber: "Microchip Number",
+  animalTypeName: "Animal Type",
+  speciesName: "Species",
+  sexName: "Sex",
+  locationFound: "Location Found",
+  categoryName: "Category",
+  outOrIn: "Intake / Outcome",
+  holdDate: "Hold Date",
+  daysOnShelter: "Days in Shelter",
+  pic: "Photo",
+  lastChangedDate: "Last Updated",
+  ownerName: "Owner Name",
+  ownerId: "Owner ID",
+  ownerSurname: "Owner Last Name",
+  ownerForenames: "Owner First Name(s)",
+  ownerTown: "Owner City",
+  ownerCounty: "Owner County",
+  ownerPostcode: "Owner Postal Code",
+  paymentName: "Payment Method",
+  donationName: "Donation Type",
+  asmAnimalUrl: "ASM Animal Link",
+  neuteredDate: "Neutered Date",
+  adoptionDate: "Adoption Date",
+  value: "Value"
+});
+
+function toFriendlyFieldLabel(key) {
+  const source = `${key || ""}`.trim();
+  if (!source) return "";
+  if (FRIENDLY_FIELD_LABEL_MAP[source]) return FRIENDLY_FIELD_LABEL_MAP[source];
+
+  return source
+    .replace(/_/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\b(id|url|asm|dob|tnr)\b/gi, (token) => token.toUpperCase())
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let editingId = null;   // null = creating new, string = editing existing
@@ -174,7 +231,7 @@ function populateFieldList(fields) {
 function buildDefaultFields(fieldKeys) {
   return fieldKeys.map((key, i) => ({
     key,
-    label: key.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2"),
+    label: toFriendlyFieldLabel(key),
     expanded: i > 2,
     groupBy: false,
     chartLeft: false,
@@ -281,7 +338,7 @@ async function probeFields() {
     const existingMap = new Map(existing.map((f) => [f.key, f]));
     const merged = data.fieldKeys.map((key, i) => {
       const ex = existingMap.get(key);
-      return ex ? { ...ex } : { key, label: key, expanded: i > 2, groupBy: false, chartLeft: false, chartRight: false, order: i };
+      return ex ? { ...ex } : { key, label: toFriendlyFieldLabel(key), expanded: i > 2, groupBy: false, chartLeft: false, chartRight: false, order: i };
     });
     populateFieldList(merged);
     els.fieldsSection.style.display = "";
