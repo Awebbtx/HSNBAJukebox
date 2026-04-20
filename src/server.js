@@ -6058,6 +6058,7 @@ app.post("/api/admin/reporting/linked-reports", requireAdmin, requireReporting, 
   const report = sanitizeLinkedReport({ ...body, id: crypto.randomUUID(), createdAt: new Date().toISOString() });
   state.linkedReports.push(report);
   saveLinkedReports();
+  invalidateLinkedReportDataCache(report.id);
   res.json({ ok: true, report });
 });
 
@@ -6108,8 +6109,7 @@ app.get("/api/admin/reporting/linked-reports/:id/data", requireAdmin, requireRep
     if (cached && Date.now() - cached.fetchedAt < REPORT_DATA_CACHE_TTL_MS) {
       return res.json({
         ...cached.payload,
-        report: reportMeta,
-        sourceMethod: `json_report:${report.asmReportTitle}`
+        report: reportMeta
       });
     }
 
