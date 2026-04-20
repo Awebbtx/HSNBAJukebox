@@ -1982,9 +1982,6 @@ loadSystemConfig();
 loadLocalQueue();
 loadReportingSnapshot();
 loadAcGeocodeCache();
-queueMicrotask(() => {
-  loadLinkedReports();
-});
 startAudioAutomationScheduler();
 startReportingScheduler();
 
@@ -2397,6 +2394,9 @@ function invalidateLinkedReportDataCache(reportId = "") {
     }
   }
 }
+
+// Load and normalize linked report definitions after label helpers are initialized.
+loadLinkedReports();
 
 function extractAsmRetryHint(error) {
   const message = `${error?.message || ""}`;
