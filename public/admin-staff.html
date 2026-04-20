@@ -141,6 +141,20 @@
         <div id="panelRequestAccess" class="settings-panel active">
           <div class="setting-row stack">
             <div>
+              <div class="setting-name">Staff Account Candidates</div>
+              <div class="setting-desc">Pre-loaded staff list. Edit name or email inline, then click <strong>Add &rarr;</strong> to stage in the create form below.</div>
+            </div>
+            <div class="setting-form-actions">
+              <button id="asmImportLoadBtn" class="btn-sm" type="button">Show Candidates</button>
+            </div>
+            <div id="asmImportCandidatesList" style="display:none;margin-top:0.5rem">
+              <div id="asmImportStatus" class="setting-desc" style="margin-bottom:0.5rem"></div>
+              <ul id="asmImportList" class="req-list"></ul>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
               <div class="setting-name">Create User Account</div>
               <div class="setting-desc">Create an account with groups and request limit, then send a secure invite email.</div>
             </div>

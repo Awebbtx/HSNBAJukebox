@@ -169,6 +169,10 @@ const els = {
   staffGroupGlobalAdmin: document.getElementById("staffGroupGlobalAdmin"),
   createStaffBtn: document.getElementById("createStaffBtn"),
   staffStatusText: document.getElementById("staffStatusText"),
+  asmImportLoadBtn: document.getElementById("asmImportLoadBtn"),
+  asmImportCandidatesList: document.getElementById("asmImportCandidatesList"),
+  asmImportStatus: document.getElementById("asmImportStatus"),
+  asmImportList: document.getElementById("asmImportList"),
   staffList: document.getElementById("staffList"),
   refreshRequestStatsBtn: document.getElementById("refreshRequestStatsBtn"),
   topRequestedAdminList: document.getElementById("topRequestedAdminList"),
@@ -2775,6 +2779,68 @@ if (els.saveDefaultRequestLimitBtn) {
       await loadStaffSettings();
       toast("Default request limit saved");
     } catch (e) { toast(e.message, true); }
+  });
+}
+
+// ── ASM staff importer (hardcoded candidate list) ───────────────────────────
+const ASM_STAFF_CANDIDATES = [
+  { displayName: "Allison Netherton",                    email: "allison.netherton4@gmail.com" },
+  { displayName: "Calvin Hines",                         email: "" },
+  { displayName: "Cassie Mrazek",                        email: "mrazekcassie@yahoo.com" },
+  { displayName: "Dora Garcia",                          email: "dora33602@gmail.com" },
+  { displayName: "EJ Lalko",                             email: "ej924esc@gmail.com" },
+  { displayName: "Elizabeth & Victor Rodriguez",         email: "ebarker0609@gmail.com" },
+  { displayName: "Emily Ramirez",                        email: "emypram8787@icloud.com" },
+  { displayName: "Georgette & Peter Gatica",             email: "gmgatica13@gmail.com" },
+  { displayName: "Jenna & Shawn Peters",                 email: "jenna.elizabeth517@gmail.com" },
+  { displayName: "Kaitlyn Clark",                        email: "knckatie@gmail.com" },
+  { displayName: "Kayela Tumlinson & Steven Mancine",    email: "kayelastanford96@gmail.com" },
+  { displayName: "Kimberly Espinosa Mercado & Liz Mercado", email: "kimgibel@gmail.com" },
+  { displayName: "Kira Richey",                          email: "kira.d.richey@gmail.com" },
+  { displayName: "Lara Farmer",                          email: "larasati.farmer@gmail.com" },
+  { displayName: "William Stapleton & Aaron Clamon",     email: "williamfstapleton@gmail.com" },
+  { displayName: "Natalie Hausmann",                     email: "nataliehausmann12@gmail.com" },
+  { displayName: "Sadie Rawlins",                        email: "lanelle31998@gmail.com" },
+  { displayName: "Samantha Smith",                       email: "samantha.smith1991@aol.com" },
+  { displayName: "Sarah Hammond",                        email: "sarah.hammond@hsnba.org" },
+  { displayName: "Tara Cojocaru",                        email: "taracojocaru@gmail.com" },
+  { displayName: "Taylor Shiroky",                       email: "t.shiroky22@gmail.com" },
+  { displayName: "Tiah Vina & Paige Crumrine",           email: "tiahvina98@gmail.com" },
+  { displayName: "Trinity Bazan",                        email: "trinity.bazan@yahoo.com" },
+  { displayName: "Zac Turley",                           email: "zdturley@gmail.com" },
+];
+
+function renderAsmImportCandidates() {
+  const list = els.asmImportList;
+  if (!list) return;
+  list.innerHTML = "";
+  for (const c of ASM_STAFF_CANDIDATES) {
+    const li = document.createElement("li");
+    li.className = "req-item";
+    li.style.cssText = "display:grid;grid-template-columns:1fr 1fr auto;gap:0.45rem;align-items:center;padding:0.45rem 0.55rem";
+    li.innerHTML = `
+      <input type="text" class="asm-name-input" value="${escapeHtml(c.displayName)}" placeholder="Display name" style="font-size:0.85rem;padding:0.25rem 0.45rem" />
+      <input type="email" class="asm-email-input" value="${escapeHtml(c.email)}" placeholder="Email address" style="font-size:0.85rem;padding:0.25rem 0.45rem" />
+      <button class="btn-sm asm-stage-btn" type="button">Add &rarr;</button>
+    `;
+    li.querySelector(".asm-stage-btn").addEventListener("click", () => {
+      const name = li.querySelector(".asm-name-input").value.trim();
+      const email = li.querySelector(".asm-email-input").value.trim();
+      if (els.staffDisplayNameInput) els.staffDisplayNameInput.value = name;
+      if (els.staffUsernameInput) els.staffUsernameInput.value = email;
+      els.staffDisplayNameInput?.scrollIntoView({ behavior: "smooth", block: "center" });
+      els.staffDisplayNameInput?.focus();
+    });
+    list.append(li);
+  }
+  if (els.asmImportStatus) els.asmImportStatus.textContent = `${ASM_STAFF_CANDIDATES.length} candidates — edit name or email inline, then click Add → to stage in the form below.`;
+  if (els.asmImportCandidatesList) els.asmImportCandidatesList.style.display = "";
+}
+
+if (els.asmImportLoadBtn) {
+  els.asmImportLoadBtn.addEventListener("click", () => {
+    renderAsmImportCandidates();
+    els.asmImportLoadBtn.textContent = "Refresh";
   });
 }
 
