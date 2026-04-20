@@ -8,10 +8,20 @@ This project combines:
 - Staff-friendly request/voting experience
 - Group-based user management (admins and staff)
 - An adoptable-animal slideshow stream backed by Shelter Manager (ASM)
+- A dedicated reporting host and reporting dashboards for operational metrics
 - Deployment helpers for both incremental deploy and full Proxmox container bootstrap
 
 For deeper product and architecture detail, see [ABOUT.md](ABOUT.md).
 Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
+
+## Current State
+
+- Main runtime is the jukebox/admin service on port `3000` with a reporting-oriented host flow also served from the same codebase.
+- Reporting requests are host-gated and expose dedicated reporting pages plus `/api/admin/reporting/*` endpoints.
+- Admin, reporting, and staff access are username/password based with group/permission-based authorization.
+- Saved playlists can be created, loaded, edited, and deleted from the admin UI.
+- Spotify enrollment now includes Mopidy-Spotify credential guidance in the admin settings UI.
+- Deployments performed with [deploy.proxmox.ps1](deploy.proxmox.ps1) package Git `HEAD`, so local edits must be committed to be included.
 
 ## Core Features
 
@@ -19,8 +29,9 @@ Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 - Search Spotify tracks and add to queue
 - Randomize, clear, reorder, and remove queued tracks
-- Save/load playlists
+- Save, load, edit, and delete playlists
 - Display now-playing metadata
+- Local queue persistence and clearer playlist-load failure handling
 
 ### Staff Request Experience
 
@@ -31,9 +42,16 @@ Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ### Account and Access Model
 
-- Unified user model (no separate hardcoded admin account type)
-- Admin rights based on membership in the `admins` group
+- Unified user/account model with admin, reporting, and jukebox permissions
 - Session-backed admin and employee auth
+- Password reset and invite workflows via shared SMTP/email settings
+- Admin account recovery and snapshot-oriented hardening
+
+### Reporting
+
+- Dedicated reporting login and reporting host routing
+- Operational dashboards backed by `/api/admin/reporting/*`
+- Linked-report support and reporting timeout protections
 
 ### Adoptable Stream + ASM Integration
 
@@ -41,6 +59,13 @@ Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
 - Slideshow controls for interval, limit, and filtering
 - Configurable field catalog for slideshow details
 - Ordered display slots (1-10) driven by admin settings
+
+### System and Operations
+
+- Server timezone management in admin settings
+- SMTP/email service configuration for invites, resets, alerts, and reports
+- Audio automation schedules and audio-path diagnostics
+- Service log and stream-health diagnostics in admin tooling
 
 ### Deployment Tooling
 
@@ -52,15 +77,17 @@ Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
 - Node.js + Express backend in [src/server.js](src/server.js)
 - Static frontend pages/scripts under [public](public)
 - Mopidy JSON-RPC integration for queue/search
-- Spotify OAuth + playback controls
+- Mopidy-Spotify enrollment guidance plus Spotify playback controls
 - ASM (Shelter Manager) integration for adoptables
+- Reporting-host routing and reporting API endpoints from the shared backend
 
 ## Authentication Summary
 
 - Admin login endpoint: `/api/admin/session`
 - Employee login endpoint: `/api/requests/session`
 - Usernames must be email format
-- Admin privileges determined by `groups` containing `admins`
+- Authorization is permission-driven for admin, reporting, and jukebox operations
+- Reporting login uses the same account system with reporting permission checks
 
 ## Quick Start (Local)
 
@@ -90,6 +117,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.proxmox.ps1
 ```
 
 This packages current `HEAD`, uploads to Proxmox, deploys into container, installs prod deps, and restarts `hsnba-jukebox`.
+
+Important: this workflow deploys committed Git `HEAD`, not arbitrary working-tree edits.
 
 ### 2) Full Proxmox Host Bootstrap (New Container)
 
@@ -147,3 +176,4 @@ Default runtime path:
 - Spotify playback control typically requires a Premium Spotify account.
 - Mopidy endpoint must be reachable from this app host/container.
 - If local audio hardware is not available on host, run playback target in a VM/LXC with proper audio passthrough.
+- Mopidy-Spotify saved-playlist resolution depends on valid Mopidy Spotify credentials in `mopidy.conf`.

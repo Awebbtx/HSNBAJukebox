@@ -9,6 +9,7 @@ It combines three domains in one deployable service:
 - Collaborative queue and playback control
 - Staff authentication and request governance
 - ASM-powered adoptable slideshow presentation
+- Reporting-host dashboards for shelter and animal-control operational metrics
 
 The project is designed to run cleanly in Proxmox-backed infrastructure with reproducible deployment paths.
 
@@ -26,7 +27,8 @@ The project is designed to run cleanly in Proxmox-backed infrastructure with rep
 - Search and queue tracks
 - Playback controls (transport, volume, modes)
 - Queue moderation (move, delete, clear, shuffle)
-- Playlist save/load workflows
+- Playlist save/load/edit/delete workflows
+- Playlist editor popup in admin UI for rename and per-track removal
 
 ### Staff Request Workflow
 
@@ -38,9 +40,16 @@ The project is designed to run cleanly in Proxmox-backed infrastructure with rep
 ### Admin Governance
 
 - Unified user directory
-- Group-based admin privileges (`admins` group)
+- Group/permission-based admin privileges
 - Password/profile management
 - History/audit visibility in settings panels
+- Recovery-oriented account hardening and snapshot support
+
+### Reporting Surface
+
+- Dedicated reporting-host routing and reporting login experience
+- Reporting dashboards backed by shared admin accounts with reporting permission checks
+- Linked-report loading, caching, and timeout protections for operational dashboards
 
 ### Adoptable Stream Integration
 
@@ -48,6 +57,13 @@ The project is designed to run cleanly in Proxmox-backed infrastructure with rep
 - Applies optional filters and slideshow limits
 - Displays mapped data fields in configurable order
 - Supports admin-managed field catalog and labeling
+
+### Operations and Diagnostics
+
+- Audio automation schedules for playback, stream delivery, and hardware output behavior
+- Server timezone management for scheduler correctness
+- SMTP/email configuration for invites, resets, alerts, and reports
+- Service-log, stream-health, and audio-path diagnostics in admin tooling
 
 ## Technical Design
 
@@ -65,12 +81,16 @@ The project is designed to run cleanly in Proxmox-backed infrastructure with rep
 - Email format usernames
 - Single user model with group-based authorization
 - Admin APIs require valid admin session token
+- Reporting access is permission-gated within the same account system
+- Password reset and invite flows are part of the current operational model
 
 ## Deployment Design
 
 ### Existing Container Deploy
 
 Use `deploy.proxmox.ps1` from Windows to package current Git `HEAD` and deploy to an existing CT.
+
+Operational note: uncommitted local edits are not included in this workflow unless separately hot-deployed.
 
 ### New Container Bootstrap
 
@@ -98,9 +118,11 @@ Use `proxmox-jukebox-bootstrap.sh` on Proxmox host to create a fresh LXC, instal
 ## Current Strengths
 
 - Practical deployment automation
-- Unified auth model with group-based admin rights
+- Unified auth model with permission-driven admin/reporting control
 - Configurable adoptable slideshow fields without recurring code edits
 - Clear separation between operational controls and public request UI
+- Reporting host support without a separate codebase
+- Direct admin management for saved playlists and Spotify enrollment guidance
 
 ## Future Extension Opportunities
 
