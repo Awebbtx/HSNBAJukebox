@@ -145,17 +145,6 @@
         <div id="panelRequestAccess" class="settings-panel active">
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Default Daily Request Limit</div>
-              <div class="setting-desc">Applies to newly created user accounts. Existing users can override.</div>
-            </div>
-            <div class="setting-form-row">
-              <input id="defaultRequestLimitInput" type="number" min="1" step="1" placeholder="Default limit" />
-              <button id="saveDefaultRequestLimitBtn" class="btn-sm" type="button">Save Default</button>
-            </div>
-          </div>
-
-          <div class="setting-row stack">
-            <div>
               <div class="setting-name">Create User Account</div>
               <div class="setting-desc">Users sign in with their username and password.</div>
             </div>
@@ -265,6 +254,7 @@
               <input id="asmUsernameInput" type="text" placeholder="ASM Username (optional if using API key)" />
               <input id="asmPasswordInput" type="password" placeholder="ASM Password (optional if using API key)" />
               <input id="asmMethodInput" type="text" placeholder="ASM adoptable method" />
+              <input id="asmAnimalControlReportTitleInput" type="text" placeholder="ASM Animal Control report title" />
               <input id="asmCacheSecondsInput" type="number" min="30" step="30" placeholder="Cache seconds" />
             </div>
             <div class="setting-form-actions">

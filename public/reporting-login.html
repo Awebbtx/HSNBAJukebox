@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSNBA Reporting Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/admin.css" />
+    <style>
+      .login-wrap {
+        width: min(480px, 92vw);
+        margin: 8vh auto;
+      }
+      .login-title {
+        margin: 0 0 0.35rem;
+        font: 700 1.75rem/1.2 "Sora", sans-serif;
+      }
+      .login-sub {
+        color: var(--muted);
+        margin: 0 0 1.1rem;
+      }
+      .login-field { margin-bottom: 0.8rem; }
+      .login-field label {
+        display: block;
+        margin-bottom: 0.35rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .login-field input {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--ink);
+        padding: 0.7rem 0.8rem;
+        font: inherit;
+      }
+      .login-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        margin-top: 0.8rem;
+      }
+      .btn-primary {
+        border: 0;
+        border-radius: 10px;
+        background: linear-gradient(140deg, var(--accent), var(--accent-d));
+        color: #fff;
+        padding: 0.62rem 1rem;
+        font: 600 0.95rem/1 "Outfit", sans-serif;
+        cursor: pointer;
+      }
+      .status {
+        min-height: 1.2rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .status.error { color: var(--danger); }
+    </style>
+  </head>
+  <body>
+    <main class="login-wrap card" aria-labelledby="loginTitle">
+      <h1 id="loginTitle" class="login-title">HSNBA Reporting</h1>
+      <p class="login-sub">Sign in with your admin account to access reporting.hsnba.org.</p>
+      <form id="loginForm" novalidate>
+        <div class="login-field">
+          <label for="usernameInput">Username</label>
+          <input id="usernameInput" name="username" type="email" autocomplete="username" required />
+        </div>
+        <div class="login-field">
+          <label for="passwordInput">Password</label>
+          <input id="passwordInput" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="login-actions">
+          <button class="btn-primary" type="submit" id="loginBtn">Sign In</button>
+          <span id="statusText" class="status" aria-live="polite"></span>
+        </div>
+      </form>
+    </main>
+    <script type="module" src="/reporting-login.js"></script>
+  </body>
+</html>

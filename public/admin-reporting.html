@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSNBA Reporting Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/admin-pages.css" />
+    <style>
+      .report-shell { width: min(1100px, 95vw); margin: 1rem auto 2.2rem; display: grid; gap: 0.9rem; }
+      .report-head { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; }
+      .report-head h1 { margin: 0; font: 700 1.45rem/1.2 "Sora", sans-serif; }
+      .report-head p { margin: 0.25rem 0 0; color: var(--muted); }
+      .report-actions { display: flex; gap: 0.55rem; }
+      .report-top-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+      }
+      .report-nav-btn {
+        text-decoration: none;
+        border: 1px solid rgba(255,255,255,0.14);
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.82rem;
+      }
+      .report-nav-btn.is-active,
+      .report-nav-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .btn-primary {
+        border: 0;
+        border-radius: 9px;
+        background: linear-gradient(140deg, var(--accent), var(--accent-d));
+        color: #fff;
+        padding: 0.55rem 0.9rem;
+        font: 600 0.9rem/1 "Outfit", sans-serif;
+        cursor: pointer;
+      }
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 0.65rem;
+      }
+      .metric-value { font: 700 1.6rem/1.1 "Sora", sans-serif; margin-top: 0.35rem; }
+      .metric-sub { color: var(--muted); font-size: 0.84rem; }
+      .ticker-wrap {
+        overflow: hidden;
+        white-space: nowrap;
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+        position: relative;
+      }
+      .ticker-inner {
+        display: inline-block;
+        animation: ticker-scroll 30s linear infinite;
+        animation-play-state: running;
+      }
+      .ticker-wrap:hover .ticker-inner { animation-play-state: paused; }
+      @keyframes ticker-scroll {
+        0%   { transform: translateX(100%); }
+        100% { transform: translateX(-100%); }
+      }
+      .ticker-item {
+        display: inline-block;
+        margin-right: 3rem;
+        font-size: 0.88rem;
+      }
+      .ticker-item .t-name { color: var(--accent); font-weight: 600; }
+      .ticker-item .t-amount { color: #ffd060; font-weight: 700; margin-left: 0.35rem; }
+      .ticker-item .t-thanks { color: var(--muted); font-size: 0.78rem; margin-left: 0.4rem; }
+      .mini-list { display: grid; gap: 0.35rem; }
+      .mini-row {
+        display: grid;
+        grid-template-columns: minmax(140px, 1fr) auto;
+        gap: 0.7rem;
+        align-items: center;
+        font-size: 0.86rem;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        padding-bottom: 0.3rem;
+      }
+      .mini-row:last-child { border-bottom: 0; padding-bottom: 0; }
+      .mini-name { color: #dceaf5; }
+      .mini-date { color: var(--accent); font-weight: 600; white-space: nowrap; }
+      .mini-total { margin-top: 0.45rem; color: var(--muted); font-size: 0.8rem; }
+      .chart-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+        gap: 0.75rem;
+      }
+      .chart-card canvas { width: 100%; max-height: 300px; }
+      .linked-dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 0.75rem;
+      }
+      .linked-dashboard-report {
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 0.65rem;
+        background: rgba(255,255,255,0.02);
+      }
+      .linked-dashboard-report h3 {
+        margin: 0 0 0.45rem;
+        font: 700 0.95rem/1.2 "Sora", sans-serif;
+      }
+      .linked-dashboard-slot-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.55rem;
+      }
+      .linked-dashboard-slot {
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        padding: 0.45rem;
+        background: rgba(0,0,0,0.18);
+      }
+      .linked-dashboard-slot-title {
+        margin: 0 0 0.35rem;
+        font-size: 0.72rem;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .linked-dashboard-slot canvas { width: 100%; max-height: 220px; }
+      .linked-dashboard-note { color: var(--muted); font-size: 0.82rem; }
+      .status-note { color: var(--muted); font-size: 0.86rem; }
+      .monthly-table-wrap { overflow-x: auto; }
+      .monthly-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+      .monthly-table th { color: var(--muted); font-weight: 600; text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.07); }
+      .monthly-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+      .monthly-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+      .monthly-table tr:last-child td { border-bottom: 0; }
+      @media (max-width: 760px) {
+        .report-head { flex-direction: column; align-items: flex-start; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top-bar">
+      <a class="top-brand" href="/admin-reporting.html">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span class="brand-name">HSNBA Reporting</span>
+      </a>
+      <nav class="report-top-nav" aria-label="Reporting navigation">
+        <a class="report-nav-btn is-active" href="/admin-reporting.html">Dashboard</a>
+        <a class="report-nav-btn" href="/admin-shelter-reports.html">Shelter Reports</a>
+        <a class="report-nav-btn" href="/admin-animal-control.html">Animal Control</a>
+        <a class="report-nav-btn" href="/admin-reporting-account.html">My Account</a>
+        <a class="report-nav-btn" href="/admin-reporting-users.html">User Accounts</a>
+      </nav>
+      <button id="logoutBtn" class="btn-ghost" type="button">Logout</button>
+    </header>
+
+    <main class="report-shell wrap">
+      <section class="card report-head">
+        <div>
+          <h1>Operational Trends</h1>
+          <p id="generatedAtText">Loading reporting data...</p>
+        </div>
+        <div class="report-actions">
+          <button id="refreshBtn" class="btn-primary" type="button">Refresh</button>
+        </div>
+      </section>
+
+      <section class="metric-grid" aria-label="Summary metrics" data-layout-container="dashboard-metrics">
+        <article class="card" data-layout-item data-layout-id="metric-adoptable">
+          <div class="card-label">ADOPTABLE NOW</div>
+          <div id="metricAdoptable" class="metric-value">-</div>
+          <div class="metric-sub">Current adoptable count</div>
+        </article>
+        <article class="card" data-layout-item data-layout-id="metric-shelter">
+          <div class="card-label">SHELTER TOTAL</div>
+          <div id="metricShelter" class="metric-value">-</div>
+          <div class="metric-sub">Animals currently in shelter dataset</div>
+        </article>
+        <article class="card" data-layout-item data-layout-id="metric-held">
+          <div class="card-label">HELD</div>
+          <div id="metricHeld" class="metric-value">-</div>
+          <div class="metric-sub">Animals in held dataset</div>
+        </article>
+        <article class="card" data-layout-item data-layout-id="metric-stray">
+          <div class="card-label">STRAY</div>
+          <div id="metricStray" class="metric-value">-</div>
+          <div class="metric-sub">Animals in stray dataset</div>
+        </article>
+        <article class="card" data-layout-item data-layout-id="metric-recent-adoptions">
+          <div class="card-label">RECENT ADOPTIONS</div>
+          <div id="metricRecentAdoptions" class="metric-value">-</div>
+          <div class="metric-sub">Rows returned by recent adoptions feed</div>
+        </article>
+      </section>
+
+      <section class="card" data-layout-item data-layout-id="section-donation-ticker">
+        <div class="card-label">DONATIONS &amp; THANK YOUS — NEEDS ATTENTION</div>
+        <div id="donationTicker" class="ticker-wrap">
+          <span style="color:var(--muted);font-size:0.84rem">Loading...</span>
+        </div>
+      </section>
+
+      <section class="card" data-layout-item data-layout-id="section-yearly-reviews">
+        <div class="card-label">YEARLY REVIEWS UPCOMING</div>
+        <div id="yearlyReviewsBox" class="mini-list">
+          <span style="color:var(--muted);font-size:0.84rem">Loading...</span>
+        </div>
+      </section>
+
+      <section class="chart-grid" data-layout-container="dashboard-charts">
+        <article class="card chart-card" data-layout-item data-layout-id="chart-species-adoptable">
+          <div class="card-label">SPECIES MIX — ADOPTABLE</div>
+          <canvas id="speciesChart" aria-label="Species mix pie chart"></canvas>
+        </article>
+        <article class="card chart-card" data-layout-item data-layout-id="chart-species-all-care">
+          <div class="card-label">SPECIES MIX — ALL IN CARE</div>
+          <canvas id="speciesInCareChart" aria-label="Species mix all in care pie chart"></canvas>
+        </article>
+        <article class="card chart-card" data-layout-item data-layout-id="chart-adoptions-monthly">
+          <div class="card-label">ADOPTIONS BY MONTH (12M)</div>
+          <canvas id="monthlyChart" aria-label="Monthly adoptions bar chart"></canvas>
+        </article>
+        <article class="card chart-card" data-layout-item data-layout-id="chart-recent-adoptions">
+          <div class="card-label">RECENT ADOPTIONS (30D)</div>
+          <canvas id="recentChart" aria-label="Recent adoptions line chart"></canvas>
+        </article>
+        <article class="card chart-card" data-layout-item data-layout-id="chart-population-composition">
+          <div class="card-label">POPULATION COMPOSITION</div>
+          <canvas id="compositionChart" aria-label="Population composition bar chart"></canvas>
+        </article>
+        <div id="linkedDashboardCharts" style="display:contents">
+          <article class="card chart-card" data-layout-item data-layout-id="chart-linked-placeholder">
+            <div class="card-label">LINKED REPORT CHARTS</div>
+            <span class="linked-dashboard-note">Loading linked report charts...</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="card" data-layout-item data-layout-id="section-monthly-table">
+        <div class="card-label">MONTHLY ADOPTION TOTALS</div>
+        <div id="monthlyTable" class="monthly-table-wrap">
+          <span style="color:var(--muted)">Loading...</span>
+        </div>
+      </section>
+
+      <section class="card" data-layout-item data-layout-id="section-data-status">
+        <div class="card-label">DATA SOURCE STATUS</div>
+        <div id="statusText" class="status-note">Waiting for data.</div>
+        <div id="cacheText" class="status-note" style="margin-top:0.3rem"></div>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="/admin-layout-editor.js"></script>
+    <script type="module" src="/admin-reporting.js"></script>
+  </body>
+</html>

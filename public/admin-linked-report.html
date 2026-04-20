@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSNBA Linked Report</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/admin-pages.css" />
+    <link rel="stylesheet" href="/admin-report-cards.css" />
+    <style>
+      .page-shell { width: min(1100px, 97vw); margin: 1rem auto 2rem; display: grid; gap: 0.9rem; }
+      .head-row { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+      .head-row h1 { margin: 0; font: 700 1.45rem/1.2 "Sora", sans-serif; }
+      .head-row p { margin: 0.25rem 0 0; color: var(--muted); }
+      .report-top-nav { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+      .report-nav-btn {
+        text-decoration: none;
+        border: 1px solid rgba(255,255,255,0.14);
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.82rem;
+      }
+      .report-nav-btn.is-active,
+      .report-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+      .btn-primary {
+        border: 0;
+        border-radius: 9px;
+        background: linear-gradient(140deg, var(--accent), var(--accent-d));
+        color: #fff;
+        padding: 0.55rem 0.9rem;
+        font: 600 0.9rem/1 "Outfit", sans-serif;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+      }
+      .head-actions { display: flex; gap: 0.55rem; align-items: center; }
+      .linked-chart-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 0.85rem;
+      }
+      .linked-chart-card {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.6rem 0.7rem;
+        background: rgba(0, 0, 0, 0.14);
+      }
+      .linked-chart-title {
+        font: 700 0.78rem/1.1 "Sora", sans-serif;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 0.45rem;
+      }
+      .linked-chart-empty {
+        color: var(--muted);
+        font-size: 0.82rem;
+        padding: 0.5rem 0.15rem;
+      }
+      .linked-chart-canvas {
+        width: 100%;
+        max-height: 260px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top-bar">
+      <a class="top-brand" href="/admin-reporting.html">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span class="brand-name">HSNBA Reporting</span>
+      </a>
+      <nav class="report-top-nav" aria-label="Reporting navigation">
+        <a class="report-nav-btn" href="/admin-reporting.html">Dashboard</a>
+        <a class="report-nav-btn is-active" href="/admin-shelter-reports.html">Shelter Reports</a>
+        <a class="report-nav-btn" href="/admin-animal-control.html">Animal Control</a>
+        <a class="report-nav-btn" href="/admin-reporting-account.html">My Account</a>
+        <a class="report-nav-btn" href="/admin-reporting-users.html">User Accounts</a>
+      </nav>
+      <button id="logoutBtn" class="btn-ghost" type="button">Logout</button>
+    </header>
+
+    <main class="page-shell wrap">
+      <section class="card head-row">
+        <div>
+          <h1 id="reportTitle">Loading…</h1>
+          <p id="metaText">Fetching data from Shelter Manager…</p>
+        </div>
+        <div class="head-actions">
+          <button id="refreshBtn" class="btn-primary" type="button">Refresh</button>
+          <a class="btn-primary" href="/admin-shelter-reports.html" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16)">← Back</a>
+        </div>
+      </section>
+
+      <section class="card">
+        <div id="reportBody">
+          <span style="color:var(--muted)">Loading…</span>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/admin-report-cards.js"></script>
+    <script type="module" src="/admin-linked-report.js"></script>
+  </body>
+</html>

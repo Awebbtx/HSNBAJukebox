@@ -1,0 +1,288 @@
+/* ── Shared Report Card Layout ──────────────────────────────── */
+
+.rc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rc-group {
+  margin-bottom: 0.5rem;
+}
+
+.rc-group-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+  padding: 0.55rem 0.2rem 0.3rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.45rem;
+}
+
+.rc-group-title span {
+  font-weight: 400;
+  opacity: 0.65;
+}
+
+/* ── Card ── */
+.rc-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.rc-card:hover {
+  border-color: rgba(245, 166, 35, 0.35);
+}
+
+/* ── Card header (always visible, clickable) ── */
+.rc-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rc-thumb {
+  width: 54px;
+  height: 54px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--surf-hi);
+}
+
+.rc-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.rc-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 1.4;
+}
+
+.rc-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.rc-title a:hover {
+  text-decoration: underline;
+  color: var(--accent);
+}
+
+/* Summary chips */
+.rc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+.rc-chip {
+  font-size: 0.7rem;
+  padding: 0.17rem 0.55rem;
+  background: var(--surf-hi);
+  border-radius: 999px;
+  color: var(--muted);
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+.rc-chip strong {
+  color: var(--ink);
+  font-weight: 500;
+  margin-right: 0.25em;
+}
+
+/* Toggle button */
+.rc-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.28rem 0.6rem;
+  border-radius: 5px;
+  flex-shrink: 0;
+  align-self: center;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.rc-link-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.95rem;
+  height: 1.95rem;
+  border: 1px solid rgba(245, 166, 35, 0.45);
+  border-radius: 5px;
+  color: var(--accent);
+  background: rgba(245, 166, 35, 0.08);
+  text-decoration: none;
+  flex-shrink: 0;
+  align-self: center;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.rc-link-icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: currentColor;
+}
+
+.rc-link-icon:hover {
+  color: #ffbf5c;
+  background: rgba(245, 166, 35, 0.14);
+  border-color: rgba(245, 166, 35, 0.75);
+}
+
+.rc-link-icon:focus-visible {
+  outline: 2px solid rgba(245, 166, 35, 0.65);
+  outline-offset: 1px;
+}
+
+.rc-toggle:hover {
+  color: var(--ink);
+  background: var(--surf-hi);
+  border-color: rgba(245, 166, 35, 0.4);
+}
+
+.rc-toggle[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: rgba(245, 166, 35, 0.5);
+}
+
+.rc-toggle[aria-expanded="true"] .rc-chevron {
+  transform: rotate(180deg);
+}
+
+.rc-chevron {
+  display: inline-block;
+  transition: transform 0.2s;
+  font-style: normal;
+  margin-left: 0.15em;
+}
+
+/* ── Detail panel ── */
+.rc-details {
+  border-top: 1px solid var(--border);
+  padding: 0.7rem 0.85rem;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.rc-dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 0.55rem 1rem;
+}
+
+.rc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.rc-label {
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.055em;
+  color: var(--muted);
+}
+
+.rc-value {
+  font-size: 0.83rem;
+  color: var(--ink);
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.rc-value a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.rc-value a:hover {
+  text-decoration: underline;
+}
+
+/* Full-width field (spans all columns, used for comments/notes) */
+.rc-field-full {
+  grid-column: 1 / -1;
+}
+
+.rc-field-full .rc-value {
+  background: var(--surf-hi);
+  border-radius: 5px;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.81rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+/* ── Inline status badges ── */
+.rc-badge {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.18rem 0.52rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+  margin-left: 0.4em;
+}
+
+.rc-badge-in    { background: rgba(52, 196, 124, 0.18); color: #34c47c; }
+.rc-badge-out   { background: rgba(224,  82,  82, 0.18); color: #e05252; }
+.rc-badge-type  { background: rgba(245, 166,  35, 0.15); color: #f5a623; }
+.rc-badge-warn  { background: rgba(245, 166,  35, 0.18); color: #f5a623; }
+.rc-badge-info  { background: rgba(100, 160, 220, 0.18); color: #7ab8e8; }
+
+/* ── List-level controls (expand-all / collapse-all) ── */
+.rc-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.rc-ctrl-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.28rem 0.7rem;
+  border-radius: 5px;
+  font-family: inherit;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.rc-ctrl-btn:hover {
+  color: var(--ink);
+  background: var(--surf-hi);
+  border-color: rgba(245, 166, 35, 0.4);
+}
+
+.rc-count {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-left: auto;
+}

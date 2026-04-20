@@ -2,3 +2,7 @@
 jukebox.hsnba.org {
     reverse_proxy 172.16.10.5:3000
 }
+
+reporting.hsnba.org {
+    reverse_proxy 172.16.10.5:3001
+}

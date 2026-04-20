@@ -90,9 +90,10 @@
       <section class="card settings-card">
         <div class="card-label">SETTINGS</div>
         <div class="settings-tabs">
-          <button id="tabAudioJack" class="settings-tab active" data-tab="audio-jack">Clock</button>
-          <button id="tabSpotify" class="settings-tab" data-tab="spotify">Spotify Enrollment</button>
-          <button id="tabAsm" class="settings-tab" data-tab="asm">ASM</button>
+          <button id="tabAudioJack" class="settings-tab active" data-tab="audio-jack" type="button">Clock</button>
+          <button id="tabEmail" class="settings-tab" data-tab="email" type="button">Email</button>
+          <button id="tabSpotify" class="settings-tab" data-tab="spotify" type="button">Spotify Enrollment</button>
+          <button id="tabAsm" class="settings-tab" data-tab="asm" type="button">ASM</button>
         </div>
 
         <div id="panelAccount" class="settings-panel">
@@ -141,17 +142,6 @@
         </div>
 
         <div id="panelRequestAccess" class="settings-panel">
-          <div class="setting-row stack">
-            <div>
-              <div class="setting-name">Default Daily Request Limit</div>
-              <div class="setting-desc">Applies to newly created user accounts. Existing users can override.</div>
-            </div>
-            <div class="setting-form-row">
-              <input id="defaultRequestLimitInput" type="number" min="1" step="1" placeholder="Default limit" />
-              <button id="saveDefaultRequestLimitBtn" class="btn-sm" type="button">Save Default</button>
-            </div>
-          </div>
-
           <div class="setting-row stack">
             <div>
               <div class="setting-name">Create User Account</div>
@@ -209,7 +199,35 @@
               <button id="refreshSystemClockBtn" class="btn-sm" type="button">Refresh</button>
             </div>
           </div>
+        </div>
 
+        <div id="panelEmail" class="settings-panel">
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">SMTP Email Service</div>
+              <div id="smtpStatusText" class="setting-desc">Configure shared SMTP transport for invites, password resets, reports, and system alerts.</div>
+            </div>
+            <div id="smtpStatusPills" class="inline-list"></div>
+            <div class="setting-form-grid">
+              <input id="smtpHostInput" type="text" placeholder="SMTP host (e.g. smtp.office365.com)" />
+              <input id="smtpPortInput" type="number" min="1" max="65535" step="1" placeholder="SMTP port" />
+              <input id="smtpFromInput" type="email" placeholder="From email (e.g. alerts@hsnba.org)" />
+              <input id="smtpReplyToInput" type="email" placeholder="Reply-to email (optional)" />
+              <input id="smtpUserInput" type="text" placeholder="SMTP username (optional)" />
+              <input id="smtpPassInput" type="password" autocomplete="new-password" placeholder="SMTP password (optional)" />
+            </div>
+            <div class="setting-form-row" style="gap:1.2rem;flex-wrap:wrap">
+              <label class="setting-desc"><input id="smtpSecureToggle" type="checkbox" /> Use TLS/SSL (secure)</label>
+              <label class="setting-desc"><input id="smtpRequireTlsToggle" type="checkbox" /> Require STARTTLS</label>
+              <label class="setting-desc"><input id="smtpPoolToggle" type="checkbox" checked /> Enable pooled SMTP connections</label>
+            </div>
+            <div class="setting-form-row" style="gap:0.6rem;align-items:center;flex-wrap:wrap">
+              <input id="smtpTestToInput" type="email" placeholder="Send test to email" style="flex:1;min-width:220px" />
+              <button id="smtpSaveBtn" class="btn-sm" type="button">Save SMTP</button>
+              <button id="smtpVerifyBtn" class="btn-sm" type="button">Verify SMTP</button>
+              <button id="smtpSendTestBtn" class="btn-sm" type="button">Send Test Email</button>
+            </div>
+          </div>
         </div>
 
         <div id="panelSpotify" class="settings-panel">

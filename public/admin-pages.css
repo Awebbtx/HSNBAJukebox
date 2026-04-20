@@ -1,4 +1,10 @@
 /* Shared navigation + page modes for split admin console */
+.wrap {
+  width: min(var(--wrap-max-width, 1200px), 95vw) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
 .admin-page-nav {
   display: flex;
   flex-wrap: wrap;
@@ -55,6 +61,21 @@ body[data-admin-page="system"] .playlist-card {
 body[data-admin-page="system"] #panelAccount,
 body[data-admin-page="system"] #panelRequestAccess {
   display: none !important;
+}
+
+/* Ensure system sub-panels always obey tab active state, including Email. */
+body[data-admin-page="system"] #panelAudioJack,
+body[data-admin-page="system"] #panelEmail,
+body[data-admin-page="system"] #panelSpotify,
+body[data-admin-page="system"] #panelAsm {
+  display: none !important;
+}
+
+body[data-admin-page="system"] #panelAudioJack.active,
+body[data-admin-page="system"] #panelEmail.active,
+body[data-admin-page="system"] #panelSpotify.active,
+body[data-admin-page="system"] #panelAsm.active {
+  display: block !important;
 }
 
 

@@ -14,6 +14,12 @@ import {
   refreshAccessToken,
   spotifyApiRequest
 } from "./spotify.js";
+import {
+  getSmtpStatus,
+  resetSmtpTransport,
+  sendSystemEmail,
+  verifySmtpConnection
+} from "./mailer.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +27,8 @@ const execFileAsync = promisify(execFile);
 
 const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const REPORTING_HOST = `${process.env.REPORTING_HOST || "reporting.hsnba.org"}`.trim().toLowerCase();
+const ADMIN_SESSION_COOKIE = "hsnba_admin_session";
 const MOPIDY_URL = process.env.MOPIDY_URL || "http://127.0.0.1:6680/mopidy/rpc";
 const MAX_PENDING_PER_USER = Number(process.env.MAX_PENDING_PER_USER || 3);
 const EMPLOYEE_SESSION_TTL_MINUTES = Number(process.env.EMPLOYEE_SESSION_TTL_MINUTES || 480);
@@ -31,6 +39,13 @@ const SERVER_TZ_DEFAULT = process.env.SERVER_TZ || "America/Chicago";
 let audioJackAlsaCard = `${process.env.AUDIO_JACK_ALSA_CARD || "0"}`.trim() || "0";
 let audioJackAlsaControl = `${process.env.AUDIO_JACK_ALSA_CONTROL || "Master"}`.trim() || "Master";
 const AUDIO_JACK_STORE_ON_CHANGE = `${process.env.AUDIO_JACK_STORE_ON_CHANGE || "true"}`.toLowerCase() !== "false";
+const SESSION_SECRET = `${process.env.SESSION_SECRET || ""}`.trim();
+const ADMIN_SESSION_TTL_HOURS = Math.max(1, Number(process.env.ADMIN_SESSION_TTL_HOURS || 12));
+const ACCOUNT_INVITE_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_INVITE_TTL_HOURS || 72));
+const ACCOUNT_RESET_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_RESET_TTL_HOURS || 2));
+if (!SESSION_SECRET) {
+  console.warn("WARNING: SESSION_SECRET is not set. Admin sessions will not be valid across process restarts or between jukebox/reporting processes.");
+}
 const EXPLICIT_FILTER_ENABLED = `${process.env.EXPLICIT_FILTER_ENABLED || "false"}`.toLowerCase() === "true";
 const SLIDESHOW_EXCLUDE_FERAL = `${process.env.SLIDESHOW_EXCLUDE_FERAL || "true"}`.toLowerCase() !== "false";
 const SLIDESHOW_READY_TODAY_ONLY = `${process.env.SLIDESHOW_READY_TODAY_ONLY || "true"}`.toLowerCase() !== "false";
@@ -72,6 +87,9 @@ const SPOTIFY_TOKENS_PATH = path.resolve(__dirname, "../data/spotify-tokens.json
 const LOCAL_QUEUE_PATH = path.resolve(__dirname, "../data/local-queue.json");
 const OAUTH_PENDING_PATH = path.resolve(__dirname, "../data/oauth-pending.json");
 const SYSTEM_CONFIG_PATH = path.resolve(__dirname, "../data/system-config.json");
+const REPORTING_SNAPSHOT_PATH = path.resolve(__dirname, "../data/reporting-snapshot.json");
+const AC_GEOCODE_CACHE_PATH = path.resolve(__dirname, "../data/ac-geocode-cache.json");
+const LINKED_REPORTS_PATH = path.resolve(__dirname, "../data/linked-reports.json");
 const SPECIAL_PAGE_UPLOAD_DIR = path.resolve(__dirname, "../public/uploads/special-pages");
 const SPECIAL_PAGE_UPLOAD_WEB_PATH = "/uploads/special-pages";
 const SPECIAL_PAGE_CATEGORIES = [
@@ -95,6 +113,192 @@ if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
 
 const app = express();
 app.use(express.json({ limit: "8mb" }));
+
+function isReportingHostRequest(req) {
+  const hostHeader = `${req.headers.host || ""}`.trim().toLowerCase();
+  if (!hostHeader) {
+    return false;
+  }
+  const host = hostHeader.split(":")[0];
+  return host === REPORTING_HOST;
+}
+
+function parseCookieHeader(req) {
+  const header = `${req.headers.cookie || ""}`;
+  const out = {};
+  for (const part of header.split(";")) {
+    const piece = `${part || ""}`.trim();
+    if (!piece) continue;
+    const idx = piece.indexOf("=");
+    if (idx <= 0) continue;
+    const key = piece.slice(0, idx).trim();
+    const rawValue = piece.slice(idx + 1).trim();
+    let value = rawValue;
+    try {
+      value = decodeURIComponent(rawValue);
+    } catch {
+      // Malformed cookie values should not crash request handling.
+      value = rawValue;
+    }
+    if (key) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function getAdminTokenFromRequest(req) {
+  const authHeader = req.get("authorization") || "";
+  if (authHeader.startsWith("Bearer ")) {
+    return authHeader.slice(7).trim();
+  }
+  const cookies = parseCookieHeader(req);
+  return `${cookies[ADMIN_SESSION_COOKIE] || ""}`.trim();
+}
+
+function getAdminFromRequest(req) {
+  const token = getAdminTokenFromRequest(req);
+  const admin = getAdminBySessionToken(token);
+  if (!token || !admin) {
+    return { token: "", admin: null };
+  }
+  return { token, admin };
+}
+
+function setAdminSessionCookie(req, res, token) {
+  const attrs = [
+    `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax"
+  ];
+  if (req.secure || `${req.headers["x-forwarded-proto"] || ""}`.toLowerCase() === "https") {
+    attrs.push("Secure");
+  }
+  res.setHeader("Set-Cookie", attrs.join("; "));
+}
+
+function clearAdminSessionCookie(req, res) {
+  const attrs = [
+    `${ADMIN_SESSION_COOKIE}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0"
+  ];
+  if (req.secure || `${req.headers["x-forwarded-proto"] || ""}`.toLowerCase() === "https") {
+    attrs.push("Secure");
+  }
+  res.setHeader("Set-Cookie", attrs.join("; "));
+}
+
+app.use((req, res, next) => {
+  if (!isReportingHostRequest(req)) {
+    next();
+    return;
+  }
+
+  const pathName = `${req.path || "/"}`.trim() || "/";
+  const isApi = pathName.startsWith("/api/");
+  const { admin } = getAdminFromRequest(req);
+  const isAuthenticated = Boolean(admin);
+
+  const publicPaths = new Set([
+    "/reporting-login.html",
+    "/reporting-login.js",
+    "/account-access.html",
+    "/account-access.js",
+    "/admin.css",
+    "/admin-pages.css",
+    "/shell.css",
+    "/shell.js"
+  ]);
+
+  if (pathName === "/api/admin/session" || pathName.startsWith("/api/account/")) {
+    next();
+    return;
+  }
+
+  if (!isAuthenticated) {
+    if (pathName === "/") {
+      res.redirect(302, "/reporting-login.html");
+      return;
+    }
+    if (publicPaths.has(pathName)) {
+      next();
+      return;
+    }
+    if (isApi) {
+      res.status(401).json({ error: "Admin authentication required." });
+      return;
+    }
+    res.redirect(302, "/reporting-login.html");
+    return;
+  }
+
+  if (pathName === "/") {
+    res.redirect(302, "/admin-reporting.html");
+    return;
+  }
+
+  if (isApi) {
+      if (pathName === "/api/admin/session/logout"
+        || pathName.startsWith("/api/admin/account/")
+        || pathName.startsWith("/api/admin/reporting/")) {
+      next();
+      return;
+    }
+    res.status(403).json({ error: "This API is not available on reporting host." });
+    return;
+  }
+
+  if (pathName === "/admin-reporting.html"
+    || pathName === "/admin-reporting.js"
+    || pathName === "/admin-layout-editor.js"
+    || pathName === "/admin-report-cards.js"
+    || pathName === "/admin-report-cards.css"
+    || pathName === "/admin-animal-control.html"
+    || pathName === "/admin-animal-control.js"
+    || pathName === "/admin-animal-control-calls.html"
+    || pathName === "/admin-animal-control-calls.js"
+    || pathName === "/admin-animal-control-heatmap.html"
+    || pathName === "/admin-animal-control-heatmap.js"
+    || pathName === "/admin-shelter-reports.html"
+    || pathName === "/admin-shelter-reports.js"
+    || pathName === "/admin-linked-report.html"
+    || pathName === "/admin-linked-report.js"
+    || pathName === "/admin-active-fosters.html"
+    || pathName === "/admin-active-fosters.js"
+    || pathName === "/admin-shelter-health.html"
+    || pathName === "/admin-shelter-health.js"
+    || pathName === "/admin-city-daily-in-out.html"
+    || pathName === "/admin-city-daily-in-out.js"
+    || pathName === "/admin-staff-weekly-pathway-planning.html"
+    || pathName === "/admin-staff-weekly-pathway-planning.js"
+    || pathName === "/admin-daily-foster-movements.html"
+    || pathName === "/admin-daily-foster-movements.js"
+    || pathName === "/admin-adoption-followups.html"
+    || pathName === "/admin-adoption-followups.js"
+    || pathName === "/admin-donations-and-thank-yous.html"
+    || pathName === "/admin-donations-and-thank-yous.js"
+    || pathName === "/admin-pathway-planning.html"
+    || pathName === "/admin-pathway-planning.js"
+    || pathName === "/admin-yearly-reviews-upcoming.html"
+    || pathName === "/admin-yearly-reviews-upcoming.js"
+    || pathName === "/admin-tnr-clinic.html"
+    || pathName === "/admin-tnr-clinic.js"
+    || pathName === "/admin-reporting-account.html"
+    || pathName === "/admin-reporting-account.js"
+    || pathName === "/admin-reporting-users.html"
+    || pathName === "/admin-reporting-users.js"
+    || publicPaths.has(pathName)) {
+    next();
+    return;
+  }
+
+  res.status(404).send("Not Found");
+});
+
 app.use(express.static(path.resolve(__dirname, "../public")));
 
 const state = {
@@ -116,6 +320,7 @@ const state = {
     username: `${process.env.ASM_USERNAME || ""}`.trim(),
     password: `${process.env.ASM_PASSWORD || ""}`.trim(),
     adoptableMethod: `${process.env.ASM_ADOPTABLE_METHOD || "json_adoptable_animals"}`.trim(),
+    animalControlReportTitle: `${process.env.ASM_ANIMALCONTROL_REPORT_TITLE || ""}`.trim(),
     cacheSeconds: Number(process.env.ASM_ADOPTABLE_CACHE_SECONDS || 600)
   },
   slideshow: {
@@ -139,7 +344,8 @@ const state = {
   employeeSessions: new Map(),
   requestMetaByTlid: new Map(),
   requestRateByKey: new Map(),
-  adminSessions: new Map(),
+  revokedAdminTokens: new Map(),
+  adminDbLoadedAt: 0,
   userDb: null,
   adminDb: null,
   lastKnownCurrentTrackUri: null,
@@ -177,10 +383,16 @@ const state = {
     contentType: "",
     fieldNames: [],
     bodyPreview: ""
-  }
+  },
+  reportingSnapshot: null,
+  acGeocodeCache: {},
+  linkedReports: [],
+  linkedReportProbeCache: new Map(),
+  linkedReportDataCache: new Map()
 };
 
 const STREAM_EVENT_LIMIT = 160;
+const LINKED_REPORT_PROBE_CACHE_MS = 5 * 60 * 1000;
 
 function addStreamEvent(type, detail = {}) {
   const event = {
@@ -1195,6 +1407,138 @@ function verifyPassword(password, salt, expectedHash) {
   }
 }
 
+// ── JWT helpers (HS256, no external dependency) ───────────────────────────────
+function _b64u(str) {
+  return Buffer.from(str).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+function _b64uDecode(str) {
+  return Buffer.from(str.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+}
+function _jwtHmac(data) {
+  const secret = SESSION_SECRET || "insecure-no-secret-set";
+  return crypto.createHmac("sha256", secret).update(data).digest("base64")
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+function signAdminJwt(userId, userUpdatedAt) {
+  const header = _b64u(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = _b64u(JSON.stringify({
+    sub: userId,
+    uid: userUpdatedAt,
+    jti: crypto.randomBytes(16).toString("hex"),
+    iat: now,
+    exp: now + ADMIN_SESSION_TTL_HOURS * 3600
+  }));
+  return `${header}.${payload}.${_jwtHmac(`${header}.${payload}`)}`;
+}
+function verifyAdminJwt(token) {
+  try {
+    const parts = `${token || ""}`.split(".");
+    if (parts.length !== 3) return null;
+    const [header, payload, sig] = parts;
+    const expected = _jwtHmac(`${header}.${payload}`);
+    const eBuf = Buffer.from(expected);
+    const sBuf = Buffer.from(sig);
+    if (eBuf.length !== sBuf.length) return null;
+    if (!crypto.timingSafeEqual(sBuf, eBuf)) return null;
+    const claims = JSON.parse(_b64uDecode(payload));
+    if (!claims.exp || Math.floor(Date.now() / 1000) > claims.exp) return null;
+    return claims;
+  } catch {
+    return null;
+  }
+}
+
+function signAccountActionJwt({ userId, userUpdatedAt, username, action, ttlHours }) {
+  const header = _b64u(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = _b64u(JSON.stringify({
+    typ: "account-action",
+    act: action,
+    sub: userId,
+    em: username,
+    uid: userUpdatedAt,
+    jti: crypto.randomBytes(16).toString("hex"),
+    iat: now,
+    exp: now + Math.max(1, Number(ttlHours || 1)) * 3600
+  }));
+  return `${header}.${payload}.${_jwtHmac(`${header}.${payload}`)}`;
+}
+
+function verifyAccountActionJwt(token, expectedAction = "") {
+  const claims = verifyAdminJwt(token);
+  if (!claims) return null;
+  if (claims.typ !== "account-action") return null;
+  if (!claims.sub || !claims.act) return null;
+  if (expectedAction && claims.act !== expectedAction) return null;
+  return claims;
+}
+
+function getRequestOrigin(req) {
+  const forwardedProto = `${req.headers?.["x-forwarded-proto"] || ""}`.split(",")[0].trim().toLowerCase();
+  const proto = forwardedProto || req.protocol || "http";
+  const host = `${req.get("host") || ""}`.trim();
+  if (host) {
+    return `${proto}://${host}`;
+  }
+  return `${BASE_URL}`.replace(/\/$/, "");
+}
+
+function buildAccountActionUrl(req, token) {
+  return `${getRequestOrigin(req)}/account-access.html?token=${encodeURIComponent(token)}`;
+}
+
+async function sendAccountActionEmail({ req, targetUser, action, actor }) {
+  const ttlHours = action === "invite" ? ACCOUNT_INVITE_TTL_HOURS : ACCOUNT_RESET_TTL_HOURS;
+  const token = signAccountActionJwt({
+    userId: targetUser.id,
+    userUpdatedAt: targetUser.updatedAt,
+    username: targetUser.username,
+    action,
+    ttlHours
+  });
+  const actionUrl = buildAccountActionUrl(req, token);
+  const displayName = targetUser.displayName || targetUser.username;
+  const actionTitle = action === "invite" ? "Account invitation" : "Password reset";
+  const subject = action === "invite"
+    ? "HSNBA account invitation"
+    : "HSNBA password reset";
+  const actorLabel = actor?.displayName || actor?.username || "An administrator";
+  const text = [
+    `${actionTitle} for ${displayName}.`,
+    "",
+    `${actorLabel} requested this action.`,
+    `Complete it here: ${actionUrl}`,
+    `This link expires in ${ttlHours} hour(s).`,
+    "",
+    "If you did not expect this email, you can ignore it."
+  ].join("\n");
+  const html = [
+    `<p><strong>${actionTitle}</strong> for ${displayName}.</p>`,
+    `<p>${actorLabel} requested this action.</p>`,
+    `<p><a href="${actionUrl}">Open secure account link</a></p>`,
+    `<p>This link expires in ${ttlHours} hour(s).</p>`,
+    "<p>If you did not expect this email, you can ignore it.</p>"
+  ].join("");
+
+  const result = await sendSystemEmail({
+    to: targetUser.username,
+    subject,
+    text,
+    html
+  });
+
+  return {
+    ok: true,
+    action,
+    to: targetUser.username,
+    expiresInHours: ttlHours,
+    actionUrl,
+    messageId: result.messageId || ""
+  };
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function sanitizeUsername(value) {
   return `${value || ""}`.trim().toLowerCase().slice(0, 120);
 }
@@ -1248,8 +1592,108 @@ function ensureUniqueEmail(email, usedSet) {
   return candidate;
 }
 
+const SECURITY_GROUPS = Object.freeze({
+  USER: "user",
+  JUKEBOX_ADMIN: "jukebox-admin",
+  REPORTING: "reporting",
+  SUPERADMIN: "superadmin",
+  GLOBAL_ADMIN: "global-admin"
+});
+
+const SECURITY_GROUP_ALIASES = Object.freeze({
+  admin: SECURITY_GROUPS.GLOBAL_ADMIN,
+  admins: SECURITY_GROUPS.GLOBAL_ADMIN,
+  "global_admin": SECURITY_GROUPS.GLOBAL_ADMIN,
+  "global-admin": SECURITY_GROUPS.GLOBAL_ADMIN,
+  "jukebox_admin": SECURITY_GROUPS.JUKEBOX_ADMIN,
+  "jukebox-admin": SECURITY_GROUPS.JUKEBOX_ADMIN,
+  "jukebox admin": SECURITY_GROUPS.JUKEBOX_ADMIN,
+  "super-admin": SECURITY_GROUPS.SUPERADMIN,
+  super_admin: SECURITY_GROUPS.SUPERADMIN
+});
+
+const PERMISSIONS = Object.freeze({
+  ADMIN_PORTAL_LOGIN: "admin.portal.login",
+  REQUESTS_PORTAL_USE: "jukebox.requests.portal.use",
+  REQUESTS_QUEUE_ADD: "jukebox.requests.queue.add",
+  REQUESTS_VOTE_CAST: "jukebox.requests.vote.cast",
+  JUKEBOX_PLAYBACK_MANAGE: "jukebox.playback.manage",
+  JUKEBOX_QUEUE_MANAGE: "jukebox.queue.manage",
+  JUKEBOX_SLIDES_MANAGE: "jukebox.slides.manage",
+  REPORTING_PORTAL_ACCESS: "reporting.portal.access",
+  ACCOUNT_USERS_READ: "account.users.read",
+  ACCOUNT_USERS_MANAGE: "account.users.manage",
+  WILDCARD: "*"
+});
+
+const GROUP_PERMISSION_MAP = Object.freeze({
+  [SECURITY_GROUPS.USER]: [
+    PERMISSIONS.REQUESTS_PORTAL_USE,
+    PERMISSIONS.REQUESTS_QUEUE_ADD,
+    PERMISSIONS.REQUESTS_VOTE_CAST
+  ],
+  [SECURITY_GROUPS.JUKEBOX_ADMIN]: [
+    PERMISSIONS.ADMIN_PORTAL_LOGIN,
+    PERMISSIONS.REQUESTS_PORTAL_USE,
+    PERMISSIONS.REQUESTS_QUEUE_ADD,
+    PERMISSIONS.REQUESTS_VOTE_CAST,
+    PERMISSIONS.JUKEBOX_PLAYBACK_MANAGE,
+    PERMISSIONS.JUKEBOX_QUEUE_MANAGE,
+    PERMISSIONS.JUKEBOX_SLIDES_MANAGE
+  ],
+  [SECURITY_GROUPS.REPORTING]: [
+    PERMISSIONS.ADMIN_PORTAL_LOGIN,
+    PERMISSIONS.REPORTING_PORTAL_ACCESS
+  ],
+  [SECURITY_GROUPS.GLOBAL_ADMIN]: [PERMISSIONS.WILDCARD],
+  [SECURITY_GROUPS.SUPERADMIN]: [PERMISSIONS.WILDCARD]
+});
+
+function normalizeSecurityGroup(value) {
+  const raw = `${value || ""}`.trim().toLowerCase();
+  if (!raw) return "";
+  return SECURITY_GROUP_ALIASES[raw] || raw;
+}
+
+function normalizeSecurityGroups(groups) {
+  const source = Array.isArray(groups) ? groups : [];
+  const normalized = source
+    .map((group) => normalizeSecurityGroup(group))
+    .filter((group) =>
+      group
+      && Object.values(SECURITY_GROUPS).includes(group)
+    );
+  return Array.from(new Set(normalized));
+}
+
+function getUserGroups(user) {
+  return normalizeSecurityGroups(user?.groups);
+}
+
+function getUserPermissions(user) {
+  const permissions = new Set();
+  for (const group of getUserGroups(user)) {
+    const mapped = GROUP_PERMISSION_MAP[group] || [];
+    for (const permission of mapped) {
+      permissions.add(permission);
+    }
+  }
+  return Array.from(permissions);
+}
+
+function userHasPermission(user, permission) {
+  if (!permission) return false;
+  const permissions = new Set(getUserPermissions(user));
+  return permissions.has(PERMISSIONS.WILDCARD) || permissions.has(permission);
+}
+
+function userHasAnyPermission(user, requiredPermissions = []) {
+  const required = Array.isArray(requiredPermissions) ? requiredPermissions : [];
+  return required.some((permission) => userHasPermission(user, permission));
+}
+
 function isUserAdmin(user) {
-  return Array.isArray(user?.groups) && user.groups.includes("admins");
+  return userHasPermission(user, PERMISSIONS.ADMIN_PORTAL_LOGIN);
 }
 
 function formatUserDisplayName(user) {
@@ -1288,9 +1732,7 @@ function normalizeAdminDb(raw) {
     }
     const usernameResult = normalizeEmailUsername(item.username, { requireValid: false });
     const username = ensureUniqueEmail(usernameResult.email, usedEmails);
-    const groups = Array.isArray(item.groups)
-      ? item.groups.map((entry) => `${entry || ""}`.trim().toLowerCase()).filter(Boolean)
-      : [];
+    const groups = normalizeSecurityGroups(item.groups);
     unifiedUsers.push({
       id: `${item.id || crypto.randomUUID()}`,
       username,
@@ -1378,7 +1820,7 @@ function bootstrapDefaultAdminIfNeeded() {
     passwordSalt: pwd.salt,
     passwordHash: pwd.hash,
     requestLimit: Math.max(1, Number(state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER || 3)),
-    groups: ["admins"],
+    groups: [SECURITY_GROUPS.GLOBAL_ADMIN],
     active: true,
     createdAt: now,
     updatedAt: now,
@@ -1393,29 +1835,42 @@ function loadAdminDb() {
       state.adminDb = normalizeAdminDb(null);
       bootstrapDefaultAdminIfNeeded();
       saveAdminDb();
-      return state.adminDb;
+    } else {
+      const text = fs.readFileSync(ADMIN_DB_PATH, "utf8");
+      state.adminDb = normalizeAdminDb(JSON.parse(text));
+      bootstrapDefaultAdminIfNeeded();
+      saveAdminDb();
     }
-    const text = fs.readFileSync(ADMIN_DB_PATH, "utf8");
-    state.adminDb = normalizeAdminDb(JSON.parse(text));
-    bootstrapDefaultAdminIfNeeded();
-    saveAdminDb();
-    return state.adminDb;
   } catch (error) {
     console.warn(`Failed to load admin db: ${error.message}`);
     state.adminDb = normalizeAdminDb(null);
     bootstrapDefaultAdminIfNeeded();
     saveAdminDb();
-    return state.adminDb;
+  }
+  state.adminDbLoadedAt = Date.now();
+  return state.adminDb;
+}
+
+function refreshAdminDbIfStale() {
+  try {
+    const { mtimeMs } = fs.statSync(ADMIN_DB_PATH);
+    if (mtimeMs > state.adminDbLoadedAt) {
+      loadAdminDb();
+    }
+  } catch {
+    // File may not exist yet; no refresh needed.
   }
 }
 
 function getAdminBySessionToken(token) {
-  const session = token ? state.adminSessions.get(token) : null;
-  if (!session?.userId) {
-    return null;
-  }
-  const user = getUserById(session.userId);
-  return user && isUserAdmin(user) ? user : null;
+  const claims = verifyAdminJwt(token);
+  if (!claims?.sub) return null;
+  if (claims.jti && state.revokedAdminTokens.has(claims.jti)) return null;
+  const user = getUserById(claims.sub);
+  if (!user || !isUserAdmin(user) || user.active === false) return null;
+  // Invalidate if the user's account was updated (e.g. password change) after token was issued
+  if (user.updatedAt && claims.uid !== user.updatedAt) return null;
+  return user;
 }
 
 loadUserDb();
@@ -1424,7 +1879,11 @@ loadSlideshowConfig();
 loadAudioAutomationConfig();
 loadSystemConfig();
 loadLocalQueue();
+loadReportingSnapshot();
+loadAcGeocodeCache();
+loadLinkedReports();
 startAudioAutomationScheduler();
+startReportingScheduler();
 
 function buildAsmServiceUrl(method, extraParams = {}) {
   if (!state.asm.serviceUrl) {
@@ -1563,6 +2022,574 @@ function extractAsmRows(payload) {
     }
   }
   return [];
+}
+
+async function fetchAsmRowsForMethod(method, extraParams = {}) {
+  const requestUrl = buildAsmServiceUrl(method, extraParams);
+  if (!requestUrl) {
+    throw new Error(`ASM service URL missing for ${method}`);
+  }
+  const response = await fetch(requestUrl, { headers: { Accept: "application/json" } });
+  const bodyText = await response.text();
+  if (!response.ok) {
+    const detail = bodyText.slice(0, 240).replace(/\s+/g, " ").trim();
+    throw new Error(detail ? `ASM ${method} HTTP ${response.status}: ${detail}` : `ASM ${method} HTTP ${response.status}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    throw new Error(`ASM ${method} returned non-JSON response`);
+  }
+  return extractAsmRows(parsed);
+}
+
+function normalizeAsmReportError(error, fallbackMessage) {
+  const message = `${error?.message || ""}`.trim();
+  if (/Reports must be based on a SELECT query/i.test(message)) {
+    return "ASM report is not a SQL SELECT report. Update the Shelter Manager report query to a SELECT statement, then retry.";
+  }
+  return message || fallbackMessage;
+}
+
+function formatAsmReportDateInput(value) {
+  const raw = `${value || ""}`.trim();
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymd) {
+    return `${Number(ymd[2])}/${Number(ymd[3])}/${ymd[1]}`;
+  }
+  return raw;
+}
+
+function loadAcGeocodeCache() {
+  try {
+    if (!fs.existsSync(AC_GEOCODE_CACHE_PATH)) return;
+    const text = fs.readFileSync(AC_GEOCODE_CACHE_PATH, "utf8");
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") {
+      state.acGeocodeCache = parsed;
+    }
+  } catch (error) {
+    console.warn(`Could not load AC geocode cache: ${error.message}`);
+  }
+}
+
+function saveAcGeocodeCache() {
+  try {
+    const dir = path.dirname(AC_GEOCODE_CACHE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(AC_GEOCODE_CACHE_PATH, JSON.stringify(state.acGeocodeCache, null, 2), "utf8");
+  } catch (error) {
+    console.warn(`Could not save AC geocode cache: ${error.message}`);
+  }
+}
+
+function sanitizeLinkedReportFields(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((f) => f && typeof f === "object")
+    .map((f, i) => ({
+      key: `${f.key || ""}`.trim().slice(0, 100),
+      label: `${f.label || ""}`.trim().slice(0, 80),
+      expanded: Boolean(f.expanded),
+      groupBy: Boolean(f.groupBy),
+      chartLeft: Boolean(f.chartLeft),
+      chartRight: Boolean(f.chartRight),
+      order: Number.isFinite(Number(f.order)) ? Number(f.order) : i
+    }))
+    .filter((f) => f.key)
+    .sort((a, b) => a.order - b.order)
+    .slice(0, 60);
+}
+
+function sanitizeLinkedReport(raw) {
+  const allowedChartTypes = new Set(["bar", "line", "pie", "doughnut"]);
+  const chartLeftTypeRaw = `${raw.chartLeftType || "bar"}`.trim().toLowerCase();
+  const chartRightTypeRaw = `${raw.chartRightType || "bar"}`.trim().toLowerCase();
+  return {
+    id: `${raw.id || crypto.randomUUID()}`,
+    title: `${raw.title || ""}`.trim().slice(0, 120),
+    description: `${raw.description || ""}`.trim().slice(0, 300),
+    asmReportTitle: `${raw.asmReportTitle || ""}`.trim().slice(0, 200),
+    linkTemplate: `${raw.linkTemplate || ""}`.trim().slice(0, 400),
+    linkLabel: `${raw.linkLabel || ""}`.trim().slice(0, 60),
+    chartLeftTitle: `${raw.chartLeftTitle || ""}`.trim().slice(0, 80),
+    chartRightTitle: `${raw.chartRightTitle || ""}`.trim().slice(0, 80),
+    chartLeftType: allowedChartTypes.has(chartLeftTypeRaw) ? chartLeftTypeRaw : "bar",
+    chartRightType: allowedChartTypes.has(chartRightTypeRaw) ? chartRightTypeRaw : "bar",
+    showChartsOnDashboard: Boolean(raw.showChartsOnDashboard),
+    fields: sanitizeLinkedReportFields(raw.fields || []),
+    createdAt: `${raw.createdAt || new Date().toISOString()}`,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function loadLinkedReports() {
+  try {
+    if (!fs.existsSync(LINKED_REPORTS_PATH)) return;
+    const text = fs.readFileSync(LINKED_REPORTS_PATH, "utf8");
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      state.linkedReports = parsed;
+    }
+  } catch (error) {
+    console.warn(`Could not load linked reports: ${error.message}`);
+  }
+}
+
+function saveLinkedReports() {
+  try {
+    const dir = path.dirname(LINKED_REPORTS_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(LINKED_REPORTS_PATH, JSON.stringify(state.linkedReports, null, 2), "utf8");
+  } catch (error) {
+    console.warn(`Could not save linked reports: ${error.message}`);
+  }
+}
+
+function extractAsmRetryHint(error) {
+  const message = `${error?.message || ""}`;
+  const untilMatch = message.match(/until\s+'([^']+)'/i);
+  const waitMatch = message.match(/wait\s+(\d+)\s+seconds/i);
+  return {
+    retryAt: untilMatch?.[1] ? `${untilMatch[1]}`.trim() : "",
+    waitSeconds: waitMatch?.[1] ? Number(waitMatch[1]) : 0
+  };
+}
+
+function getLinkedReportProbePresetFields(asmReportTitle) {
+  const title = `${asmReportTitle || ""}`.trim().toLowerCase();
+  if (!title) return [];
+
+  if (title.includes("active fosters")) {
+    return ["fosteredTo", "ownerAddress", "homeTelephone", "mobileTelephone", "emailAddress", "animalId", "shelterCode", "animalName", "sex", "colour", "breedName", "dateOfBirth", "animalAge"];
+  }
+  if (title.includes("shelter health") || title.includes("health notes")) {
+    return ["animalName", "logTypeName", "weight", "shortCode", "displayLocation", "comments", "date", "createdBy"];
+  }
+  if (title.includes("city daily in/out") || title.includes("city daily in out")) {
+    return ["theDate", "reason", "shelterCode", "animalId", "identichipNumber", "animalName", "animalTypeName", "speciesName", "animalAge", "sexName", "locationFound", "categoryName", "outOrIn"];
+  }
+  if (title.includes("staff") && title.includes("weekly") && title.includes("pathway")) {
+    return ["reason", "animalName", "holdDate", "animalAge", "daysOnShelter", "shortCode", "displayLocation", "weight", "comments", "pic", "lastChangedDate"];
+  }
+  if (title.includes("daily foster movements")) {
+    return ["theDate", "reason", "categoryName", "shelterCode", "animalId", "identichipNumber", "animalName", "displayLocation", "speciesName", "animalAge", "sexName", "locationFound", "outOrIn"];
+  }
+  if (title.includes("pathway planning")) {
+    return ["reason", "animalName", "holdDate", "animalAge", "daysOnShelter", "shortCode", "displayLocation", "weight", "comments", "pic", "lastChangedDate"];
+  }
+  if (title.includes("donations") && title.includes("thank")) {
+    return ["ownerName", "ownerId", "comments", "donation", "emailAddress", "ownerAddress", "ownerTown", "ownerCounty", "ownerPostcode", "paymentName", "date", "donationName"];
+  }
+  if (title.includes("adoption follow-up") || title.includes("adoption followup")) {
+    return ["ownerName", "ownerSurname", "ownerForenames", "ownerAddress", "homeTelephone", "mobileTelephone", "workTelephone", "ownerTown", "ownerCounty", "ownerPostcode", "emailAddress", "shelterCode", "animalId", "asmAnimalUrl", "animalName", "speciesName", "neuteredDate", "adoptionDate"];
+  }
+  if (title.includes("yearly reviews upcoming")) {
+    return ["ownerName", "value"];
+  }
+
+  return [];
+}
+
+function getLinkedReportTimingHint(asmReportTitle, fieldKeys = []) {
+  const title = `${asmReportTitle || ""}`.trim().toLowerCase();
+  const normalizedFields = Array.isArray(fieldKeys)
+    ? fieldKeys.map((key) => `${key || ""}`.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    : [];
+  const hasField = (...keys) => keys.some((key) => normalizedFields.includes(`${key}`.toLowerCase().replace(/[^a-z0-9]/g, "")));
+
+  if (!title) {
+    return {
+      kind: "unknown",
+      label: "Unknown",
+      description: "No timing hint available yet.",
+      suggestDateRange: false
+    };
+  }
+
+  if (title.includes("adoption follow-up") || title.includes("adoption followup") || title.includes("month") || title.includes("monthly")) {
+    return {
+      kind: "period",
+      label: "Period-based",
+      description: "This report likely uses a fixed period prompt such as month/year rather than a free-form from/to date range.",
+      suggestDateRange: false
+    };
+  }
+
+  if (title.includes("daily foster movements") || title.includes("city daily in/out") || title.includes("city daily in out") || title.includes("history") || title.includes("between") || title.includes("range")) {
+    return {
+      kind: "date-range",
+      label: "Likely date range",
+      description: "This report looks date-driven and is a good candidate for the report page date filter.",
+      suggestDateRange: true
+    };
+  }
+
+  if (title.includes("active fosters") || title.includes("pathway planning") || title.includes("yearly reviews upcoming") || title.includes("upcoming")) {
+    return {
+      kind: "current",
+      label: "Likely current-state",
+      description: "This report looks like a current snapshot rather than a user-selected date range.",
+      suggestDateRange: false
+    };
+  }
+
+  if (title.includes("shelter health") || title.includes("health notes") || title.includes("last day") || title.includes("today") || title.includes("current")) {
+    return {
+      kind: "rolling-window",
+      label: "Likely rolling window",
+      description: "This report appears to use an internal rolling window such as today or the last day, not a user-selected date range.",
+      suggestDateRange: false
+    };
+  }
+
+  if (hasField("theDate", "date", "fromdate", "todate", "holdDate") && (hasField("reason", "outOrIn") || title.includes("daily") || title.includes("movement"))) {
+    return {
+      kind: "date-range",
+      label: "Possibly date range",
+      description: "This report includes date-oriented fields and may support a report page date filter.",
+      suggestDateRange: true
+    };
+  }
+
+  return {
+    kind: "unknown",
+    label: "Unknown",
+    description: "Could not confidently tell whether this report is date-ranged or current-state from the title and sampled fields.",
+    suggestDateRange: false
+  };
+}
+
+function pickFirstLinkedReportText(row, fields, fallback = "") {
+  for (const field of fields) {
+    const value = row?.[field];
+    if (value === undefined || value === null) continue;
+    const text = `${value}`.trim();
+    if (text) return text;
+  }
+  return fallback;
+}
+
+function normalizeKnownLinkedReportRows(asmReportTitle, rows) {
+  const title = `${asmReportTitle || ""}`.trim().toLowerCase();
+  const list = Array.isArray(rows) ? rows : [];
+
+  if (title.includes("active fosters")) {
+    return list.map((row) => ({
+      fosteredTo: pickFirstLinkedReportText(row, ["FosteredTo", "FOSTEREDTO", "CURRENTOWNERNAME", "OWNERNAME", "OWNER"]),
+      ownerAddress: pickFirstLinkedReportText(row, ["OwnerAddress", "OWNERADDRESS", "CURRENTOWNERADDRESS", "ADDRESS"]),
+      homeTelephone: pickFirstLinkedReportText(row, ["HomeTelephone", "HOMETELEPHONE", "CURRENTOWNERHOMETELEPHONE", "PHONE"]),
+      mobileTelephone: pickFirstLinkedReportText(row, ["MobileTelephone", "MOBILETELEPHONE", "CURRENTOWNERMOBILETELEPHONE", "MOBILE"]),
+      emailAddress: pickFirstLinkedReportText(row, ["EMAILADDRESS", "EmailAddress", "CURRENTOWNEREMAILADDRESS", "EMAIL"]),
+      animalId: pickFirstLinkedReportText(row, ["ID", "ANIMALID", "AnimalID"]),
+      shelterCode: pickFirstLinkedReportText(row, ["ShelterCode", "SHELTERCODE", "CODE"]),
+      animalName: pickFirstLinkedReportText(row, ["AnimalName", "ANIMALNAME", "NAME"]),
+      sex: pickFirstLinkedReportText(row, ["Sex", "SEX", "SEXNAME"]),
+      colour: pickFirstLinkedReportText(row, ["Colour", "COLOR", "COLOUR", "BASECOLOURNAME"]),
+      breedName: pickFirstLinkedReportText(row, ["BreedName", "BREEDNAME", "BREED", "BREEDNAME1"]),
+      dateOfBirth: pickFirstLinkedReportText(row, ["DateOfBirth", "DATEOFBIRTH", "DOB"]),
+      animalAge: pickFirstLinkedReportText(row, ["AnimalAge", "ANIMALAGE", "AGE"])
+    }));
+  }
+
+  if (title.includes("shelter health") || title.includes("health notes")) {
+    return list.map((row) => ({
+      animalName: pickFirstLinkedReportText(row, ["AnimalName", "ANIMALNAME"]),
+      logTypeName: pickFirstLinkedReportText(row, ["LogTypeName", "LOGTYPENAME"]),
+      weight: pickFirstLinkedReportText(row, ["Weight", "WEIGHT"]),
+      shortCode: pickFirstLinkedReportText(row, ["ShortCode", "SHORTCODE"]),
+      displayLocation: pickFirstLinkedReportText(row, ["DisplayLocation", "DISPLAYLOCATION"]),
+      comments: pickFirstLinkedReportText(row, ["Comments", "COMMENTS"]),
+      date: pickFirstLinkedReportText(row, ["Date", "DATE"]),
+      createdBy: pickFirstLinkedReportText(row, ["CreatedBy", "CREATEDBY"])
+    }));
+  }
+
+  if (title.includes("city daily in/out") || title.includes("city daily in out")) {
+    return list.map((row) => ({
+      theDate: pickFirstLinkedReportText(row, ["thedate", "THEDATE", "DATE"]),
+      reason: pickFirstLinkedReportText(row, ["Reason", "REASON"]),
+      shelterCode: pickFirstLinkedReportText(row, ["ShelterCode", "SHELTERCODE"]),
+      animalId: pickFirstLinkedReportText(row, ["ID", "ANIMALID", "AnimalID"]),
+      identichipNumber: pickFirstLinkedReportText(row, ["IdentichipNumber", "IDENTICHIPNUMBER"]),
+      animalName: pickFirstLinkedReportText(row, ["AnimalName", "ANIMALNAME"]),
+      animalTypeName: pickFirstLinkedReportText(row, ["AnimalTypeName", "ANIMALTYPENAME"]),
+      speciesName: pickFirstLinkedReportText(row, ["SpeciesName", "SPECIESNAME"]),
+      animalAge: pickFirstLinkedReportText(row, ["AnimalAge", "ANIMALAGE"]),
+      sexName: pickFirstLinkedReportText(row, ["SexName", "SEXNAME"]),
+      locationFound: pickFirstLinkedReportText(row, ["locationfound", "LOCATIONFOUND"]),
+      categoryName: pickFirstLinkedReportText(row, ["CategoryName", "CATEGORYNAME"]),
+      outOrIn: pickFirstLinkedReportText(row, ["OutOrIn", "OUTORIN"])
+    }));
+  }
+
+  if ((title.includes("staff") && title.includes("weekly") && title.includes("pathway")) || title.includes("pathway planning")) {
+    return list.map((row) => ({
+      reason: pickFirstLinkedReportText(row, ["Reason", "REASON"]),
+      animalName: pickFirstLinkedReportText(row, ["AnimalName", "ANIMALNAME"]),
+      holdDate: pickFirstLinkedReportText(row, ["HoldDate", "HOLDDATE", "Holddate", "HOLDUNTILDATE"]),
+      animalAge: pickFirstLinkedReportText(row, ["AnimalAge", "ANIMALAGE", "animalage"]),
+      daysOnShelter: pickFirstLinkedReportText(row, ["DaysOnShelter", "DAYSONSHELTER", "daysonshelter"]),
+      shortCode: pickFirstLinkedReportText(row, ["ShortCode", "SHORTCODE", "shortcode"]),
+      displayLocation: pickFirstLinkedReportText(row, ["DisplayLocation", "DISPLAYLOCATION", "displaylocation"]),
+      weight: pickFirstLinkedReportText(row, ["Weight", "WEIGHT", "weight"]),
+      comments: pickFirstLinkedReportText(row, ["Comments", "COMMENTS"]),
+      pic: pickFirstLinkedReportText(row, ["Pic", "PIC", "pic"]),
+      lastChangedDate: pickFirstLinkedReportText(row, ["LastChangedDate", "LASTCHANGEDDATE"])
+    }));
+  }
+
+  if (title.includes("daily foster movements")) {
+    return list.map((row) => ({
+      theDate: pickFirstLinkedReportText(row, ["thedate", "THEDATE", "DATE"]),
+      reason: pickFirstLinkedReportText(row, ["Reason", "REASON"]),
+      categoryName: pickFirstLinkedReportText(row, ["CategoryName", "CATEGORYNAME"]),
+      shelterCode: pickFirstLinkedReportText(row, ["ShelterCode", "SHELTERCODE"]),
+      animalId: pickFirstLinkedReportText(row, ["ID", "ANIMALID", "AnimalID"]),
+      identichipNumber: pickFirstLinkedReportText(row, ["IdentichipNumber", "IDENTICHIPNUMBER"]),
+      animalName: pickFirstLinkedReportText(row, ["AnimalName", "ANIMALNAME"]),
+      displayLocation: pickFirstLinkedReportText(row, ["DisplayLocation", "DISPLAYLOCATION"]),
+      speciesName: pickFirstLinkedReportText(row, ["SpeciesName", "SPECIESNAME"]),
+      animalAge: pickFirstLinkedReportText(row, ["AnimalAge", "ANIMALAGE"]),
+      sexName: pickFirstLinkedReportText(row, ["SexName", "SEXNAME"]),
+      locationFound: pickFirstLinkedReportText(row, ["locationfound", "LOCATIONFOUND"]),
+      outOrIn: pickFirstLinkedReportText(row, ["OutOrIn", "OUTORIN"])
+    }));
+  }
+
+  if (title.includes("donations") && title.includes("thank")) {
+    const extractOwnerName = (raw) => {
+      const match = `${raw || ""}`.match(/>([^<]+)</);
+      return match ? match[1].trim() : `${raw || ""}`.replace(/<[^>]*>/g, "").trim();
+    };
+    const extractOwnerId = (raw) => {
+      const match = `${raw || ""}`.match(/\?id=(\d+)/i);
+      return match ? match[1] : "";
+    };
+
+    return list.map((row) => {
+      const ownerHtml = pickFirstLinkedReportText(row, ["?column?", "?COLUMN?", "OWNERLINK", "ownerlink"]);
+      return {
+        ownerName: extractOwnerName(ownerHtml),
+        ownerId: extractOwnerId(ownerHtml),
+        comments: pickFirstLinkedReportText(row, ["Comments", "COMMENTS"]),
+        donation: pickFirstLinkedReportText(row, ["Donation", "DONATION"]),
+        emailAddress: pickFirstLinkedReportText(row, ["emailaddress", "EMAILADDRESS", "EmailAddress"]),
+        ownerAddress: pickFirstLinkedReportText(row, ["OwnerAddress", "OWNERADDRESS", "Owneraddress"]),
+        ownerTown: pickFirstLinkedReportText(row, ["OwnerTown", "OWNERTOWN", "ownertown"]),
+        ownerCounty: pickFirstLinkedReportText(row, ["OwnerCounty", "OWNERCOUNTY", "ownercounty"]),
+        ownerPostcode: pickFirstLinkedReportText(row, ["OwnerPostcode", "OWNERPOSTCODE", "ownerpostcode"]),
+        paymentName: pickFirstLinkedReportText(row, ["PaymentName", "PAYMENTNAME"]),
+        date: pickFirstLinkedReportText(row, ["Date", "DATE"]),
+        donationName: pickFirstLinkedReportText(row, ["DonationName", "DONATIONNAME"])
+      };
+    });
+  }
+
+  if (title.includes("adoption follow-up") || title.includes("adoption followup")) {
+    const extractAnimalId = (row) => {
+      const direct = pickFirstLinkedReportText(row, ["id", "ID", "animalid", "ANIMALID", "AnimalID"]);
+      if (direct) return direct;
+
+      const possibleHtml = [
+        row?.AnimalName,
+        row?.ANIMALNAME,
+        row?.animalname,
+        row?.ShelterCode,
+        row?.SHELTERCODE,
+        row?.sheltercode
+      ];
+
+      for (const raw of possibleHtml) {
+        const match = `${raw || ""}`.match(/[?&]id=(\d+)/i);
+        if (match) return match[1];
+      }
+
+      return "";
+    };
+
+    const extractAnimalLink = (row) => {
+      const possibleHtml = [
+        row?.AnimalName,
+        row?.ANIMALNAME,
+        row?.animalname,
+        row?.ShelterCode,
+        row?.SHELTERCODE,
+        row?.sheltercode
+      ];
+
+      for (const raw of possibleHtml) {
+        const html = `${raw || ""}`;
+        const hrefMatch = html.match(/href\s*=\s*["']([^"']+)["']/i);
+        if (!hrefMatch?.[1]) continue;
+
+        const href = hrefMatch[1].trim();
+        if (!href || /^javascript:/i.test(href)) continue;
+
+        try {
+          const url = new URL(href, "https://us10d.sheltermanager.com");
+          if (/sheltermanager\.com$/i.test(url.hostname)) {
+            url.protocol = "https:";
+            url.hostname = "us10d.sheltermanager.com";
+            url.port = "";
+          }
+          return url.toString();
+        } catch {
+          // Ignore malformed links and continue scanning other fields.
+        }
+      }
+
+      return "";
+    };
+
+    return list.map((row) => {
+      const asmAnimalUrl = extractAnimalLink(row);
+      const animalId = extractAnimalId(row) || ((`${asmAnimalUrl}`.match(/[?&]id=(\d+)/i) || [])[1] || "");
+
+      return {
+        ownerName: pickFirstLinkedReportText(row, ["OwnerName", "OWNERNAME"]),
+        ownerSurname: pickFirstLinkedReportText(row, ["OWNERSURNAME", "OwnerSurname"]),
+        ownerForenames: pickFirstLinkedReportText(row, ["OWNERFORENAMES", "OwnerForenames"]),
+        ownerAddress: pickFirstLinkedReportText(row, ["OwnerAddress", "OWNERADDRESS"]),
+        homeTelephone: pickFirstLinkedReportText(row, ["HOMETELEPHONE", "HomeTelephone"]),
+        mobileTelephone: pickFirstLinkedReportText(row, ["MOBILETELEPHONE", "MobileTelephone"]),
+        workTelephone: pickFirstLinkedReportText(row, ["WORKTELEPHONE", "WorkTelephone"]),
+        ownerTown: pickFirstLinkedReportText(row, ["OwnerTown", "OWNERTOWN"]),
+        ownerCounty: pickFirstLinkedReportText(row, ["OwnerCounty", "OWNERCOUNTY"]),
+        ownerPostcode: pickFirstLinkedReportText(row, ["OwnerPostcode", "OWNERPOSTCODE"]),
+        emailAddress: pickFirstLinkedReportText(row, ["EmailAddress", "EMAILADDRESS"]),
+        shelterCode: pickFirstLinkedReportText(row, ["ShelterCode", "SHELTERCODE"]),
+        animalId,
+        asmAnimalUrl,
+        animalName: pickFirstLinkedReportText(row, ["AnimalName", "ANIMALNAME"]),
+        speciesName: pickFirstLinkedReportText(row, ["SpeciesName", "SPECIESNAME"]),
+        neuteredDate: pickFirstLinkedReportText(row, ["NEUTEREDDATE", "NeuteredDate"]),
+        adoptionDate: pickFirstLinkedReportText(row, ["AdoptionDate", "ADOPTIONDATE"])
+      };
+    });
+  }
+
+  if (title.includes("yearly reviews upcoming")) {
+    return list.map((row) => ({
+      ownerName: pickFirstLinkedReportText(row, ["OWNERNAME", "OwnerName"]),
+      value: pickFirstLinkedReportText(row, ["VALUE", "Value"])
+    }));
+  }
+
+  return list;
+}
+
+async function fetchAnimalControlRowsForRange(fromDate, toDate) {
+  const reportTitle = `${state.asm.animalControlReportTitle || ""}`.trim();
+  const methodCandidates = [
+    `${process.env.ASM_ANIMALCONTROL_METHOD || ""}`.trim(),
+    "json_animalcontrol_incidents",
+    "json_animalcontrol",
+    "json_animalcontrolcalls"
+  ].filter(Boolean);
+
+  const typeFields = ["INCIDENTTYPE", "INCIDENTTYPENAME", "CALLTYPE", "CALLTYPENAME", "INCIDENTNAME", "TYPE", "CATEGORY", "SUBJECT"];
+  const pickFirstText = (row, fields, fallback = "") => {
+    for (const field of fields) {
+      const value = row?.[field];
+      if (value === undefined || value === null) continue;
+      const text = `${value}`.trim();
+      if (text) return text;
+    }
+    return fallback;
+  };
+
+  const dedupeRows = (rows) => {
+    const idFields = [
+      "ANIMALCONTROLINCIDENTID",
+      "INCIDENTID",
+      "INCIDENT_ID",
+      "CASEID",
+      "CALLID",
+      "ID"
+    ];
+    const dateFields = [
+      "INCIDENTDATETIME",
+      "INCIDENTDATE",
+      "CALLDATE",
+      "REPORTEDDATE",
+      "DATE",
+      "CREATEDDATE",
+      "LASTCHANGEDDATE"
+    ];
+    const codeFields = ["INCIDENTCODE", "INCIDENTNUMBER", "CALLNUMBER", "REFERENCE", "CASENUMBER"];
+    const callerFields = ["CALLERNAME", "CALLER", "CONTACTNAME", "REPORTERNAME", "REPORTEDBY", "OWNERNAME"];
+    const addressFields = ["DISPATCHADDRESS", "ADDRESS", "LOCATION", "SITE", "DISPATCHLOCATION"];
+    const notesFields = ["NOTES", "DETAILS", "COMMENTS", "DESCRIPTION", "INCIDENTNOTES", "CALLNOTES"];
+
+    const normalize = (value) => `${value ?? ""}`.trim().replace(/\s+/g, " ").toLowerCase();
+    const seen = new Set();
+    const deduped = [];
+
+    for (const row of rows || []) {
+      const stableId = pickFirstText(row, idFields, "");
+      const key = stableId
+        ? `id:${normalize(stableId)}`
+        : [
+            pickFirstText(row, dateFields, ""),
+            pickFirstText(row, typeFields, ""),
+            pickFirstText(row, codeFields, ""),
+            pickFirstText(row, callerFields, ""),
+            pickFirstText(row, addressFields, ""),
+            pickFirstText(row, notesFields, "")
+          ].map((part) => normalize(part)).join("|");
+
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(row);
+    }
+
+    return deduped;
+  };
+
+  let sourceMethod = "";
+  let sourceRows = [];
+  let lastError = "";
+
+  if (reportTitle) {
+    try {
+      const rows = await fetchAsmRowsForMethod("json_report", {
+        title: reportTitle,
+        ASK1: formatAsmReportDateInput(fromDate),
+        ASK2: formatAsmReportDateInput(toDate)
+      });
+      sourceMethod = `json_report:${reportTitle}`;
+      sourceRows = dedupeRows(rows);
+      return { sourceMethod, rows: sourceRows };
+    } catch (error) {
+      lastError = error.message || "Unable to fetch Animal Control report from ASM.";
+    }
+  }
+
+  for (const method of methodCandidates) {
+    try {
+      const rows = await fetchAsmRowsForMethod(method, { fromdate: fromDate, todate: toDate });
+      sourceMethod = method;
+      sourceRows = dedupeRows(rows);
+      if (!rows.length) continue;
+      const hasTypeField = sourceRows.some((row) => Boolean(pickFirstText(row, typeFields, "")));
+      if (hasTypeField) break;
+    } catch (error) {
+      lastError = error.message || lastError;
+      // Try next candidate method.
+    }
+  }
+
+  if (!sourceMethod) {
+    throw new Error(lastError || "Unable to fetch animal control call data from ASM.");
+  }
+
+  return { sourceMethod, rows: sourceRows };
 }
 
 async function fetchAsmDiagnostics() {
@@ -2011,6 +3038,11 @@ function requireEmployee(req, res, next) {
       res.status(401).json({ error: "User account is inactive. Contact an admin." });
       return;
     }
+    if (!userHasPermission(user, PERMISSIONS.REQUESTS_PORTAL_USE)) {
+      state.employeeSessions.delete(token);
+      res.status(403).json({ error: "This account does not have jukebox request access." });
+      return;
+    }
     req.staffAccount = user;
     if (isUserAdmin(user)) {
       req.adminStreamAccount = user;
@@ -2168,14 +3200,11 @@ const cleanupTimer = setInterval(() => {
     // Ignore cleanup errors; request handlers will retry as needed.
   });
 
-  // Admin session cleanup (no TTL enforced — explicit logout only, but prune
-  // any sessions that somehow have no createdAt).
-  for (const [token, session] of state.adminSessions.entries()) {
-    const admin = session?.userId
-      ? getUserById(session.userId)
-      : null;
-    if (!session?.createdAt || !admin || !isUserAdmin(admin)) {
-      state.adminSessions.delete(token);
+  // Revoked JWT cleanup: prune entries whose token expiry has passed.
+  const nowSec = Math.floor(Date.now() / 1000);
+  for (const [jti, exp] of state.revokedAdminTokens.entries()) {
+    if (nowSec > exp) {
+      state.revokedAdminTokens.delete(jti);
     }
   }
 }, 60000);
@@ -2219,20 +3248,79 @@ app.get("/api/health", (_req, res) => {
 });
 
 function requireAdmin(req, res, next) {
-  const authHeader = req.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-  if (!token || !state.adminSessions.has(token)) {
+  refreshAdminDbIfStale();
+  const token = getAdminTokenFromRequest(req);
+  if (!token) {
     res.status(401).json({ error: "Admin access required." });
     return;
   }
   const admin = getAdminBySessionToken(token);
   if (!admin) {
-    state.adminSessions.delete(token);
     res.status(401).json({ error: "Admin session is invalid." });
     return;
   }
   req.adminToken = token;
   req.adminAccount = admin;
+  next();
+}
+
+function requireAdminPermission(permission, errorMessage = "Permission denied for this action.") {
+  return (req, res, next) => {
+    const admin = req.adminAccount;
+    if (!admin) {
+      res.status(401).json({ error: "Admin access required." });
+      return;
+    }
+    if (!userHasPermission(admin, permission)) {
+      res.status(403).json({ error: errorMessage });
+      return;
+    }
+    next();
+  };
+}
+
+const requireManageUsers = requireAdminPermission(
+  PERMISSIONS.ACCOUNT_USERS_MANAGE,
+  "This account cannot manage users."
+);
+
+const requireReadUsers = requireAdminPermission(
+  PERMISSIONS.ACCOUNT_USERS_READ,
+  "This account cannot view users."
+);
+
+const requireJukeboxPlaybackAdmin = requireAdminPermission(
+  PERMISSIONS.JUKEBOX_PLAYBACK_MANAGE,
+  "This account cannot manage jukebox playback."
+);
+
+const requireJukeboxQueueAdmin = requireAdminPermission(
+  PERMISSIONS.JUKEBOX_QUEUE_MANAGE,
+  "This account cannot manage jukebox queue."
+);
+
+const requireJukeboxSlidesAdmin = requireAdminPermission(
+  PERMISSIONS.JUKEBOX_SLIDES_MANAGE,
+  "This account cannot manage slideshow content."
+);
+
+// Reporting access: admins in the "reporting" group, or any admin if no "reporting" group members exist yet.
+function requireReporting(req, res, next) {
+  const admin = req.adminAccount;
+  if (!admin) {
+    res.status(401).json({ error: "Admin access required." });
+    return;
+  }
+  const hasReportingGroup = (state.adminDb?.users || []).some((u) =>
+    u.active !== false
+    && userHasPermission(u, PERMISSIONS.REPORTING_PORTAL_ACCESS)
+  );
+  const allowed = userHasPermission(admin, PERMISSIONS.REPORTING_PORTAL_ACCESS)
+    || (!hasReportingGroup && userHasPermission(admin, PERMISSIONS.ADMIN_PORTAL_LOGIN));
+  if (!allowed) {
+    res.status(403).json({ error: "Reporting access not granted for this account." });
+    return;
+  }
   next();
 }
 
@@ -2359,6 +3447,74 @@ app.get("/live.mp3", async (_req, res) => {
   }
 });
 
+app.get("/api/account/action", (req, res) => {
+  const token = `${req.query?.token || ""}`.trim();
+  if (!token) {
+    res.status(400).json({ error: "token is required." });
+    return;
+  }
+  const claims = verifyAccountActionJwt(token);
+  if (!claims) {
+    res.status(400).json({ error: "This link is invalid or expired." });
+    return;
+  }
+  const user = getUserById(claims.sub);
+  if (!user || `${user.username || ""}`.trim().toLowerCase() !== `${claims.em || ""}`.trim().toLowerCase()) {
+    res.status(400).json({ error: "This link is invalid or expired." });
+    return;
+  }
+  if (claims.uid && `${claims.uid}` !== `${user.updatedAt || ""}`) {
+    res.status(400).json({ error: "This link has already been used or replaced." });
+    return;
+  }
+
+  res.json({
+    ok: true,
+    action: claims.act,
+    username: user.username,
+    displayName: user.displayName || formatUserDisplayName(user),
+    expiresAt: new Date(Number(claims.exp) * 1000).toISOString()
+  });
+});
+
+app.post("/api/account/action/complete", (req, res) => {
+  const token = `${req.body?.token || ""}`.trim();
+  const password = `${req.body?.password || ""}`;
+  if (!token) {
+    res.status(400).json({ error: "token is required." });
+    return;
+  }
+  if (password.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters." });
+    return;
+  }
+
+  const claims = verifyAccountActionJwt(token);
+  if (!claims) {
+    res.status(400).json({ error: "This link is invalid or expired." });
+    return;
+  }
+  const user = getUserById(claims.sub);
+  if (!user || `${user.username || ""}`.trim().toLowerCase() !== `${claims.em || ""}`.trim().toLowerCase()) {
+    res.status(400).json({ error: "This link is invalid or expired." });
+    return;
+  }
+  if (claims.uid && `${claims.uid}` !== `${user.updatedAt || ""}`) {
+    res.status(400).json({ error: "This link has already been used or replaced." });
+    return;
+  }
+
+  const hashed = hashPassword(password);
+  user.passwordSalt = hashed.salt;
+  user.passwordHash = hashed.hash;
+  user.active = true;
+  user.updatedAt = new Date().toISOString();
+  saveAdminDb();
+  const actionLabel = claims.act === "invite" ? "invite-complete" : "password-reset-complete";
+  logAdminHistory(user.id, actionLabel, `Completed secure ${claims.act} flow`);
+  res.json({ ok: true });
+});
+
 // ── Admin auth ────────────────────────────────────────────────────────────────
 
 app.post("/api/admin/session", (req, res) => {
@@ -2376,19 +3532,22 @@ app.post("/api/admin/session", (req, res) => {
     res.status(400).json({ error: "username and password are required." });
     return;
   }
+  // Re-read from disk so both the jukebox and reporting processes always
+  // see the latest credentials regardless of which process last updated them.
+  loadAdminDb();
   const admin = findUserByUsername(username);
   if (!admin || !isUserAdmin(admin) || !verifyPassword(password, admin.passwordSalt, admin.passwordHash)) {
     res.status(401).json({ error: "Invalid username or password." });
     return;
   }
 
-  const token = crypto.randomBytes(32).toString("hex");
   const now = new Date().toISOString();
-  state.adminSessions.set(token, { userId: admin.id, createdAt: now });
   admin.lastLoginAt = now;
   admin.updatedAt = now;
   saveAdminDb();
+  const token = signAdminJwt(admin.id, admin.updatedAt);
   logAdminHistory(admin.id, "login", `User ${admin.username} logged in`);
+  setAdminSessionCookie(req, res, token);
 
   res.status(201).json({
     token,
@@ -2403,7 +3562,11 @@ app.post("/api/admin/session", (req, res) => {
 
 app.post("/api/admin/session/logout", requireAdmin, (req, res) => {
   logAdminHistory(req.adminAccount.id, "logout", `User ${req.adminAccount.username} logged out`);
-  state.adminSessions.delete(req.adminToken);
+  const claims = verifyAdminJwt(req.adminToken);
+  if (claims?.jti) {
+    state.revokedAdminTokens.set(claims.jti, claims.exp);
+  }
+  clearAdminSessionCookie(req, res);
   res.json({ ok: true });
 });
 
@@ -2425,12 +3588,11 @@ app.post("/api/admin/session/from-employee", requireEmployee, (req, res) => {
     return;
   }
 
-  const token = crypto.randomBytes(32).toString("hex");
   const now = new Date().toISOString();
-  state.adminSessions.set(token, { userId: admin.id, createdAt: now });
   admin.lastLoginAt = now;
   admin.updatedAt = now;
   saveAdminDb();
+  const token = signAdminJwt(admin.id, admin.updatedAt);
   logAdminHistory(admin.id, "login", `User ${admin.username} elevated from employee session`);
 
   res.status(201).json({
@@ -2464,7 +3626,8 @@ app.get("/api/admin/account/me", requireAdmin, (req, res) => {
       firstName: current.firstName || "",
       lastInitial: current.lastInitial || "",
       requestLimit: Math.max(1, Number(current.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER)),
-      groups: Array.isArray(current.groups) ? current.groups : [],
+      groups: getUserGroups(current),
+      permissions: getUserPermissions(current),
       isAdmin: isUserAdmin(current),
       active: current.active !== false,
       createdAt: current.createdAt,
@@ -2568,7 +3731,7 @@ app.get("/api/admin/account/history", requireAdmin, (req, res) => {
   res.json({ history });
 });
 
-app.get("/api/admin/account/users", requireAdmin, (_req, res) => {
+app.get("/api/admin/account/users", requireAdmin, requireReadUsers, (_req, res) => {
   const users = (state.adminDb.users || []).map((item) => ({
     id: item.id,
     username: item.username,
@@ -2576,7 +3739,8 @@ app.get("/api/admin/account/users", requireAdmin, (_req, res) => {
     firstName: item.firstName || "",
     lastInitial: item.lastInitial || "",
     requestLimit: Math.max(1, Number(item.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER)),
-    groups: Array.isArray(item.groups) ? item.groups : [],
+    groups: getUserGroups(item),
+    permissions: getUserPermissions(item),
     isAdmin: isUserAdmin(item),
     active: item.active !== false,
     createdAt: item.createdAt,
@@ -2586,7 +3750,7 @@ app.get("/api/admin/account/users", requireAdmin, (_req, res) => {
   res.json({ users });
 });
 
-app.post("/api/admin/account/users", requireAdmin, (req, res) => {
+app.post("/api/admin/account/users", requireAdmin, requireManageUsers, async (req, res) => {
   const usernameInput = req.body?.username;
   const usernameResult = normalizeEmailUsername(usernameInput, { requireValid: true });
   const username = usernameResult.ok ? usernameResult.email : "";
@@ -2594,12 +3758,12 @@ app.post("/api/admin/account/users", requireAdmin, (req, res) => {
   const firstName = sanitizeFirstName(req.body?.firstName || req.body?.displayName || "");
   const lastInitial = sanitizeLastInitial(req.body?.lastInitial || "");
   const password = `${req.body?.password || ""}`;
+  const sendInvite = req.body?.sendInvite !== false;
   const requestLimit = Math.max(1, Number(req.body?.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER));
-  const groups = Array.isArray(req.body?.groups)
-    ? req.body.groups.map((item) => `${item || ""}`.trim().toLowerCase()).filter(Boolean)
-    : [];
-  if (req.body?.isAdmin === true && !groups.includes("admins")) {
-    groups.push("admins");
+  const groupsInput = Array.isArray(req.body?.groups) ? req.body.groups : [];
+  const groups = normalizeSecurityGroups(groupsInput);
+  if (req.body?.isAdmin === true && !groups.includes(SECURITY_GROUPS.GLOBAL_ADMIN)) {
+    groups.push(SECURITY_GROUPS.GLOBAL_ADMIN);
   }
 
   if (!usernameResult.ok) {
@@ -2613,8 +3777,12 @@ app.post("/api/admin/account/users", requireAdmin, (req, res) => {
     res.status(400).json({ error: "displayName is required." });
     return;
   }
-  if (password.length < 8) {
+  if (password && password.length < 8) {
     res.status(400).json({ error: "Password must be at least 8 characters." });
+    return;
+  }
+  if (!password && !sendInvite) {
+    res.status(400).json({ error: "Password is required when invite email is disabled." });
     return;
   }
   if ((state.adminDb.users || []).some((item) => item.username === username)) {
@@ -2623,7 +3791,7 @@ app.post("/api/admin/account/users", requireAdmin, (req, res) => {
   }
 
   const now = new Date().toISOString();
-  const pwd = hashPassword(password);
+  const pwd = hashPassword(password || crypto.randomBytes(32).toString("base64url"));
   const user = {
     id: crypto.randomUUID(),
     username,
@@ -2643,8 +3811,26 @@ app.post("/api/admin/account/users", requireAdmin, (req, res) => {
   saveAdminDb();
   logAdminHistory(req.adminAccount.id, "user-create", `Created user ${username}`);
 
+  let invite = { sent: false, error: "" };
+  if (sendInvite) {
+    try {
+      const inviteResult = await sendAccountActionEmail({
+        req,
+        targetUser: user,
+        action: "invite",
+        actor: req.adminAccount
+      });
+      invite = { sent: true, actionUrl: inviteResult.actionUrl };
+      logAdminHistory(req.adminAccount.id, "user-invite", `Sent invite to ${username}`);
+    } catch (error) {
+      invite = { sent: false, error: error.message || "Failed to send invite email." };
+      logAdminHistory(req.adminAccount.id, "user-invite-failed", `Failed invite for ${username}: ${invite.error}`);
+    }
+  }
+
   res.status(201).json({
     ok: true,
+    invite,
     user: {
       id: user.id,
       username: user.username,
@@ -2652,7 +3838,8 @@ app.post("/api/admin/account/users", requireAdmin, (req, res) => {
       firstName: user.firstName,
       lastInitial: user.lastInitial,
       requestLimit: user.requestLimit,
-      groups: user.groups,
+      groups: getUserGroups(user),
+      permissions: getUserPermissions(user),
       isAdmin: isUserAdmin(user),
       active: user.active,
       createdAt: user.createdAt,
@@ -2662,7 +3849,7 @@ app.post("/api/admin/account/users", requireAdmin, (req, res) => {
   });
 });
 
-app.delete("/api/admin/account/users/:id", requireAdmin, (req, res) => {
+app.delete("/api/admin/account/users/:id", requireAdmin, requireManageUsers, (req, res) => {
   const id = `${req.params.id || ""}`;
   const target = (state.adminDb.users || []).find((item) => item.id === id);
   if (!target) {
@@ -2675,17 +3862,30 @@ app.delete("/api/admin/account/users/:id", requireAdmin, (req, res) => {
   }
 
   state.adminDb.users = (state.adminDb.users || []).filter((item) => item.id !== id);
-  for (const [token, session] of state.adminSessions.entries()) {
-    if (session?.userId === id) {
-      state.adminSessions.delete(token);
-    }
-  }
   saveAdminDb();
   logAdminHistory(req.adminAccount.id, "user-delete", `Deleted user ${target.username}`);
   res.json({ ok: true });
 });
 
-app.patch("/api/admin/account/users/:id/groups", requireAdmin, (req, res) => {
+app.patch("/api/admin/account/users/:id", requireAdmin, requireManageUsers, (req, res) => {
+  const id = `${req.params.id || ""}`;
+  const target = (state.adminDb.users || []).find((item) => item.id === id);
+  if (!target) {
+    res.status(404).json({ error: "User not found." });
+    return;
+  }
+  if (req.body?.requestLimit !== undefined) {
+    target.requestLimit = Math.max(1, Number(req.body.requestLimit || MAX_PENDING_PER_USER));
+  }
+  if (req.body?.active !== undefined) {
+    target.active = req.body.active !== false;
+  }
+  saveAdminDb();
+  logAdminHistory(req.adminAccount.id, "user-update", `Updated user ${target.username}`);
+  res.json({ ok: true });
+});
+
+app.patch("/api/admin/account/users/:id/groups", requireAdmin, requireManageUsers, (req, res) => {
   const id = `${req.params.id || ""}`;
   const target = (state.adminDb.users || []).find((item) => item.id === id);
   if (!target) {
@@ -2693,11 +3893,13 @@ app.patch("/api/admin/account/users/:id/groups", requireAdmin, (req, res) => {
     return;
   }
 
-  const requestedGroups = Array.isArray(req.body?.groups)
-    ? req.body.groups.map((item) => `${item || ""}`.trim().toLowerCase()).filter(Boolean)
-    : [];
-  const groups = Array.from(new Set(requestedGroups));
-  if (target.id === req.adminAccount.id && !groups.includes("admins")) {
+  const groups = normalizeSecurityGroups(req.body?.groups);
+  const callerCanManageUsers = userHasPermission(req.adminAccount, PERMISSIONS.ACCOUNT_USERS_MANAGE);
+  if (target.id === req.adminAccount.id && !callerCanManageUsers) {
+    res.status(400).json({ error: "You cannot remove your own user-management rights." });
+    return;
+  }
+  if (target.id === req.adminAccount.id && !groups.includes(SECURITY_GROUPS.GLOBAL_ADMIN) && !groups.includes(SECURITY_GROUPS.SUPERADMIN)) {
     res.status(400).json({ error: "You cannot remove your own admin rights." });
     return;
   }
@@ -2706,7 +3908,51 @@ app.patch("/api/admin/account/users/:id/groups", requireAdmin, (req, res) => {
   target.updatedAt = new Date().toISOString();
   saveAdminDb();
   logAdminHistory(req.adminAccount.id, "user-groups-update", `Updated groups for ${target.username} to ${groups.join(",") || "none"}`);
-  res.json({ ok: true, groups: target.groups, isAdmin: isUserAdmin(target) });
+  res.json({ ok: true, groups: getUserGroups(target), permissions: getUserPermissions(target), isAdmin: isUserAdmin(target) });
+});
+
+app.post("/api/admin/account/users/:id/send-invite", requireAdmin, requireManageUsers, async (req, res) => {
+  const id = `${req.params.id || ""}`;
+  const target = (state.adminDb.users || []).find((item) => item.id === id);
+  if (!target) {
+    res.status(404).json({ error: "User not found." });
+    return;
+  }
+
+  try {
+    const result = await sendAccountActionEmail({
+      req,
+      targetUser: target,
+      action: "invite",
+      actor: req.adminAccount
+    });
+    logAdminHistory(req.adminAccount.id, "user-invite", `Sent invite to ${target.username}`);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Failed to send invite email." });
+  }
+});
+
+app.post("/api/admin/account/users/:id/send-password-reset", requireAdmin, requireManageUsers, async (req, res) => {
+  const id = `${req.params.id || ""}`;
+  const target = (state.adminDb.users || []).find((item) => item.id === id);
+  if (!target) {
+    res.status(404).json({ error: "User not found." });
+    return;
+  }
+
+  try {
+    const result = await sendAccountActionEmail({
+      req,
+      targetUser: target,
+      action: "reset",
+      actor: req.adminAccount
+    });
+    logAdminHistory(req.adminAccount.id, "user-reset-email", `Sent password reset email to ${target.username}`);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Failed to send password reset email." });
+  }
 });
 
 // ── User access settings ─────────────────────────────────────────────────────
@@ -2719,6 +3965,8 @@ app.get("/api/admin/staff", requireAdmin, (_req, res) => {
     lastInitial: item.lastInitial || "",
     username: item.username,
     displayName: formatUserDisplayName(item),
+    groups: getUserGroups(item),
+    permissions: getUserPermissions(item),
     isAdmin: isUserAdmin(item),
     active: item.active !== false,
     requestLimit: Math.max(1, Number(item.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER)),
@@ -2737,22 +3985,41 @@ app.get("/api/admin/staff", requireAdmin, (_req, res) => {
   });
 });
 
-app.post("/api/admin/staff", requireAdmin, (req, res) => {
-  const firstName = sanitizeFirstName(req.body?.firstName);
-  const lastInitial = sanitizeLastInitial(req.body?.lastInitial);
+app.post("/api/admin/staff", requireAdmin, requireManageUsers, async (req, res) => {
+  const displayNameInput = sanitizeAdminDisplayName(req.body?.displayName || "");
+  let firstName = sanitizeFirstName(req.body?.firstName);
+  let lastInitial = sanitizeLastInitial(req.body?.lastInitial);
+
+  if ((!firstName || !lastInitial) && displayNameInput) {
+    const parts = displayNameInput.split(/\s+/).filter(Boolean);
+    if (!firstName) {
+      firstName = sanitizeFirstName(parts[0] || "");
+    }
+    if (!lastInitial) {
+      const tail = parts[parts.length - 1] || "";
+      lastInitial = sanitizeLastInitial(tail.slice(0, 1));
+    }
+  }
   const usernameResult = normalizeEmailUsername(req.body?.username, { requireValid: true });
   const username = usernameResult.ok ? usernameResult.email : "";
   const password = `${req.body?.password || ""}`;
+  const sendInvite = req.body?.sendInvite !== false;
   const requestLimit = Math.max(1, Number(req.body?.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER));
-  const groups = Array.isArray(req.body?.groups)
-    ? req.body.groups.map((item) => `${item || ""}`.trim().toLowerCase()).filter(Boolean)
-    : [];
-  if (req.body?.isAdmin === true && !groups.includes("admins")) {
-    groups.push("admins");
+  const groupsInput = Array.isArray(req.body?.groups) ? req.body.groups : [];
+  const groups = normalizeSecurityGroups(groupsInput);
+  if (req.body?.isAdmin === true && !groups.includes(SECURITY_GROUPS.GLOBAL_ADMIN)) {
+    groups.push(SECURITY_GROUPS.GLOBAL_ADMIN);
   }
 
-  if (!firstName || !lastInitial) {
-    res.status(400).json({ error: "firstName and lastInitial are required." });
+  if (!firstName) {
+    firstName = "User";
+  }
+  if (!lastInitial) {
+    lastInitial = "X";
+  }
+  const displayName = displayNameInput || sanitizeAdminDisplayName(`${firstName} ${lastInitial}.`);
+  if (!displayName) {
+    res.status(400).json({ error: "displayName is required." });
     return;
   }
   if (!usernameResult.ok) {
@@ -2762,8 +4029,12 @@ app.post("/api/admin/staff", requireAdmin, (req, res) => {
     });
     return;
   }
-  if (password.length < 6) {
-    res.status(400).json({ error: "Password must be at least 6 characters." });
+  if (password && password.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters." });
+    return;
+  }
+  if (!password && !sendInvite) {
+    res.status(400).json({ error: "Password is required when invite email is disabled." });
     return;
   }
   if ((state.adminDb.users || []).some((item) => item.username === username)) {
@@ -2772,12 +4043,12 @@ app.post("/api/admin/staff", requireAdmin, (req, res) => {
   }
 
   const now = new Date().toISOString();
-  const pwd = hashPassword(password);
+  const pwd = hashPassword(password || crypto.randomBytes(32).toString("base64url"));
   const staff = {
     id: crypto.randomUUID(),
     firstName,
     lastInitial,
-    displayName: sanitizeAdminDisplayName(`${firstName} ${lastInitial}.`),
+    displayName,
     username,
     passwordSalt: pwd.salt,
     passwordHash: pwd.hash,
@@ -2791,8 +4062,26 @@ app.post("/api/admin/staff", requireAdmin, (req, res) => {
   saveAdminDb();
   logAdminHistory(req.adminAccount.id, "user-create", `Created user ${formatUserDisplayName(staff)} (${username})`);
 
+  let invite = { sent: false, error: "" };
+  if (sendInvite) {
+    try {
+      const inviteResult = await sendAccountActionEmail({
+        req,
+        targetUser: staff,
+        action: "invite",
+        actor: req.adminAccount
+      });
+      invite = { sent: true, actionUrl: inviteResult.actionUrl };
+      logAdminHistory(req.adminAccount.id, "user-invite", `Sent invite to ${staff.username}`);
+    } catch (error) {
+      invite = { sent: false, error: error.message || "Failed to send invite email." };
+      logAdminHistory(req.adminAccount.id, "user-invite-failed", `Failed invite for ${staff.username}: ${invite.error}`);
+    }
+  }
+
   res.status(201).json({
     ok: true,
+    invite,
     staff: {
       id: staff.id,
       firstName: staff.firstName,
@@ -2800,14 +4089,15 @@ app.post("/api/admin/staff", requireAdmin, (req, res) => {
       username: staff.username,
       displayName: formatUserDisplayName(staff),
       requestLimit: staff.requestLimit,
-      groups: staff.groups,
+      groups: getUserGroups(staff),
+      permissions: getUserPermissions(staff),
       isAdmin: isUserAdmin(staff),
       active: staff.active
     }
   });
 });
 
-app.patch("/api/admin/staff/:id", requireAdmin, (req, res) => {
+app.patch("/api/admin/staff/:id", requireAdmin, requireManageUsers, (req, res) => {
   const id = `${req.params.id || ""}`;
   const staff = (state.adminDb.users || []).find((item) => item.id === id);
   if (!staff) {
@@ -2870,22 +4160,20 @@ app.patch("/api/admin/staff/:id", requireAdmin, (req, res) => {
   }
 
   if (req.body?.groups !== undefined || req.body?.isAdmin !== undefined) {
-    const groups = Array.isArray(req.body?.groups)
-      ? req.body.groups.map((item) => `${item || ""}`.trim().toLowerCase()).filter(Boolean)
-      : Array.isArray(staff.groups)
-        ? [...staff.groups]
-        : [];
-    if (req.body?.isAdmin === true && !groups.includes("admins")) {
-      groups.push("admins");
+    const groups = req.body?.groups !== undefined
+      ? normalizeSecurityGroups(req.body?.groups)
+      : getUserGroups(staff);
+    if (req.body?.isAdmin === true && !groups.includes(SECURITY_GROUPS.GLOBAL_ADMIN)) {
+      groups.push(SECURITY_GROUPS.GLOBAL_ADMIN);
     }
     if (req.body?.isAdmin === false) {
       if (staff.id === req.adminAccount.id) {
         res.status(400).json({ error: "You cannot remove your own admin rights." });
         return;
       }
-      staff.groups = groups.filter((entry) => entry !== "admins");
+      staff.groups = groups.filter((entry) => entry !== SECURITY_GROUPS.GLOBAL_ADMIN && entry !== SECURITY_GROUPS.SUPERADMIN);
     } else {
-      staff.groups = Array.from(new Set(groups));
+      staff.groups = groups;
     }
   }
 
@@ -2897,7 +4185,7 @@ app.patch("/api/admin/staff/:id", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/admin/staff/:id/reset-password", requireAdmin, (req, res) => {
+app.post("/api/admin/staff/:id/reset-password", requireAdmin, requireManageUsers, (req, res) => {
   const id = `${req.params.id || ""}`;
   const staff = (state.adminDb.users || []).find((item) => item.id === id);
   if (!staff) {
@@ -2918,7 +4206,7 @@ app.post("/api/admin/staff/:id/reset-password", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete("/api/admin/staff/:id", requireAdmin, (req, res) => {
+app.delete("/api/admin/staff/:id", requireAdmin, requireManageUsers, (req, res) => {
   const id = `${req.params.id || ""}`;
   const staff = (state.adminDb.users || []).find((item) => item.id === id);
   if (!staff) {
@@ -2969,7 +4257,1701 @@ app.get("/api/admin/requests/stats", requireAdmin, (_req, res) => {
   });
 });
 
-app.get("/api/admin/settings/audio-jack", requireAdmin, async (_req, res) => {
+// ── Reporting snapshot ───────────────────────────────────────────────────────
+
+function loadReportingSnapshot() {
+  try {
+    if (!fs.existsSync(REPORTING_SNAPSHOT_PATH)) return;
+    const text = fs.readFileSync(REPORTING_SNAPSHOT_PATH, "utf8");
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && parsed.generatedAt) {
+      state.reportingSnapshot = parsed;
+    }
+  } catch (error) {
+    console.warn(`Could not load reporting snapshot: ${error.message}`);
+  }
+}
+
+function saveReportingSnapshot(data) {
+  try {
+    fs.writeFileSync(REPORTING_SNAPSHOT_PATH, JSON.stringify(data, null, 2), "utf8");
+  } catch (error) {
+    console.warn(`Could not save reporting snapshot: ${error.message}`);
+  }
+}
+
+async function buildReportingOverview() {
+  const formatDate = (value) => {
+    const d = value ? new Date(value) : null;
+    if (!d || Number.isNaN(d.getTime())) return "";
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const monthKey = (value) => {
+    const d = value ? new Date(value) : null;
+    if (!d || Number.isNaN(d.getTime())) return "";
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+  };
+
+  const dateFieldCandidates = ["ACTIVEMOVEMENTDATE", "MOVEMENTDATE", "ADOPTIONDATE", "DATEADOPTED", "OUTCOMEDATE", "LASTCHANGEDDATE", "CREATEDDATE"];
+  const pickDateValue = (row) => {
+    for (const key of dateFieldCandidates) {
+      if (row?.[key]) return row[key];
+    }
+    return "";
+  };
+
+  const fetchAsmRows = async (method, extraParams = {}) => {
+    const requestUrl = buildAsmServiceUrl(method, extraParams);
+    if (!requestUrl) {
+      throw new Error(`ASM service URL missing for ${method}`);
+    }
+    const response = await fetch(requestUrl, { headers: { Accept: "application/json" } });
+    const bodyText = await response.text();
+    if (!response.ok) {
+      throw new Error(`ASM ${method} HTTP ${response.status}`);
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(bodyText);
+    } catch {
+      throw new Error(`ASM ${method} returned non-JSON response`);
+    }
+    return extractAsmRows(parsed);
+  };
+
+  const now = new Date();
+  // Split 12-month window into 4 quarterly chunks to avoid ASM's 1000-row cap
+  // Q1: month-11 to month-9, Q2: month-8 to month-6, Q3: month-5 to month-3, Q4: month-2 to now
+  // qTo uses day-0 of the month AFTER the last quarter month (= last day of quarter's final month)
+  const qFrom1 = formatDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1)));
+  const qTo1   = formatDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 8,  0)));
+  const qFrom2 = formatDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 8,  1)));
+  const qTo2   = formatDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5,  0)));
+  const qFrom3 = formatDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5,  1)));
+  const qTo3   = formatDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2,  0)));
+  const qFrom4 = formatDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2,  1)));
+  const qTo4   = formatDate(now);
+  const recentStart = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
+
+  const [adoptableRows, shelterRows, strayRows, heldRows, recentAdoptionsRows, adoptedQ1, adoptedQ2, adoptedQ3, adoptedQ4] = await Promise.all([
+    fetchAsmRows(state.asm.adoptableMethod || "json_adoptable_animals"),
+    fetchAsmRows("json_shelter_animals"),
+    fetchAsmRows("json_stray_animals"),
+    fetchAsmRows("json_held_animals"),
+    fetchAsmRows("json_recent_adoptions"),
+    fetchAsmRows("json_adopted_animals", { fromdate: qFrom1, todate: qTo1 }),
+    fetchAsmRows("json_adopted_animals", { fromdate: qFrom2, todate: qTo2 }),
+    fetchAsmRows("json_adopted_animals", { fromdate: qFrom3, todate: qTo3 }),
+    fetchAsmRows("json_adopted_animals", { fromdate: qFrom4, todate: qTo4 })
+  ]);
+  const adoptedRows = [...adoptedQ1, ...adoptedQ2, ...adoptedQ3, ...adoptedQ4];
+
+  console.log("[reporting] adopted rows Q1:", adoptedQ1.length, "Q2:", adoptedQ2.length, "Q3:", adoptedQ3.length, "Q4:", adoptedQ4.length, "total:", adoptedRows.length);
+
+  const speciesMap = new Map();
+  for (const row of adoptableRows) {
+    const key = `${row.SPECIESNAME || "Unknown"}`.trim() || "Unknown";
+    speciesMap.set(key, (speciesMap.get(key) || 0) + 1);
+  }
+  const species = Array.from(speciesMap.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const speciesInCareMap = new Map();
+  for (const row of shelterRows) {
+    const key = `${row.SPECIESNAME || "Unknown"}`.trim() || "Unknown";
+    speciesInCareMap.set(key, (speciesInCareMap.get(key) || 0) + 1);
+  }
+  const speciesInCare = Array.from(speciesInCareMap.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Jurisdiction breakdown — from raw adoptable rows
+  const jurisdictionMap = new Map();
+  let acIncidentCount = 0;
+  for (const row of adoptableRows) {
+    const jName = `${row.JURISDICTIONNAME || "Unknown"}`.trim() || "Unknown";
+    jurisdictionMap.set(jName, (jurisdictionMap.get(jName) || 0) + 1);
+    const acId = `${row.ANIMALCONTROLINCIDENTID ?? "0"}`.trim();
+    if (acId && acId !== "0") acIncidentCount += 1;
+  }
+
+  const monthlyKeys = [];
+  const monthlyCounts = new Map();
+  for (let i = 11; i >= 0; i -= 1) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const key = monthKey(d);
+    monthlyKeys.push(key);
+    monthlyCounts.set(key, 0);
+  }
+  for (const row of adoptedRows) {
+    const key = monthKey(pickDateValue(row));
+    if (key && monthlyCounts.has(key)) {
+      monthlyCounts.set(key, (monthlyCounts.get(key) || 0) + 1);
+    }
+  }
+
+  const dailyKeys = [];
+  const dailyCounts = new Map();
+  for (let i = 29; i >= 0; i -= 1) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const key = formatDate(d);
+    dailyKeys.push(key);
+    dailyCounts.set(key, 0);
+  }
+  for (const row of recentAdoptionsRows) {
+    const key = formatDate(pickDateValue(row));
+    if (key && dailyCounts.has(key)) {
+      dailyCounts.set(key, (dailyCounts.get(key) || 0) + 1);
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    summary: {
+      adoptableCount: Number(adoptableRows.length || 0),
+      shelterCount: Number(shelterRows.length || 0),
+      strayCount: Number(strayRows.length || 0),
+      heldCount: Number(heldRows.length || 0),
+      recentAdoptionsCount: Number(recentAdoptionsRows.length || 0),
+      acIncidentCount: Number(acIncidentCount)
+    },
+    species,
+    speciesInCare,
+    jurisdictions: Array.from(jurisdictionMap.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count),
+    monthlyAdoptions: {
+      labels: monthlyKeys,
+      values: monthlyKeys.map((key) => Number(monthlyCounts.get(key) || 0)),
+      fromDate: qFrom1,
+      toDate: qTo4
+    },
+    recentAdoptions: {
+      labels: dailyKeys,
+      values: dailyKeys.map((key) => Number(dailyCounts.get(key) || 0)),
+      fromDate: formatDate(recentStart),
+      toDate: formatDate(now)
+    },
+    source: {}
+  };
+}
+
+let reportingRefreshInProgress = false;
+
+async function refreshReportingSnapshot() {
+  if (reportingRefreshInProgress) return;
+  reportingRefreshInProgress = true;
+  try {
+    const snapshot = await buildReportingOverview();
+    state.reportingSnapshot = snapshot;
+    saveReportingSnapshot(snapshot);
+    console.log(`Reporting snapshot updated at ${snapshot.generatedAt}`);
+  } catch (error) {
+    console.warn(`Reporting snapshot refresh failed: ${error.message}`);
+  } finally {
+    reportingRefreshInProgress = false;
+  }
+}
+
+function startReportingScheduler() {
+  // Only run the ASM fetch scheduler in the reporting service instance
+  if (PORT === 3000) return;
+  const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+  // Fetch immediately on startup (delay 5s to let services settle)
+  const initialTimer = setTimeout(() => {
+    refreshReportingSnapshot().catch((error) => {
+      console.warn(`Reporting initial fetch error: ${error.message}`);
+    });
+  }, 5000);
+  initialTimer.unref?.();
+  const timer = setInterval(() => {
+    refreshReportingSnapshot().catch((error) => {
+      console.warn(`Reporting scheduler error: ${error.message}`);
+    });
+  }, INTERVAL_MS);
+  timer.unref?.();
+}
+
+app.get("/api/admin/reporting/overview", requireAdmin, requireReporting, (_req, res) => {
+  const snapshot = state.reportingSnapshot;
+  if (!snapshot) {
+    return res.status(503).json({ error: "Reporting data not yet available. The first snapshot is being built — please wait a moment and try again." });
+  }
+  const ageMs = snapshot.generatedAt ? Date.now() - new Date(snapshot.generatedAt).getTime() : 0;
+  res.json({ ...snapshot, cacheAgeSeconds: Math.floor(ageMs / 1000) });
+});
+
+app.post("/api/admin/reporting/refresh", requireAdmin, requireReporting, (_req, res) => {
+  if (reportingRefreshInProgress) {
+    return res.json({ ok: true, message: "Refresh already in progress." });
+  }
+  refreshReportingSnapshot().catch((error) => {
+    console.warn(`Manual reporting refresh error: ${error.message}`);
+  });
+  res.json({ ok: true, message: "Reporting refresh started." });
+});
+
+app.get("/api/admin/reporting/monthly-district-calls", requireAdmin, requireReporting, async (req, res) => {
+  try {
+    const now = new Date();
+    const month = Number.parseInt(`${req.query.month || now.getUTCMonth() + 1}`, 10);
+    const year = Number.parseInt(`${req.query.year || now.getUTCFullYear()}`, 10);
+    if (!Number.isFinite(month) || month < 1 || month > 12) {
+      return res.status(400).json({ error: "month must be 1-12" });
+    }
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      return res.status(400).json({ error: "year must be between 2000 and 2100" });
+    }
+
+    const from = new Date(Date.UTC(year, month - 1, 1));
+    const to = new Date(Date.UTC(year, month, 0));
+    const formatDate = (d) => {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(d.getUTCDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    const fromDate = formatDate(from);
+    const toDate = formatDate(to);
+
+    const districtFields = ["COUNCILDISTRICTNAME", "COUNCILDISTRICT", "DISTRICTNAME", "DISTRICT", "JURISDICTIONNAME", "JURISDICTION", "AREA", "ZONE"];
+    const incidentTypeFields = ["INCIDENTTYPE", "INCIDENTTYPENAME", "CALLTYPE", "CALLTYPENAME", "INCIDENTNAME", "TYPE", "CATEGORY", "SUBJECT"];
+
+    const pickFirstText = (row, candidates, fallback = "Unknown") => {
+      for (const field of candidates) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const pickDate = (row) => {
+      for (const field of ["INCIDENTDATETIME", "INCIDENTDATE", "CALLDATE", "REPORTEDDATE", "DATE", "CREATEDDATE", "LASTCHANGEDDATE"]) {
+        const value = row?.[field];
+        if (!value) continue;
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    let sourceMethod = "";
+    let sourceRows = [];
+    let unavailableReason = "";
+    try {
+      const result = await fetchAnimalControlRowsForRange(fromDate, toDate);
+      sourceMethod = result.sourceMethod;
+      sourceRows = result.rows;
+    } catch (error) {
+      unavailableReason = error.message || "Unable to fetch animal control incident data from ASM.";
+    }
+
+    if (!sourceMethod) {
+      return res.json({
+        available: false,
+        error: unavailableReason || "Animal Control data is not available from the current ASM service method.",
+        month,
+        year,
+        fromDate,
+        toDate,
+        sourceMethod: "",
+        rowCount: 0,
+        districts: []
+      });
+    }
+
+    const districtMap = new Map();
+    for (const row of sourceRows) {
+      const rowDate = pickDate(row);
+      if (!rowDate) continue;
+      if (rowDate < from || rowDate > new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))) continue;
+
+      const district = pickFirstText(row, districtFields, "Unknown District");
+      const incidentType = pickFirstText(row, incidentTypeFields, "Unknown Incident");
+
+      if (!districtMap.has(district)) {
+        districtMap.set(district, { total: 0, incidentTypeMap: new Map() });
+      }
+      const districtEntry = districtMap.get(district);
+      districtEntry.total += 1;
+      districtEntry.incidentTypeMap.set(incidentType, (districtEntry.incidentTypeMap.get(incidentType) || 0) + 1);
+    }
+
+    const sortDistricts = (a, b) => {
+      const ax = `${a}`.toLowerCase();
+      const bx = `${b}`.toLowerCase();
+      const am = ax.match(/district\s*(\d+)/);
+      const bm = bx.match(/district\s*(\d+)/);
+      if (am && bm) return Number(am[1]) - Number(bm[1]);
+      if (am) return -1;
+      if (bm) return 1;
+      return ax.localeCompare(bx);
+    };
+
+    const districts = Array.from(districtMap.entries())
+      .sort((a, b) => sortDistricts(a[0], b[0]))
+      .map(([district, info]) => ({
+        district,
+        total: Number(info.total || 0),
+        incidentTypes: Array.from(info.incidentTypeMap.entries())
+          .map(([label, count]) => ({ label, count: Number(count || 0) }))
+          .sort((a, b) => (b.count - a.count) || a.label.localeCompare(b.label))
+      }));
+
+    res.json({
+      available: true,
+      month,
+      year,
+      fromDate,
+      toDate,
+      sourceMethod,
+      rowCount: Number(sourceRows.length || 0),
+      districts
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to build monthly district calls report." });
+  }
+});
+
+app.get("/api/admin/reporting/calls-by-type", requireAdmin, requireReporting, async (req, res) => {
+  try {
+    const parseDateInput = (value) => {
+      const raw = `${value || ""}`.trim();
+      if (!raw) return null;
+      const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (ymd) {
+        return new Date(Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3])));
+      }
+      const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (mdy) {
+        return new Date(Date.UTC(Number(mdy[3]), Number(mdy[1]) - 1, Number(mdy[2])));
+      }
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+      }
+      return null;
+    };
+
+    const now = new Date();
+    const defaultFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const defaultTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+    const fromDateObj = parseDateInput(req.query.fromDate) || defaultFrom;
+    const toDateObj = parseDateInput(req.query.toDate) || defaultTo;
+    if (Number.isNaN(fromDateObj.getTime()) || Number.isNaN(toDateObj.getTime())) {
+      return res.status(400).json({ error: "Invalid fromDate or toDate." });
+    }
+    if (fromDateObj > toDateObj) {
+      return res.status(400).json({ error: "fromDate must be before or equal to toDate." });
+    }
+
+    const formatDate = (d) => {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(d.getUTCDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+
+    const fromDate = formatDate(fromDateObj);
+    const toDate = formatDate(toDateObj);
+    const toDateEnd = new Date(Date.UTC(
+      toDateObj.getUTCFullYear(),
+      toDateObj.getUTCMonth(),
+      toDateObj.getUTCDate(),
+      23,
+      59,
+      59,
+      999
+    ));
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const dateFields = ["INCIDENTDATETIME", "INCIDENTDATE", "CALLDATE", "REPORTEDDATE", "DATE", "CREATEDDATE", "LASTCHANGEDDATE"];
+    const typeFields = ["INCIDENTTYPE", "INCIDENTTYPENAME", "CALLTYPE", "CALLTYPENAME", "INCIDENTNAME", "TYPE", "CATEGORY", "SUBJECT"];
+    const codeFields = ["INCIDENTCODE", "INCIDENTNUMBER", "CALLNUMBER", "REFERENCE", "CASEID", "CASENUMBER"];
+    const callerFields = ["CALLERNAME", "CALLER", "CONTACTNAME", "REPORTERNAME", "REPORTEDBY", "OWNERNAME"];
+    const notesFields = ["NOTES", "DETAILS", "COMMENTS", "DESCRIPTION", "INCIDENTNOTES", "CALLNOTES"];
+    const victimFields = ["VICTIM", "VICTIMNAME", "AFFECTEDPARTY", "PATIENTNAME"];
+    const suspectFields = ["SUSPECT", "SUSPECTNAME", "RESPONSIBLEPARTY", "OWNERNAME"];
+    const dispatchFields = ["DISPATCHADDRESS", "ADDRESS", "LOCATION", "SITE", "DISPATCHLOCATION"];
+    const dispatchedFields = ["DISPATCHED", "DISPATCHEDDATE", "DISPATCHDATETIME", "DATEASSIGNED"];
+    const respondedFields = ["RESPONDED", "RESPONDEDDATE", "RESPONDEDDATETIME", "DATEARRIVED"];
+    const completedFields = ["COMPLETED", "COMPLETEDDATE", "COMPLETEDDATETIME", "DATECLOSED", "OUTCOME"];
+
+    const pickDate = (row) => {
+      for (const field of dateFields) {
+        const value = row?.[field];
+        if (!value) continue;
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    let sourceMethod = "";
+    let sourceRows = [];
+    let unavailableReason = "";
+    try {
+      const result = await fetchAnimalControlRowsForRange(fromDate, toDate);
+      sourceMethod = result.sourceMethod;
+      sourceRows = result.rows;
+    } catch (error) {
+      unavailableReason = error.message || "Unable to fetch animal control call data from ASM.";
+    }
+
+    if (!sourceMethod) {
+      return res.json({
+        available: false,
+        error: unavailableReason || "Animal Control data is not available from the current ASM service method.",
+        fromDate,
+        toDate,
+        sourceMethod: "",
+        rowCount: 0,
+        types: []
+      });
+    }
+
+    const typeMap = new Map();
+    for (const row of sourceRows) {
+      const rowDate = pickDate(row);
+      if (!rowDate) continue;
+      if (rowDate < fromDateObj || rowDate > toDateEnd) continue;
+
+      const incidentType = pickFirstText(row, typeFields, "Unknown");
+      if (!typeMap.has(incidentType)) {
+        typeMap.set(incidentType, []);
+      }
+
+      typeMap.get(incidentType).push({
+        date: rowDate.toISOString(),
+        incidentCode: pickFirstText(row, codeFields, ""),
+        caller: pickFirstText(row, callerFields, ""),
+        notes: pickFirstText(row, notesFields, ""),
+        victim: pickFirstText(row, victimFields, ""),
+        suspect: pickFirstText(row, suspectFields, ""),
+        dispatch: pickFirstText(row, dispatchFields, ""),
+        dispatched: pickFirstText(row, dispatchedFields, ""),
+        responded: pickFirstText(row, respondedFields, ""),
+        completed: pickFirstText(row, completedFields, "")
+      });
+    }
+
+    const types = Array.from(typeMap.entries())
+      .map(([incidentType, rows]) => ({
+        incidentType,
+        total: Number(rows.length || 0),
+        rows: rows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      }))
+      .sort((a, b) => (b.total - a.total) || a.incidentType.localeCompare(b.incidentType));
+
+    res.json({
+      available: true,
+      fromDate,
+      toDate,
+      sourceMethod,
+      rowCount: Number(sourceRows.length || 0),
+      types
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to build calls-by-type report." });
+  }
+});
+
+app.get("/api/admin/reporting/active-fosters-brief", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_ACTIVE_FOSTERS_REPORT_TITLE || "Active Fosters (Brief)"}`.trim();
+  const pickFirstText = (row, fields, fallback = "") => {
+    for (const field of fields) {
+      const value = row?.[field];
+      if (value === undefined || value === null) continue;
+      const text = `${value}`.trim();
+      if (text) return text;
+    }
+    return fallback;
+  };
+
+  const mapRows = (rows) => rows.map((row) => ({
+    fosteredTo: pickFirstText(row, ["FosteredTo", "FOSTEREDTO", "CURRENTOWNERNAME", "OWNERNAME", "OWNER"]),
+    ownerAddress: pickFirstText(row, ["OwnerAddress", "OWNERADDRESS", "CURRENTOWNERADDRESS", "ADDRESS"]),
+    homeTelephone: pickFirstText(row, ["HomeTelephone", "HOMETELEPHONE", "CURRENTOWNERHOMETELEPHONE", "PHONE"]),
+    mobileTelephone: pickFirstText(row, ["MobileTelephone", "MOBILETELEPHONE", "CURRENTOWNERMOBILETELEPHONE", "MOBILE"]),
+    emailAddress: pickFirstText(row, ["EMAILADDRESS", "EmailAddress", "CURRENTOWNEREMAILADDRESS", "EMAIL"]),
+    animalId: pickFirstText(row, ["ID", "ANIMALID", "AnimalID"]),
+    shelterCode: pickFirstText(row, ["ShelterCode", "SHELTERCODE", "CODE"]),
+    animalName: pickFirstText(row, ["AnimalName", "ANIMALNAME", "NAME"]),
+    sex: pickFirstText(row, ["Sex", "SEX", "SEXNAME"]),
+    colour: pickFirstText(row, ["Colour", "COLOR", "COLOUR", "BASECOLOURNAME"]),
+    breedName: pickFirstText(row, ["BreedName", "BREEDNAME", "BREED", "BREEDNAME1"]),
+    dateOfBirth: pickFirstText(row, ["DateOfBirth", "DATEOFBIRTH", "DOB"]),
+    animalAge: pickFirstText(row, ["AnimalAge", "ANIMALAGE", "AGE"])
+  }));
+
+  const isFosterMovement = (row) => {
+    const movementType = `${row?.ACTIVEMOVEMENTTYPE ?? ""}`.trim();
+    const movementTypeName = `${row?.ACTIVEMOVEMENTTYPENAME ?? ""}`.trim().toLowerCase();
+    return movementType === "2" || movementTypeName === "foster";
+  };
+
+  try {
+    let sourceMethod = `json_report:${reportTitle}`;
+    let sourceRows = [];
+
+    try {
+      sourceRows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+    } catch (reportError) {
+      const shelterRows = await fetchAsmRowsForMethod("json_shelter_animals");
+      sourceRows = shelterRows.filter((row) => isFosterMovement(row));
+      sourceMethod = `json_shelter_animals:foster_fallback(${reportTitle})`;
+      if (!sourceRows.length) {
+        throw reportError;
+      }
+    }
+
+    const mappedRows = mapRows(sourceRows);
+
+    res.json({
+      available: true,
+      sourceMethod,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load Active Fosters report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/shelter-health", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_SHELTER_HEALTH_REPORT_TITLE || "Health Notes in the Last Day"}`.trim();
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const mappedRows = rows.map((row) => ({
+      animalName: pickFirstText(row, ["AnimalName", "ANIMALNAME"]),
+      logTypeName: pickFirstText(row, ["LogTypeName", "LOGTYPENAME"]),
+      weight: pickFirstText(row, ["Weight", "WEIGHT"]),
+      shortCode: pickFirstText(row, ["ShortCode", "SHORTCODE"]),
+      displayLocation: pickFirstText(row, ["DisplayLocation", "DISPLAYLOCATION"]),
+      comments: pickFirstText(row, ["Comments", "COMMENTS"]),
+      date: pickFirstText(row, ["Date", "DATE"]),
+      createdBy: pickFirstText(row, ["CreatedBy", "CREATEDBY"])
+    }));
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load Shelter Health report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/city-daily-in-out-staff", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_CITY_DAILY_IN_OUT_REPORT_TITLE || "City Daily In/Out to Staff"}`.trim();
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const mappedRows = rows.map((row) => ({
+      theDate: pickFirstText(row, ["thedate", "THEDATE", "DATE"]),
+      reason: pickFirstText(row, ["Reason", "REASON"]),
+      shelterCode: pickFirstText(row, ["ShelterCode", "SHELTERCODE"]),
+      animalId: pickFirstText(row, ["ID", "ANIMALID", "AnimalID"]),
+      identichipNumber: pickFirstText(row, ["IdentichipNumber", "IDENTICHIPNUMBER"]),
+      animalName: pickFirstText(row, ["AnimalName", "ANIMALNAME"]),
+      animalTypeName: pickFirstText(row, ["AnimalTypeName", "ANIMALTYPENAME"]),
+      speciesName: pickFirstText(row, ["SpeciesName", "SPECIESNAME"]),
+      animalAge: pickFirstText(row, ["AnimalAge", "ANIMALAGE"]),
+      sexName: pickFirstText(row, ["SexName", "SEXNAME"]),
+      locationFound: pickFirstText(row, ["locationfound", "LOCATIONFOUND"]),
+      categoryName: pickFirstText(row, ["CategoryName", "CATEGORYNAME"]),
+      outOrIn: pickFirstText(row, ["OutOrIn", "OUTORIN"])
+    }));
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load City Daily In/Out to Staff report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/staff-weekly-pathway-planning", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_STAFF_WEEKLY_PATHWAY_REPORT_TITLE || "Staff's Weekly Pathway Planning"}`.trim();
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const mappedRows = rows.map((row) => ({
+      reason: pickFirstText(row, ["Reason", "REASON"]),
+      animalName: pickFirstText(row, ["AnimalName", "ANIMALNAME"]),
+      holdDate: pickFirstText(row, ["HoldDate", "HOLDDATE"]),
+      animalAge: pickFirstText(row, ["AnimalAge", "ANIMALAGE"]),
+      daysOnShelter: pickFirstText(row, ["DaysOnShelter", "DAYSONSHELTER"]),
+      shortCode: pickFirstText(row, ["ShortCode", "SHORTCODE"]),
+      displayLocation: pickFirstText(row, ["DisplayLocation", "DISPLAYLOCATION"]),
+      weight: pickFirstText(row, ["Weight", "WEIGHT"]),
+      comments: pickFirstText(row, ["Comments", "COMMENTS"]),
+      pic: pickFirstText(row, ["Pic", "PIC"]),
+      lastChangedDate: pickFirstText(row, ["LastChangedDate", "LASTCHANGEDDATE"])
+    }));
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load Staff's Weekly Pathway Planning report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/daily-foster-movements", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_DAILY_FOSTER_MOVEMENTS_REPORT_TITLE || "Daily Foster Movements"}`.trim();
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const mappedRows = rows.map((row) => ({
+      theDate: pickFirstText(row, ["thedate", "THEDATE", "DATE"]),
+      reason: pickFirstText(row, ["Reason", "REASON"]),
+      categoryName: pickFirstText(row, ["CategoryName", "CATEGORYNAME"]),
+      shelterCode: pickFirstText(row, ["ShelterCode", "SHELTERCODE"]),
+      animalId: pickFirstText(row, ["ID", "ANIMALID", "AnimalID"]),
+      identichipNumber: pickFirstText(row, ["IdentichipNumber", "IDENTICHIPNUMBER"]),
+      animalName: pickFirstText(row, ["AnimalName", "ANIMALNAME"]),
+      displayLocation: pickFirstText(row, ["DisplayLocation", "DISPLAYLOCATION"]),
+      speciesName: pickFirstText(row, ["SpeciesName", "SPECIESNAME"]),
+      animalAge: pickFirstText(row, ["AnimalAge", "ANIMALAGE"]),
+      sexName: pickFirstText(row, ["SexName", "SEXNAME"]),
+      locationFound: pickFirstText(row, ["locationfound", "LOCATIONFOUND"]),
+      outOrIn: pickFirstText(row, ["OutOrIn", "OUTORIN"])
+    }));
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load Daily Foster Movements report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/tnr-clinic", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_TNR_CLINIC_REPORT_TITLE || "TNR CLINIC"}`.trim();
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const mappedRows = rows.map((row) => ({
+      animalId: pickFirstText(row, ["animalid", "ANIMALID", "AnimalID", "ID"]),
+      animalName: pickFirstText(row, ["ANIMALNAME", "AnimalName"]),
+      shelterCode: pickFirstText(row, ["SHELTERCODE", "ShelterCode"]),
+      animalType: pickFirstText(row, ["ANIMALTYPE", "AnimalType"]),
+      sex: pickFirstText(row, ["SEX", "Sex"]),
+      baseColour: pickFirstText(row, ["BASECOLOUR", "BaseColour"]),
+      hiddenAnimalDetails: pickFirstText(row, ["HIDDENANIMALDETAILS", "HiddenAnimalDetails"]),
+      animalComments: pickFirstText(row, ["ANIMALCOMMENTS", "AnimalComments"]),
+      displayLocation: pickFirstText(row, ["DISPLAYLOCATION", "DisplayLocation"]),
+      locationFound: pickFirstText(row, ["locationfound", "LOCATIONFOUND"]),
+      ownerName: pickFirstText(row, ["ownername", "OWNERNAME", "OwnerName"]),
+      ownerAddress: pickFirstText(row, ["owneraddress", "OWNERADDRESS", "OwnerAddress"]),
+      ownerTown: pickFirstText(row, ["ownertown", "OWNERTOWN", "OwnerTown"]),
+      placementNotes: pickFirstText(row, ["COMMENTS", "Comments"]),
+      mostRecentEntryDate: pickFirstText(row, ["MOSTRECENTENTRYDATE", "MostRecentEntryDate"]),
+      ready: pickFirstText(row, ["Ready", "READY"])
+    }));
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load TNR Clinic report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/pathway-planning", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_PATHWAY_PLANNING_REPORT_TITLE || "Pathway Planning"}`.trim();
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const mappedRows = rows.map((row) => ({
+      animalName: pickFirstText(row, ["animalname", "ANIMALNAME", "AnimalName"]),
+      holdDate: pickFirstText(row, ["Holddate", "HOLDDATE", "HOLDUNTILDATE"]),
+      daysOnShelter: pickFirstText(row, ["daysonshelter", "DAYSONSHELTER", "DaysOnShelter"]),
+      shortCode: pickFirstText(row, ["shortcode", "SHORTCODE", "ShortCode"]),
+      displayLocation: pickFirstText(row, ["displaylocation", "DISPLAYLOCATION", "DisplayLocation"]),
+      weight: pickFirstText(row, ["weight", "WEIGHT", "Weight"]),
+      comments: pickFirstText(row, ["Comments", "COMMENTS"]),
+      reason: pickFirstText(row, ["Reason", "REASON"]),
+      pic: pickFirstText(row, ["pic", "PIC", "Pic"]),
+      lastChangedDate: pickFirstText(row, ["LastChangedDate", "LASTCHANGEDDATE"]),
+      animalAge: pickFirstText(row, ["AnimalAge", "ANIMALAGE", "animalage"])
+    }));
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load Pathway Planning report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/donations-and-thank-yous", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_DONATIONS_THANKYOUS_REPORT_TITLE || "Donations and Thank Yous"}`.trim();
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    // First column is an HTML expression without alias; ASM returns it as "?column?"
+    const extractOwnerName = (raw) => {
+      const m = `${raw || ""}`.match(/>([^<]+)</);
+      return m ? m[1].trim() : `${raw || ""}`.replace(/<[^>]*>/g, "").trim();
+    };
+    const extractOwnerId = (raw) => {
+      const m = `${raw || ""}`.match(/\?id=(\d+)/i);
+      return m ? m[1] : "";
+    };
+
+    const mappedRows = rows.map((row) => {
+      const ownerHtml = pickFirstText(row, ["?column?", "?COLUMN?", "OWNERLINK", "ownerlink"]);
+      return {
+        ownerName: extractOwnerName(ownerHtml),
+        ownerId: extractOwnerId(ownerHtml),
+        comments: pickFirstText(row, ["Comments", "COMMENTS"]),
+        donation: pickFirstText(row, ["Donation", "DONATION"]),
+        emailAddress: pickFirstText(row, ["emailaddress", "EMAILADDRESS", "EmailAddress"]),
+        ownerAddress: pickFirstText(row, ["OwnerAddress", "OWNERADDRESS", "Owneraddress"]),
+        ownerTown: pickFirstText(row, ["OwnerTown", "OWNERTOWN", "ownertown"]),
+        ownerCounty: pickFirstText(row, ["OwnerCounty", "OWNERCOUNTY", "ownercounty"]),
+        ownerPostcode: pickFirstText(row, ["OwnerPostcode", "OWNERPOSTCODE", "ownerpostcode"]),
+        paymentName: pickFirstText(row, ["PaymentName", "PAYMENTNAME"]),
+        date: pickFirstText(row, ["Date", "DATE"]),
+        donationName: pickFirstText(row, ["DonationName", "DONATIONNAME"])
+      };
+    });
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load Donations and Thank Yous report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/adoption-followups", requireAdmin, requireReporting, async (req, res) => {
+  const reportTitle = `${process.env.ASM_ADOPTION_FOLLOWUPS_REPORT_TITLE || "Adoption Follow-Ups more info"}`.trim();
+  const monthno = `${req.query.month || ""}`.trim();
+  const yearno = `${req.query.year || ""}`.trim();
+
+  if (!monthno || !yearno) {
+    return res.json({ available: false, sourceMethod: `json_report:${reportTitle}`, error: "month and year query parameters are required.", rowCount: 0, rows: [] });
+  }
+
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", {
+      title: reportTitle,
+      // Some ASM reports validate named parameters instead of positional ASK1/ASK2.
+      monthno,
+      yearno,
+      MONTHNO: monthno,
+      YEARNO: yearno,
+      ASK1: monthno,
+      ASK2: yearno
+    });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const extractAnimalId = (row) => {
+      const direct = pickFirstText(row, ["id", "ID", "animalid", "ANIMALID", "AnimalID"]);
+      if (direct) return direct;
+
+      const possibleHtml = [
+        row?.AnimalName,
+        row?.ANIMALNAME,
+        row?.animalname,
+        row?.ShelterCode,
+        row?.SHELTERCODE,
+        row?.sheltercode
+      ];
+
+      for (const raw of possibleHtml) {
+        const match = `${raw || ""}`.match(/[?&]id=(\d+)/i);
+        if (match) return match[1];
+      }
+
+      return "";
+    };
+
+    const extractAnimalLink = (row) => {
+      const possibleHtml = [
+        row?.AnimalName,
+        row?.ANIMALNAME,
+        row?.animalname,
+        row?.ShelterCode,
+        row?.SHELTERCODE,
+        row?.sheltercode
+      ];
+
+      for (const raw of possibleHtml) {
+        const html = `${raw || ""}`;
+        const hrefMatch = html.match(/href\s*=\s*["']([^"']+)["']/i);
+        if (!hrefMatch?.[1]) continue;
+
+        const href = hrefMatch[1].trim();
+        if (!href || /^javascript:/i.test(href)) continue;
+
+        try {
+          const url = new URL(href, "https://us10d.sheltermanager.com");
+          if (/sheltermanager\.com$/i.test(url.hostname)) {
+            url.protocol = "https:";
+            url.hostname = "us10d.sheltermanager.com";
+            url.port = "";
+          }
+          return url.toString();
+        } catch {
+          // Ignore malformed links and continue scanning other fields.
+        }
+      }
+
+      return "";
+    };
+
+    const mappedRows = rows.map((row) => {
+      const asmAnimalUrl = extractAnimalLink(row);
+      const animalId = extractAnimalId(row) || ((`${asmAnimalUrl}`.match(/[?&]id=(\d+)/i) || [])[1] || "");
+
+      return {
+      ownerName: pickFirstText(row, ["OwnerName", "OWNERNAME"]),
+      ownerSurname: pickFirstText(row, ["OWNERSURNAME", "OwnerSurname"]),
+      ownerForenames: pickFirstText(row, ["OWNERFORENAMES", "OwnerForenames"]),
+      ownerAddress: pickFirstText(row, ["OwnerAddress", "OWNERADDRESS"]),
+      homeTelephone: pickFirstText(row, ["HOMETELEPHONE", "HomeTelephone"]),
+      mobileTelephone: pickFirstText(row, ["MOBILETELEPHONE", "MobileTelephone"]),
+      workTelephone: pickFirstText(row, ["WORKTELEPHONE", "WorkTelephone"]),
+      ownerTown: pickFirstText(row, ["OwnerTown", "OWNERTOWN"]),
+      ownerCounty: pickFirstText(row, ["OwnerCounty", "OWNERCOUNTY"]),
+      ownerPostcode: pickFirstText(row, ["OwnerPostcode", "OWNERPOSTCODE"]),
+      emailAddress: pickFirstText(row, ["EmailAddress", "EMAILADDRESS"]),
+      shelterCode: pickFirstText(row, ["ShelterCode", "SHELTERCODE"]),
+      animalId,
+      asmAnimalUrl,
+      animalName: pickFirstText(row, ["AnimalName", "ANIMALNAME"]),
+      speciesName: pickFirstText(row, ["SpeciesName", "SPECIESNAME"]),
+      neuteredDate: pickFirstText(row, ["NEUTEREDDATE", "NeuteredDate"]),
+      adoptionDate: pickFirstText(row, ["AdoptionDate", "ADOPTIONDATE"])
+    };
+    });
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load Adoption Follow-Ups report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/yearly-reviews-upcoming", requireAdmin, requireReporting, async (_req, res) => {
+  const reportTitle = `${process.env.ASM_YEARLY_REVIEWS_UPCOMING_REPORT_TITLE || "Yearly Reviews Upcoming"}`.trim();
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: reportTitle });
+
+    const pickFirstText = (row, fields, fallback = "") => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return fallback;
+    };
+
+    const mappedRows = rows.map((row) => ({
+      ownerName: pickFirstText(row, ["OWNERNAME", "OwnerName"]),
+      value: pickFirstText(row, ["VALUE", "Value"])
+    }));
+
+    res.json({
+      available: true,
+      sourceMethod: `json_report:${reportTitle}`,
+      rowCount: Number(mappedRows.length || 0),
+      rows: mappedRows
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      sourceMethod: `json_report:${reportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load Yearly Reviews Upcoming report."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.get("/api/admin/reporting/animal-control-heatmap", requireAdmin, requireReporting, async (req, res) => {
+  try {
+    const parseDateInput = (value) => {
+      const raw = `${value || ""}`.trim();
+      if (!raw) return null;
+      const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (ymd) {
+        return new Date(Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3])));
+      }
+      const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (mdy) {
+        return new Date(Date.UTC(Number(mdy[3]), Number(mdy[1]) - 1, Number(mdy[2])));
+      }
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+      }
+      return null;
+    };
+
+    const now = new Date();
+    const defaultFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const defaultTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+    const fromDateObj = parseDateInput(req.query.fromDate) || defaultFrom;
+    const toDateObj = parseDateInput(req.query.toDate) || defaultTo;
+    if (Number.isNaN(fromDateObj.getTime()) || Number.isNaN(toDateObj.getTime())) {
+      return res.status(400).json({ error: "Invalid fromDate or toDate." });
+    }
+    if (fromDateObj > toDateObj) {
+      return res.status(400).json({ error: "fromDate must be before or equal to toDate." });
+    }
+
+    const formatDate = (d) => {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(d.getUTCDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    const fromDate = formatDate(fromDateObj);
+    const toDate = formatDate(toDateObj);
+    const toDateEnd = new Date(Date.UTC(
+      toDateObj.getUTCFullYear(),
+      toDateObj.getUTCMonth(),
+      toDateObj.getUTCDate(),
+      23,
+      59,
+      59,
+      999
+    ));
+
+    let sourceMethod = "";
+    let sourceRows = [];
+    let unavailableReason = "";
+    try {
+      const result = await fetchAnimalControlRowsForRange(fromDate, toDate);
+      sourceMethod = result.sourceMethod;
+      sourceRows = result.rows;
+    } catch (error) {
+      unavailableReason = error.message || "Unable to fetch animal control call data from ASM.";
+    }
+
+    if (!sourceMethod) {
+      return res.json({
+        available: false,
+        error: unavailableReason || "Animal Control data is not available from the current ASM service method.",
+        fromDate,
+        toDate,
+        sourceMethod: "",
+        rowCount: 0,
+        filteredRowCount: 0,
+        pointCount: 0,
+        points: [],
+        topHotspots: []
+      });
+    }
+
+    const dateFields = ["INCIDENTDATETIME", "INCIDENTDATE", "CALLDATE", "REPORTEDDATE", "DATE", "CREATEDDATE", "LASTCHANGEDDATE"];
+    const addressFields = ["DISPATCHADDRESS", "ADDRESS", "LOCATION", "SITE", "DISPATCHLOCATION"];
+    const addressTownFields = ["DISPATCHTOWN", "TOWN", "CITY"];
+    const addressCountyFields = ["DISPATCHCOUNTY", "COUNTY", "STATE", "PROVINCE"];
+    const addressPostcodeFields = ["DISPATCHPOSTCODE", "POSTCODE", "ZIPCODE", "ZIP"];
+    const latFields = ["LAT", "LATITUDE", "DISPATCHLAT", "DISPATCHLATITUDE", "LOCATIONLAT", "YCOORD"];
+    const lonFields = ["LON", "LONG", "LONGITUDE", "DISPATCHLON", "DISPATCHLONG", "DISPATCHLONGITUDE", "LOCATIONLON", "XCOORD"];
+    const latLongFields = ["LATLONG", "DISPATCHLATLONG", "LOCATIONLATLONG", "COORDINATES", "GPS"];
+
+    const pickDate = (row) => {
+      for (const field of dateFields) {
+        const value = row?.[field];
+        if (!value) continue;
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    const pickText = (row, fields) => {
+      for (const field of fields) {
+        const value = row?.[field];
+        if (value === undefined || value === null) continue;
+        const text = `${value}`.trim();
+        if (text) return text;
+      }
+      return "";
+    };
+
+    const normalizeAddress = (rawAddress) => {
+      let text = `${rawAddress || ""}`
+        .replace(/\s+/g, " ")
+        .replace(/\s+,/g, ",")
+        .replace(/,+/g, ",")
+        .trim()
+        .replace(/^,|,$/g, "");
+      if (!text) return "";
+      return text;
+    };
+
+    const simplifyDispatchAddressForGeocode = (value) => {
+      const raw = `${value || ""}`.replace(/\r/g, "").trim();
+      if (!raw) return "";
+
+      const lines = raw
+        .split(/\n+/)
+        .map((line) => normalizeAddress(line))
+        .filter(Boolean);
+
+      let primary = lines[0] || "";
+      primary = primary
+        .replace(/^([0-9]+)\s+block\s+of\s+/i, "$1 ")
+        .replace(/\b(?:lot|unit|apt|apartment|suite|ste|trailer|space)\b.*$/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      // Keep intersections, but skip vague place labels that do not geocode reliably.
+      if (!/^\d/.test(primary) && !/\s+&\s+/.test(primary) && !/\bat\b/i.test(primary)) {
+        return "";
+      }
+
+      return normalizeAddress(primary);
+    };
+
+    const buildRowAddress = (row) => {
+      const street = pickText(row, ["DISPATCHADDRESS"]);
+      const town = pickText(row, addressTownFields);
+      const county = pickText(row, addressCountyFields);
+      const postcode = pickText(row, addressPostcodeFields);
+
+      const parts = [street, town, county, postcode]
+        .map((value) => normalizeAddress(value))
+        .filter(Boolean);
+
+      let address = normalizeAddress(parts.join(", "));
+      if (!address) return "";
+
+      // Reject vague non-location labels
+      if (/^(phone|call|note|notes|tbd|unknown|pending|n\/a|na|none|blank|\?|--|__)/i.test(street)) {
+        return "";
+      }
+
+      if (!town && !/new\s+braunfels/i.test(address)) {
+        address = `${address}, New Braunfels`;
+      }
+      if (!/\btx\b|texas/i.test(address) && !/\b\d{5}(?:-\d{4})?\b/.test(address)) {
+        address = `${address}, TX`;
+      }
+
+      return normalizeAddress(address);
+    };
+
+    const buildGeocodeQuery = (row) => {
+      const dispatchRaw = pickText(row, ["DISPATCHADDRESS"]);
+      const street = simplifyDispatchAddressForGeocode(dispatchRaw)
+        || normalizeAddress(`${dispatchRaw || ""}`.split(/\n+/)[0] || "");
+      if (!street) return "";
+
+      const town = pickText(row, addressTownFields) || "New Braunfels";
+      const county = pickText(row, addressCountyFields);
+      const postcode = pickText(row, addressPostcodeFields);
+
+      const countyNormalized = /comal/i.test(`${county || ""}`)
+        ? county
+        : "Comal County";
+
+      // Force lookups into Comal County, Texas to avoid cross-region false matches.
+      return normalizeAddress([street, town, countyNormalized, "Texas", postcode].filter(Boolean).join(", "));
+    };
+
+    const parseLatLon = (value) => {
+      const raw = `${value || ""}`.trim();
+      if (!raw) return null;
+      const match = raw.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+      if (!match) return null;
+      const lat = Number(match[1]);
+      const lon = Number(match[2]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+      if (Math.abs(lat) < 0.000001 && Math.abs(lon) < 0.000001) return null;
+      // Heat map is constrained to Comal County, TX area.
+      if (lat < 29.35 || lat > 29.98 || lon < -98.65 || lon > -97.80) return null;
+      return { lat, lon };
+    };
+
+    const extractRowCoords = (row) => {
+      for (const field of latLongFields) {
+        const parsed = parseLatLon(row?.[field]);
+        if (parsed) return parsed;
+      }
+      const latRaw = pickText(row, latFields);
+      const lonRaw = pickText(row, lonFields);
+      const lat = Number(latRaw);
+      const lon = Number(lonRaw);
+      if (
+        Number.isFinite(lat)
+        && Number.isFinite(lon)
+        && Math.abs(lat) <= 90
+        && Math.abs(lon) <= 180
+        && !(Math.abs(lat) < 0.000001 && Math.abs(lon) < 0.000001)
+        && lat >= 29.35
+        && lat <= 29.98
+        && lon >= -98.65
+        && lon <= -97.80
+      ) {
+        return { lat, lon };
+      }
+      return null;
+    };
+
+    const addressCounts = new Map();
+    let filteredRowCount = 0;
+    for (const row of sourceRows) {
+      const rowDate = pickDate(row);
+      if (!rowDate) continue;
+      if (rowDate < fromDateObj || rowDate > toDateEnd) continue;
+      filteredRowCount += 1;
+
+      const directCoords = extractRowCoords(row);
+      if (directCoords) {
+        const key = `coord:${directCoords.lat.toFixed(6)},${directCoords.lon.toFixed(6)}`;
+        const existing = addressCounts.get(key) || { count: 0, address: "Direct Coordinates", lat: directCoords.lat, lon: directCoords.lon, incidents: [] };
+        existing.count += 1;
+        const iid = row.IID ?? row.ANIMALCONTROLID ?? null;
+        const code = row.INCIDENTCODE || null;
+        const dt = row.INCIDENTDATETIME || row.CALLDATETIME || null;
+        if (iid != null) existing.incidents.push({ iid, code, dt });
+        addressCounts.set(key, existing);
+        continue;
+      }
+
+      const address = buildRowAddress(row);
+      if (!address) continue;
+      const geocodeQuery = buildGeocodeQuery(row);
+      const key = `addr:${address.toLowerCase()}`;
+      const existing = addressCounts.get(key) || { count: 0, address, geocodeQuery, lat: null, lon: null, incidents: [] };
+      existing.count += 1;
+      if (!existing.geocodeQuery && geocodeQuery) {
+        existing.geocodeQuery = geocodeQuery;
+      }
+      const iid = row.IID ?? row.ANIMALCONTROLID ?? null;
+      const code = row.INCIDENTCODE || null;
+      const dt = row.INCIDENTDATETIME || row.CALLDATETIME || null;
+      if (iid != null) existing.incidents.push({ iid, code, dt });
+      addressCounts.set(key, existing);
+    }
+
+    const geocodeAddress = async (address) => {
+      const cacheKey = address.toLowerCase();
+      const cached = state.acGeocodeCache[cacheKey];
+      if (cached && typeof cached === "object") {
+        if (cached.lat !== undefined && cached.lon !== undefined) {
+          return { lat: Number(cached.lat), lon: Number(cached.lon) };
+        }
+        return null;
+      }
+
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&bounded=1&viewbox=-98.65,29.98,-97.80,29.35&q=${encodeURIComponent(address)}`;
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      let payload = [];
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        let response;
+        try {
+          response = await fetch(url, {
+            headers: {
+              Accept: "application/json",
+              "User-Agent": "HSNBA-Reporting/1.0"
+            },
+            signal: controller.signal
+          });
+        } catch {
+          clearTimeout(timeoutId);
+          return null;
+        }
+        clearTimeout(timeoutId);
+
+        if (response.status === 429) {
+          const retryAfter = Number(response.headers.get("retry-after") || "0");
+          const delayMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500;
+          if (attempt < 2) {
+            await wait(delayMs);
+            continue;
+          }
+          // Do not cache a miss on rate limit; try again on later requests.
+          return null;
+        }
+
+        if (!response.ok) {
+          // Temporary upstream errors should not be cached as misses.
+          if (response.status >= 500) {
+            return null;
+          }
+          state.acGeocodeCache[cacheKey] = { miss: true, updatedAt: new Date().toISOString() };
+          return null;
+        }
+
+        payload = await response.json().catch(() => []);
+        break;
+      }
+
+      const first = Array.isArray(payload) ? payload[0] : null;
+      const lat = Number(first?.lat);
+      const lon = Number(first?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        state.acGeocodeCache[cacheKey] = { miss: true, updatedAt: new Date().toISOString() };
+        return null;
+      }
+
+      state.acGeocodeCache[cacheKey] = { lat, lon, updatedAt: new Date().toISOString() };
+      return { lat, lon };
+    };
+
+      const unresolved = Array.from(addressCounts.values())
+      .filter((entry) => entry.lat === null || entry.lon === null)
+      .sort((a, b) => b.count - a.count)
+        .slice(0, 25);
+
+      const geocodeDeadlineMs = Date.now() + 12000;
+      let geocodeCounter = 0;
+    for (const entry of unresolved) {
+        if (Date.now() > geocodeDeadlineMs) {
+          break;
+        }
+        const geocodeTarget = entry.geocodeQuery || entry.address;
+        if (!geocodeTarget) continue;
+        const geocoded = await geocodeAddress(geocodeTarget);
+        geocodeCounter += 1;
+      if (geocoded) {
+        entry.lat = geocoded.lat;
+        entry.lon = geocoded.lon;
+      }
+    }
+
+    saveAcGeocodeCache();
+
+    let asmBaseUrl = "";
+    if (state.asm.serviceUrl) {
+      try {
+        const svcUrl = new URL(state.asm.serviceUrl);
+        const envIncidentBaseUrl = `${process.env.ASM_INCIDENT_BASE_URL || ""}`.trim();
+        if (envIncidentBaseUrl) {
+          const overrideUrl = new URL(envIncidentBaseUrl);
+          asmBaseUrl = `${overrideUrl.protocol}//${overrideUrl.host}`;
+        }
+
+        const svcHost = `${svcUrl.hostname || ""}`.trim().toLowerCase();
+        const hasRegionalAsmHost = /^[a-z0-9-]+\.sheltermanager\.com$/i.test(svcHost) && svcHost !== "service.sheltermanager.com";
+        const accountHost = `${state.asm.account || ""}`.trim().toLowerCase();
+        if (!asmBaseUrl && accountHost === "hsnba") {
+          // HSNBA incidents are served from the us10d tenant host.
+          asmBaseUrl = `${svcUrl.protocol}//us10d.sheltermanager.com`;
+        } else if (!asmBaseUrl && hasRegionalAsmHost) {
+          asmBaseUrl = `${svcUrl.protocol}//${svcUrl.host}`;
+        } else if (!asmBaseUrl && /^[a-z0-9][a-z0-9-]*$/i.test(accountHost)) {
+          asmBaseUrl = `${svcUrl.protocol}//${accountHost}.sheltermanager.com`;
+        } else if (!asmBaseUrl) {
+          asmBaseUrl = `${svcUrl.protocol}//${svcUrl.host}`;
+        }
+      } catch { /* ignore */ }
+    }
+
+    const points = Array.from(addressCounts.values())
+      .filter((entry) => Number.isFinite(entry.lat) && Number.isFinite(entry.lon))
+      .map((entry) => ({
+        lat: Number(entry.lat),
+        lon: Number(entry.lon),
+        weight: Number(entry.count || 0),
+        count: Number(entry.count || 0),
+        address: entry.address,
+        incidents: entry.incidents || []
+      }))
+      .sort((a, b) => b.weight - a.weight);
+
+    res.json({
+      available: true,
+      fromDate,
+      toDate,
+      sourceMethod,
+      rowCount: Number(sourceRows.length || 0),
+      filteredRowCount,
+      pointCount: points.length,
+      asmBaseUrl,
+      points,
+      topHotspots: points.slice(0, 25)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to build animal control heatmap." });
+  }
+});
+
+// ── Linked Reports ────────────────────────────────────────────────────────────
+
+app.get("/api/admin/reporting/linked-reports", requireAdmin, requireReporting, (_req, res) => {
+  res.json({ reports: state.linkedReports });
+});
+
+// probe must be registered before /:id routes
+app.post("/api/admin/reporting/linked-reports/probe", requireAdmin, requireReporting, async (req, res) => {
+  const asmReportTitle = `${req.body?.asmReportTitle || ""}`.trim();
+  if (!asmReportTitle) {
+    return res.status(400).json({ error: "asmReportTitle is required." });
+  }
+
+  const cacheKey = asmReportTitle.toLowerCase();
+  const now = Date.now();
+  const cached = state.linkedReportProbeCache.get(cacheKey);
+  if (cached && (now - Number(cached.fetchedAt || 0) <= LINKED_REPORT_PROBE_CACHE_MS) && Array.isArray(cached.fieldKeys) && cached.fieldKeys.length) {
+    const timingHint = getLinkedReportTimingHint(asmReportTitle, cached.fieldKeys);
+    return res.json({
+      ok: true,
+      fieldKeys: cached.fieldKeys,
+      sampleRow: cached.sampleRow || null,
+      rowCount: Number(cached.rowCount || 0),
+      fromCache: true,
+      timingHint
+    });
+  }
+
+  const presetFields = getLinkedReportProbePresetFields(asmReportTitle);
+  if (presetFields.length) {
+    const timingHint = getLinkedReportTimingHint(asmReportTitle, presetFields);
+    return res.json({
+      ok: true,
+      fieldKeys: presetFields,
+      sampleRow: null,
+      rowCount: 0,
+      fromPreset: true,
+      timingHint
+    });
+  }
+
+  try {
+    const rows = await fetchAsmRowsForMethod("json_report", { title: asmReportTitle });
+    const sampleRow = rows[0] && typeof rows[0] === "object" ? rows[0] : null;
+    const fieldKeys = sampleRow ? Object.keys(sampleRow) : [];
+    const timingHint = getLinkedReportTimingHint(asmReportTitle, fieldKeys);
+    if (fieldKeys.length) {
+      state.linkedReportProbeCache.set(cacheKey, {
+        fetchedAt: now,
+        fieldKeys,
+        sampleRow,
+        rowCount: rows.length
+      });
+    }
+    res.json({ ok: true, fieldKeys, sampleRow, rowCount: rows.length, fromLive: true, timingHint });
+  } catch (error) {
+    const retryHint = extractAsmRetryHint(error);
+    if (cached && Array.isArray(cached.fieldKeys) && cached.fieldKeys.length) {
+      const timingHint = getLinkedReportTimingHint(asmReportTitle, cached.fieldKeys);
+      return res.json({
+        ok: true,
+        fieldKeys: cached.fieldKeys,
+        sampleRow: cached.sampleRow || null,
+        rowCount: Number(cached.rowCount || 0),
+        fromCache: true,
+        warning: normalizeAsmReportError(error, "Unable to probe ASM report."),
+        timingHint
+      });
+    }
+    res.json({
+      ok: false,
+      error: normalizeAsmReportError(error, "Unable to probe ASM report."),
+      fieldKeys: [],
+      sampleRow: null,
+      rowCount: 0,
+      retryAt: retryHint.retryAt,
+      waitSeconds: retryHint.waitSeconds
+    });
+  }
+});
+
+app.post("/api/admin/reporting/linked-reports", requireAdmin, requireReporting, (req, res) => {
+  const body = req.body || {};
+  if (!`${body.title || ""}`.trim()) {
+    return res.status(400).json({ error: "title is required." });
+  }
+  if (!`${body.asmReportTitle || ""}`.trim()) {
+    return res.status(400).json({ error: "asmReportTitle is required." });
+  }
+  const report = sanitizeLinkedReport({ ...body, id: crypto.randomUUID(), createdAt: new Date().toISOString() });
+  state.linkedReports.push(report);
+  saveLinkedReports();
+  res.json({ ok: true, report });
+});
+
+app.get("/api/admin/reporting/linked-reports/:id/data", requireAdmin, requireReporting, async (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const report = state.linkedReports.find((r) => r.id === id);
+  if (!report) {
+    return res.status(404).json({ error: "Linked report not found." });
+  }
+  const reportMeta = {
+    id: report.id,
+    title: report.title,
+    description: report.description,
+    linkTemplate: report.linkTemplate || "",
+    linkLabel: report.linkLabel || "",
+    chartLeftTitle: report.chartLeftTitle || "",
+    chartRightTitle: report.chartRightTitle || "",
+    chartLeftType: report.chartLeftType || "bar",
+    chartRightType: report.chartRightType || "bar",
+    showChartsOnDashboard: Boolean(report.showChartsOnDashboard),
+    fields: report.fields
+  };
+  try {
+    const asmTitle = `${report.asmReportTitle || ""}`.trim();
+    const normalizedTitle = asmTitle.toLowerCase();
+    const extraParams = { title: asmTitle };
+    const monthQuery = `${req.query?.month || ""}`.trim();
+    const yearQuery = `${req.query?.year || ""}`.trim();
+
+    // Some ASM reports (notably Adoption Follow-Ups) require month/year parameters.
+    if (normalizedTitle.includes("adoption follow-up")) {
+      const now = new Date();
+      const monthno = monthQuery || `${now.getMonth() + 1}`;
+      const yearno = yearQuery || `${now.getFullYear()}`;
+      Object.assign(extraParams, {
+        monthno,
+        yearno,
+        MONTHNO: monthno,
+        YEARNO: yearno,
+        ASK1: monthno,
+        ASK2: yearno
+      });
+    }
+
+    const cacheKey = `${report.id}:${extraParams.monthno || ""}:${extraParams.yearno || ""}`;
+    const REPORT_DATA_CACHE_TTL_MS = 5 * 60 * 1000;
+    const cached = state.linkedReportDataCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < REPORT_DATA_CACHE_TTL_MS) {
+      return res.json(cached.payload);
+    }
+
+    const rawRows = await fetchAsmRowsForMethod("json_report", extraParams);
+    const rows = normalizeKnownLinkedReportRows(asmTitle, rawRows);
+    const payload = {
+      available: true,
+      report: reportMeta,
+      sourceMethod: `json_report:${report.asmReportTitle}`,
+      rowCount: rows.length,
+      rows
+    };
+    state.linkedReportDataCache.set(cacheKey, { fetchedAt: Date.now(), payload });
+    res.json(payload);
+  } catch (error) {
+    res.json({
+      available: false,
+      report: reportMeta,
+      sourceMethod: `json_report:${report.asmReportTitle}`,
+      error: normalizeAsmReportError(error, "Unable to load linked report data."),
+      rowCount: 0,
+      rows: []
+    });
+  }
+});
+
+app.patch("/api/admin/reporting/linked-reports/:id", requireAdmin, requireReporting, (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const idx = state.linkedReports.findIndex((r) => r.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ error: "Linked report not found." });
+  }
+  const existing = state.linkedReports[idx];
+  const updated = sanitizeLinkedReport({ ...existing, ...req.body, id: existing.id, createdAt: existing.createdAt });
+  state.linkedReports[idx] = updated;
+  saveLinkedReports();
+  res.json({ ok: true, report: updated });
+});
+
+app.delete("/api/admin/reporting/linked-reports/:id", requireAdmin, requireReporting, (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  const idx = state.linkedReports.findIndex((r) => r.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ error: "Linked report not found." });
+  }
+  state.linkedReports.splice(idx, 1);
+  saveLinkedReports();
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/settings/audio-jack", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
     const routing = getAudioJackRoutingConfig();
     const current = await getAudioJackSettings();
@@ -2988,7 +5970,7 @@ app.get("/api/admin/settings/audio-jack", requireAdmin, async (_req, res) => {
   }
 });
 
-app.get("/api/admin/settings/audio-jack/controls", requireAdmin, async (req, res) => {
+app.get("/api/admin/settings/audio-jack/controls", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
   try {
     const cards = await getAlsaCards();
     const requestedCard = `${req.query?.card || ""}`.trim();
@@ -3010,7 +5992,7 @@ app.get("/api/admin/settings/audio-jack/controls", requireAdmin, async (req, res
   }
 });
 
-app.post("/api/admin/settings/audio-jack/controls", requireAdmin, async (req, res) => {
+app.post("/api/admin/settings/audio-jack/controls", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
   try {
     const nextCard = `${req.body?.card || ""}`.trim();
     const nextControl = sanitizeAudioJackControlName(req.body?.control || "");
@@ -3045,7 +6027,7 @@ app.post("/api/admin/settings/audio-jack/controls", requireAdmin, async (req, re
   }
 });
 
-app.post("/api/admin/settings/audio-jack", requireAdmin, async (req, res) => {
+app.post("/api/admin/settings/audio-jack", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
   try {
     const routing = getAudioJackRoutingConfig();
     const body = req.body || {};
@@ -3072,7 +6054,7 @@ app.post("/api/admin/settings/audio-jack", requireAdmin, async (req, res) => {
   }
 });
 
-app.get("/api/admin/settings/stream-delivery", requireAdmin, (_req, res) => {
+app.get("/api/admin/settings/stream-delivery", requireAdmin, requireJukeboxPlaybackAdmin, (_req, res) => {
   res.json({
     ok: true,
     enabled: state.audioAutomation.streamDeliveryEnabled !== false,
@@ -3080,7 +6062,7 @@ app.get("/api/admin/settings/stream-delivery", requireAdmin, (_req, res) => {
   });
 });
 
-app.post("/api/admin/settings/stream-delivery", requireAdmin, async (req, res) => {
+app.post("/api/admin/settings/stream-delivery", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
   try {
     const enabled = req.body?.enabled !== false;
     const result = await setStreamDeliveryEnabled(enabled);
@@ -3090,7 +6072,7 @@ app.post("/api/admin/settings/stream-delivery", requireAdmin, async (req, res) =
   }
 });
 
-app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) => {
+app.get("/api/admin/settings/audio-automation", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
     const routingConfig = getAudioJackRoutingConfig();
     const [audioJack, playbackState, masterVolume] = await Promise.all([
@@ -3126,7 +6108,7 @@ app.get("/api/admin/settings/audio-automation", requireAdmin, async (_req, res) 
   }
 });
 
-app.get("/api/admin/settings/audio-path/diagnostics", requireAdmin, async (_req, res) => {
+app.get("/api/admin/settings/audio-path/diagnostics", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
     const routingConfig = getAudioJackRoutingConfig();
     const [audioJack, playbackState, masterVolume] = await Promise.all([
@@ -3229,7 +6211,7 @@ app.get("/api/admin/debug/stream-health", requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/api/admin/audio-automation/schedules", requireAdmin, (req, res) => {
+app.post("/api/admin/audio-automation/schedules", requireAdmin, requireJukeboxPlaybackAdmin, (req, res) => {
   const rule = sanitizeAudioAutomationSchedule(req.body || {});
   state.audioAutomation.schedules = [
     ...sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []),
@@ -3239,7 +6221,7 @@ app.post("/api/admin/audio-automation/schedules", requireAdmin, (req, res) => {
   res.status(201).json({ ok: true, schedule: rule });
 });
 
-app.patch("/api/admin/audio-automation/schedules/:id", requireAdmin, (req, res) => {
+app.patch("/api/admin/audio-automation/schedules/:id", requireAdmin, requireJukeboxPlaybackAdmin, (req, res) => {
   const id = `${req.params.id || ""}`.trim();
   const current = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []);
   const existing = current.find((item) => item.id === id);
@@ -3259,7 +6241,7 @@ app.patch("/api/admin/audio-automation/schedules/:id", requireAdmin, (req, res) 
   res.json({ ok: true, schedule: next });
 });
 
-app.delete("/api/admin/audio-automation/schedules/:id", requireAdmin, (req, res) => {
+app.delete("/api/admin/audio-automation/schedules/:id", requireAdmin, requireJukeboxPlaybackAdmin, (req, res) => {
   const id = `${req.params.id || ""}`.trim();
   const current = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []);
   const existing = current.find((item) => item.id === id);
@@ -3272,7 +6254,7 @@ app.delete("/api/admin/audio-automation/schedules/:id", requireAdmin, (req, res)
   res.json({ ok: true });
 });
 
-app.post("/api/admin/audio-automation/schedules/:id/run", requireAdmin, async (req, res) => {
+app.post("/api/admin/audio-automation/schedules/:id/run", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
   try {
     const id = `${req.params.id || ""}`.trim();
     const rule = sanitizeAudioAutomationSchedules(state.audioAutomation.schedules || []).find((item) => item.id === id);
@@ -3289,7 +6271,7 @@ app.post("/api/admin/audio-automation/schedules/:id/run", requireAdmin, async (r
 
 // ── Admin Spotify enrollment/settings ────────────────────────────────────────
 
-app.get("/api/admin/settings/spotify", requireAdmin, async (_req, res) => {
+app.get("/api/admin/settings/spotify", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   const configPath = "/etc/mopidy/mopidy.conf";
   try {
     const ini = readIniFile(configPath);
@@ -3332,7 +6314,7 @@ app.get("/api/admin/settings/spotify", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/api/admin/settings/spotify", requireAdmin, (req, res) => {
+app.post("/api/admin/settings/spotify", requireAdmin, requireJukeboxPlaybackAdmin, (req, res) => {
   const body = req.body || {};
   const clientId = body.clientId !== undefined ? `${body.clientId}`.trim() : state.spotify.clientId;
   const clientSecretCandidate = body.clientSecret !== undefined ? `${body.clientSecret}`.trim() : undefined;
@@ -3359,7 +6341,7 @@ app.post("/api/admin/settings/spotify", requireAdmin, (req, res) => {
   });
 });
 
-app.post("/api/admin/settings/spotify/disconnect", requireAdmin, (_req, res) => {
+app.post("/api/admin/settings/spotify/disconnect", requireAdmin, requireJukeboxPlaybackAdmin, (_req, res) => {
   state.tokens = null;
   saveSpotifyTokens();
   state.spotify.activeDeviceId = null;
@@ -3367,7 +6349,7 @@ app.post("/api/admin/settings/spotify/disconnect", requireAdmin, (_req, res) => 
   res.json({ ok: true });
 });
 
-app.post("/api/admin/settings/spotify/device", requireAdmin, async (req, res) => {
+app.post("/api/admin/settings/spotify/device", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
   const { deviceId } = req.body || {};
   if (!deviceId) {
     res.status(400).json({ error: "deviceId is required." });
@@ -3390,7 +6372,7 @@ app.post("/api/admin/settings/spotify/device", requireAdmin, async (req, res) =>
   }
 });
 
-app.get("/api/admin/settings/asm", requireAdmin, async (_req, res) => {
+app.get("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, async (_req, res) => {
   const result = await getAsmAdoptables(false);
   const specialImageStorage = getSpecialPageImageStorageStats();
   res.json({
@@ -3402,6 +6384,7 @@ app.get("/api/admin/settings/asm", requireAdmin, async (_req, res) => {
     username: state.asm.username,
     hasPassword: Boolean(state.asm.password),
     adoptableMethod: state.asm.adoptableMethod,
+    animalControlReportTitle: state.asm.animalControlReportTitle,
     cacheSeconds: Number(state.asm.cacheSeconds || 600),
     slideshow: {
       intervalSeconds: Number(state.slideshow.intervalSeconds || 12),
@@ -3441,7 +6424,7 @@ app.get("/api/admin/settings/asm", requireAdmin, async (_req, res) => {
   });
 });
 
-app.post("/api/admin/settings/asm", requireAdmin, (req, res) => {
+app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (req, res) => {
   const body = req.body || {};
   state.asm.serviceUrl = body.serviceUrl !== undefined ? `${body.serviceUrl}`.trim() : state.asm.serviceUrl;
   state.asm.account = body.account !== undefined ? `${body.account}`.trim() : state.asm.account;
@@ -3451,6 +6434,9 @@ app.post("/api/admin/settings/asm", requireAdmin, (req, res) => {
   state.asm.apiKey = apiKeyCandidate === undefined || apiKeyCandidate === "" ? state.asm.apiKey : apiKeyCandidate;
   state.asm.password = passwordCandidate === undefined || passwordCandidate === "" ? state.asm.password : passwordCandidate;
   state.asm.adoptableMethod = body.adoptableMethod !== undefined ? `${body.adoptableMethod}`.trim() || "json_adoptable_animals" : state.asm.adoptableMethod;
+  state.asm.animalControlReportTitle = body.animalControlReportTitle !== undefined
+    ? `${body.animalControlReportTitle}`.trim()
+    : state.asm.animalControlReportTitle;
   state.asm.cacheSeconds = body.cacheSeconds !== undefined ? Math.max(30, Number(body.cacheSeconds || 600)) : state.asm.cacheSeconds;
   state.slideshow.intervalSeconds = body.intervalSeconds !== undefined
     ? Math.max(5, Number(body.intervalSeconds || 12))
@@ -3509,6 +6495,7 @@ app.post("/api/admin/settings/asm", requireAdmin, (req, res) => {
   persistEnvSetting("ASM_USERNAME", state.asm.username);
   persistEnvSetting("ASM_PASSWORD", state.asm.password);
   persistEnvSetting("ASM_ADOPTABLE_METHOD", state.asm.adoptableMethod);
+  persistEnvSetting("ASM_ANIMALCONTROL_REPORT_TITLE", state.asm.animalControlReportTitle);
   persistEnvSetting("ASM_ADOPTABLE_CACHE_SECONDS", `${state.asm.cacheSeconds}`);
   persistEnvSetting("SLIDESHOW_INTERVAL_SECONDS", `${state.slideshow.intervalSeconds}`);
   persistEnvSetting("SLIDESHOW_DEFAULT_LIMIT", `${state.slideshow.defaultLimit}`);
@@ -3527,7 +6514,7 @@ app.post("/api/admin/settings/asm", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/admin/slideshow/pages", requireAdmin, (_req, res) => {
+app.get("/api/admin/slideshow/pages", requireAdmin, requireJukeboxSlidesAdmin, (_req, res) => {
   const specialImageStorage = getSpecialPageImageStorageStats();
   res.json({
     pages: sanitizeSpecialPages(state.slideshow.specialPages || []),
@@ -3546,7 +6533,7 @@ app.get("/api/admin/slideshow/pages", requireAdmin, (_req, res) => {
   });
 });
 
-app.get("/api/admin/slideshow/images", requireAdmin, (_req, res) => {
+app.get("/api/admin/slideshow/images", requireAdmin, requireJukeboxSlidesAdmin, (_req, res) => {
   const pages = sanitizeSpecialPages(state.slideshow.specialPages || []);
   const byBaseName = new Map(
     pages
@@ -3577,7 +6564,7 @@ app.get("/api/admin/slideshow/images", requireAdmin, (_req, res) => {
   });
 });
 
-app.post("/api/admin/slideshow/pages", requireAdmin, (req, res) => {
+app.post("/api/admin/slideshow/pages", requireAdmin, requireJukeboxSlidesAdmin, (req, res) => {
   const page = sanitizeSpecialPage(req.body || {});
   state.slideshow.specialPages = [
     ...sanitizeSpecialPages(state.slideshow.specialPages || []),
@@ -3587,7 +6574,7 @@ app.post("/api/admin/slideshow/pages", requireAdmin, (req, res) => {
   res.status(201).json({ ok: true, page });
 });
 
-app.patch("/api/admin/slideshow/pages/:id", requireAdmin, (req, res) => {
+app.patch("/api/admin/slideshow/pages/:id", requireAdmin, requireJukeboxSlidesAdmin, (req, res) => {
   const id = `${req.params.id || ""}`.trim();
   const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
   const existing = current.find((item) => item.id === id);
@@ -3601,7 +6588,7 @@ app.patch("/api/admin/slideshow/pages/:id", requireAdmin, (req, res) => {
   res.json({ ok: true, page: next });
 });
 
-app.post("/api/admin/slideshow/pages/:id/image", requireAdmin, (req, res) => {
+app.post("/api/admin/slideshow/pages/:id/image", requireAdmin, requireJukeboxSlidesAdmin, (req, res) => {
   const id = `${req.params.id || ""}`.trim();
   const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
   const existing = current.find((item) => item.id === id);
@@ -3626,7 +6613,7 @@ app.post("/api/admin/slideshow/pages/:id/image", requireAdmin, (req, res) => {
   }
 });
 
-app.delete("/api/admin/slideshow/pages/:id/image", requireAdmin, (req, res) => {
+app.delete("/api/admin/slideshow/pages/:id/image", requireAdmin, requireJukeboxSlidesAdmin, (req, res) => {
   const id = `${req.params.id || ""}`.trim();
   const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
   const existing = current.find((item) => item.id === id);
@@ -3646,7 +6633,7 @@ app.delete("/api/admin/slideshow/pages/:id/image", requireAdmin, (req, res) => {
   res.json({ ok: true, page: updated });
 });
 
-app.delete("/api/admin/slideshow/images/:fileName", requireAdmin, (req, res) => {
+app.delete("/api/admin/slideshow/images/:fileName", requireAdmin, requireJukeboxSlidesAdmin, (req, res) => {
   const fileName = `${req.params.fileName || ""}`.trim();
   if (!/^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/i.test(fileName)) {
     res.status(400).json({ error: "Invalid file name." });
@@ -3676,7 +6663,7 @@ app.delete("/api/admin/slideshow/images/:fileName", requireAdmin, (req, res) => 
   res.json({ ok: true, clearedPageImage: changed });
 });
 
-app.delete("/api/admin/slideshow/pages/:id", requireAdmin, (req, res) => {
+app.delete("/api/admin/slideshow/pages/:id", requireAdmin, requireJukeboxSlidesAdmin, (req, res) => {
   const id = `${req.params.id || ""}`.trim();
   const current = sanitizeSpecialPages(state.slideshow.specialPages || []);
   const existing = current.find((item) => item.id === id);
@@ -3695,7 +6682,7 @@ app.delete("/api/admin/slideshow/pages/:id", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/admin/settings/asm/test", requireAdmin, async (_req, res) => {
+app.post("/api/admin/settings/asm/test", requireAdmin, requireJukeboxSlidesAdmin, async (_req, res) => {
   const result = await getAsmAdoptables(true);
   res.json({
     ok: !result.error,
@@ -3706,7 +6693,7 @@ app.post("/api/admin/settings/asm/test", requireAdmin, async (_req, res) => {
   });
 });
 
-app.get("/api/admin/settings/asm/inspect", requireAdmin, async (_req, res) => {
+app.get("/api/admin/settings/asm/inspect", requireAdmin, requireJukeboxSlidesAdmin, async (_req, res) => {
   try {
     const result = await fetchAsmDiagnostics();
     res.json({
@@ -3728,7 +6715,7 @@ app.get("/api/admin/settings/asm/inspect", requireAdmin, async (_req, res) => {
 
 // ── Admin playback ────────────────────────────────────────────────────────────
 
-app.get("/api/admin/playback/state", requireAdmin, async (_req, res) => {
+app.get("/api/admin/playback/state", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
     const [playbackState, currentTrack, position, volume] = await Promise.all([
       mopidyRpc("core.playback.get_state"),
@@ -3757,7 +6744,7 @@ for (const action of ["play", "pause", "previous"]) {
     ? "core.playback.previous"
     : `core.playback.${action}`;
 
-  app.post(`/api/admin/playback/${action}`, requireAdmin, async (_req, res) => {
+  app.post(`/api/admin/playback/${action}`, requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
     try {
       await mopidyRpc(rpcMethod);
       res.json({ ok: true });
@@ -3767,7 +6754,7 @@ for (const action of ["play", "pause", "previous"]) {
   });
 }
 
-app.post("/api/admin/playback/next", requireAdmin, async (_req, res) => {
+app.post("/api/admin/playback/next", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
     const currentTrack = await mopidyRpc("core.playback.get_current_track").catch(() => null);
     if (currentTrack) {
@@ -3783,7 +6770,7 @@ app.post("/api/admin/playback/next", requireAdmin, async (_req, res) => {
 
 // ── Admin volume ──────────────────────────────────────────────────────────────
 
-app.get("/api/admin/volume", requireAdmin, async (_req, res) => {
+app.get("/api/admin/volume", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
     const volume = await mopidyRpc("core.mixer.get_volume");
     res.json({ volume: volume ?? 80 });
@@ -3792,7 +6779,7 @@ app.get("/api/admin/volume", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/api/admin/volume", requireAdmin, async (req, res) => {
+app.post("/api/admin/volume", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
   const volume = Number(req.body?.volume ?? -1);
   if (volume < 0 || volume > 100) {
     res.status(400).json({ error: "volume must be 0-100" });
@@ -3808,7 +6795,7 @@ app.post("/api/admin/volume", requireAdmin, async (req, res) => {
 
 // ── Admin queue ───────────────────────────────────────────────────────────────
 
-app.get("/api/admin/queue", requireAdmin, async (_req, res) => {
+app.get("/api/admin/queue", requireAdmin, requireJukeboxQueueAdmin, async (_req, res) => {
   try {
     const tlTracks = await mopidyRpc("core.tracklist.get_tl_tracks");
     const queue = (tlTracks || []).map(mapQueueTrack);
@@ -3818,7 +6805,7 @@ app.get("/api/admin/queue", requireAdmin, async (_req, res) => {
   }
 });
 
-app.delete("/api/admin/queue/:tlid", requireAdmin, async (req, res) => {
+app.delete("/api/admin/queue/:tlid", requireAdmin, requireJukeboxQueueAdmin, async (req, res) => {
   const tlid = Number(req.params.tlid);
   if (!Number.isFinite(tlid)) {
     res.status(400).json({ error: "Invalid tlid." });
@@ -3833,7 +6820,7 @@ app.delete("/api/admin/queue/:tlid", requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/api/admin/queue/clear", requireAdmin, async (_req, res) => {
+app.post("/api/admin/queue/clear", requireAdmin, requireJukeboxQueueAdmin, async (_req, res) => {
   try {
     await mopidyRpc("core.tracklist.clear");
     state.requestMetaByTlid.clear();
@@ -3843,7 +6830,7 @@ app.post("/api/admin/queue/clear", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/api/admin/queue/shuffle", requireAdmin, async (_req, res) => {
+app.post("/api/admin/queue/shuffle", requireAdmin, requireJukeboxQueueAdmin, async (_req, res) => {
   try {
     await randomizeQueuePreservingCurrent();
     res.json({ ok: true });
@@ -3852,7 +6839,7 @@ app.post("/api/admin/queue/shuffle", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/api/admin/queue/randomize", requireAdmin, async (_req, res) => {
+app.post("/api/admin/queue/randomize", requireAdmin, requireJukeboxQueueAdmin, async (_req, res) => {
   try {
     await randomizeQueuePreservingCurrent();
     res.json({ ok: true });
@@ -3861,7 +6848,7 @@ app.post("/api/admin/queue/randomize", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/api/admin/queue/move", requireAdmin, async (req, res) => {
+app.post("/api/admin/queue/move", requireAdmin, requireJukeboxQueueAdmin, async (req, res) => {
   const { tlid, direction } = req.body || {};
   if (!tlid || !direction) {
     res.status(400).json({ error: "tlid and direction are required." });
@@ -3887,7 +6874,7 @@ app.post("/api/admin/queue/move", requireAdmin, async (req, res) => {
 
 // ── Admin playback modes ──────────────────────────────────────────────────────
 
-app.get("/api/admin/modes", requireAdmin, async (_req, res) => {
+app.get("/api/admin/modes", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
     const [repeat] = await Promise.all([
       mopidyRpc("core.tracklist.get_repeat"),
@@ -3898,7 +6885,7 @@ app.get("/api/admin/modes", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/api/admin/modes", requireAdmin, async (req, res) => {
+app.post("/api/admin/modes", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
   const { repeat } = req.body || {};
   try {
     const ops = [];
@@ -3927,6 +6914,10 @@ app.post("/api/requests/session", (req, res) => {
     res.status(401).json({ error: "Invalid username or password." });
     return;
   }
+  if (!userHasPermission(staff, PERMISSIONS.REQUESTS_PORTAL_USE)) {
+    res.status(403).json({ error: "This account does not have jukebox request access." });
+    return;
+  }
 
   const token = createEmployeeToken();
   const session = {
@@ -3952,6 +6943,8 @@ app.get("/api/requests/me", requireEmployee, async (req, res) => {
     res.json({
       displayName: req.employeeSession.displayName,
       isAdmin: isUserAdmin(staff),
+      groups: getUserGroups(staff),
+      permissions: getUserPermissions(staff),
       maxPending,
       pendingCount,
       resetAt: `${getLocalDateKey()}T23:59:59`
@@ -4139,6 +7132,10 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
 
   try {
     const staff = req.staffAccount;
+    if (!userHasPermission(staff, PERMISSIONS.REQUESTS_QUEUE_ADD)) {
+      res.status(403).json({ error: "This account cannot add songs to the queue." });
+      return;
+    }
     const maxPerDay = Math.max(1, Number(staff?.requestLimit || state.adminDb.staffDefaults?.requestLimit || MAX_PENDING_PER_USER));
     const pendingCount = staff ? getDailyRequestsUsed(staff.id) : await getPendingCountForToken(req.employeeToken);
     if (pendingCount >= maxPerDay) {
@@ -4185,6 +7182,10 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
 
 app.post("/api/requests/vote", requireEmployee, rateLimitEmployeeRequests, async (req, res) => {
   try {
+    if (!userHasPermission(req.staffAccount, PERMISSIONS.REQUESTS_VOTE_CAST)) {
+      res.status(403).json({ error: "This account cannot vote on songs." });
+      return;
+    }
     const vote = Number(req.body?.vote || 0);
     const uri = `${req.body?.uri || ""}`.trim();
     const name = `${req.body?.name || ""}`.trim();
@@ -4713,4 +7714,110 @@ app.patch("/api/admin/settings/system", requireAdmin, (req, res) => {
     serverTime: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: tz }),
     serverDate: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz })
   });
+});
+
+app.get("/api/admin/settings/email", requireAdmin, (_req, res) => {
+  res.json({ ok: true, smtp: getSmtpStatus() });
+});
+
+app.patch("/api/admin/settings/email", requireAdmin, async (req, res) => {
+  const body = req.body || {};
+
+  const host = body.host !== undefined ? `${body.host || ""}`.trim() : `${process.env.SMTP_HOST || ""}`.trim();
+  const rawPort = body.port !== undefined ? Number(body.port) : Number(process.env.SMTP_PORT || 587);
+  const port = Number.isFinite(rawPort) ? Math.max(1, Math.min(65535, rawPort)) : 587;
+  const secure = body.secure !== undefined
+    ? Boolean(body.secure)
+    : `${process.env.SMTP_SECURE || "false"}`.toLowerCase() === "true";
+  const requireTls = body.requireTls !== undefined
+    ? Boolean(body.requireTls)
+    : `${process.env.SMTP_REQUIRE_TLS || "false"}`.toLowerCase() === "true";
+  const user = body.user !== undefined ? `${body.user || ""}`.trim() : `${process.env.SMTP_USER || ""}`.trim();
+  const pass = body.pass !== undefined ? `${body.pass || ""}` : `${process.env.SMTP_PASS || ""}`;
+  const from = body.from !== undefined ? `${body.from || ""}`.trim() : `${process.env.SMTP_FROM || ""}`.trim();
+  const replyTo = body.replyTo !== undefined ? `${body.replyTo || ""}`.trim() : `${process.env.SMTP_REPLY_TO || ""}`.trim();
+  const pool = body.pool !== undefined
+    ? Boolean(body.pool)
+    : `${process.env.SMTP_POOL || "true"}`.toLowerCase() !== "false";
+
+  if (!host) {
+    res.status(400).json({ error: "SMTP host is required." });
+    return;
+  }
+  if (!from || !isValidEmailUsername(from)) {
+    res.status(400).json({ error: "SMTP from address must be a valid email." });
+    return;
+  }
+  if (replyTo && !isValidEmailUsername(replyTo)) {
+    res.status(400).json({ error: "SMTP reply-to address must be a valid email." });
+    return;
+  }
+
+  process.env.SMTP_HOST = host;
+  process.env.SMTP_PORT = `${port}`;
+  process.env.SMTP_SECURE = secure ? "true" : "false";
+  process.env.SMTP_REQUIRE_TLS = requireTls ? "true" : "false";
+  process.env.SMTP_USER = user;
+  process.env.SMTP_PASS = pass;
+  process.env.SMTP_FROM = from;
+  process.env.SMTP_REPLY_TO = replyTo;
+  process.env.SMTP_POOL = pool ? "true" : "false";
+
+  persistEnvSetting("SMTP_HOST", process.env.SMTP_HOST);
+  persistEnvSetting("SMTP_PORT", process.env.SMTP_PORT);
+  persistEnvSetting("SMTP_SECURE", process.env.SMTP_SECURE);
+  persistEnvSetting("SMTP_REQUIRE_TLS", process.env.SMTP_REQUIRE_TLS);
+  persistEnvSetting("SMTP_USER", process.env.SMTP_USER);
+  persistEnvSetting("SMTP_PASS", process.env.SMTP_PASS);
+  persistEnvSetting("SMTP_FROM", process.env.SMTP_FROM);
+  persistEnvSetting("SMTP_REPLY_TO", process.env.SMTP_REPLY_TO);
+  persistEnvSetting("SMTP_POOL", process.env.SMTP_POOL);
+
+  resetSmtpTransport();
+
+  const verifyNow = body.verifyNow === true;
+  if (verifyNow) {
+    try {
+      await verifySmtpConnection();
+    } catch (error) {
+      res.status(400).json({
+        error: `SMTP settings saved but verification failed: ${error.message || "Unknown error"}`,
+        smtp: getSmtpStatus()
+      });
+      return;
+    }
+  }
+
+  res.json({ ok: true, smtp: getSmtpStatus(), verified: verifyNow });
+});
+
+app.post("/api/admin/settings/email/verify", requireAdmin, async (_req, res) => {
+  try {
+    await verifySmtpConnection();
+    res.json({ ok: true, smtp: getSmtpStatus() });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "SMTP verification failed.", smtp: getSmtpStatus() });
+  }
+});
+
+app.post("/api/admin/settings/email/test", requireAdmin, async (req, res) => {
+  const to = `${req.body?.to || ""}`.trim().toLowerCase();
+  if (!to || !isValidEmailUsername(to)) {
+    res.status(400).json({ error: "A valid to address is required." });
+    return;
+  }
+
+  const subject = `${req.body?.subject || "HSNBA SMTP test email"}`.trim().slice(0, 200) || "HSNBA SMTP test email";
+  const bodyText = `${req.body?.message || ""}`.trim() || `SMTP test email sent at ${new Date().toISOString()} from ${BASE_URL}`;
+
+  try {
+    const result = await sendSystemEmail({
+      to,
+      subject,
+      text: bodyText
+    });
+    res.json({ ok: true, ...result, smtp: getSmtpStatus() });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Failed to send test email.", smtp: getSmtpStatus() });
+  }
 });

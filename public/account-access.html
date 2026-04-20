@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSNBA Account Access</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/admin.css" />
+    <style>
+      body {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 1rem;
+      }
+      .access-card {
+        width: min(540px, 96vw);
+      }
+      .access-title {
+        margin: 0;
+        font: 700 1.35rem/1.2 "Sora", sans-serif;
+      }
+      .access-subtitle {
+        margin: 0.3rem 0 0;
+        color: var(--muted);
+      }
+      .access-form {
+        display: grid;
+        gap: 0.7rem;
+      }
+      .access-actions {
+        display: flex;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+      }
+      .access-message {
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+      .access-message.error {
+        color: var(--danger, #e54444);
+      }
+      .access-message.success {
+        color: #56d364;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card access-card">
+      <div class="card-label">SECURE ACCOUNT LINK</div>
+      <h1 id="accessTitle" class="access-title">Preparing secure access...</h1>
+      <p id="accessSubtitle" class="access-subtitle">Validating link.</p>
+
+      <form id="accessForm" class="access-form" hidden>
+        <input id="passwordInput" type="password" autocomplete="new-password" minlength="8" placeholder="New password (8+ chars)" required />
+        <input id="passwordConfirmInput" type="password" autocomplete="new-password" minlength="8" placeholder="Confirm new password" required />
+        <div class="access-actions">
+          <button id="savePasswordBtn" class="btn-sm" type="submit">Save Password</button>
+          <a class="btn-sm" href="/admin.html" style="text-decoration:none">Go to Admin Login</a>
+          <a class="btn-sm" href="/reporting-login.html" style="text-decoration:none">Go to Reporting Login</a>
+        </div>
+      </form>
+
+      <p id="accessMessage" class="access-message"></p>
+    </main>
+
+    <script type="module" src="/account-access.js"></script>
+  </body>
+</html>

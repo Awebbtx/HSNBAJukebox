@@ -59,6 +59,13 @@ const SPECIAL_PAGE_CATEGORIES = [
   "Become a Volunteer",
   "General PSA and Alerts"
 ];
+const STAFF_GROUP_OPTIONS = [
+  { value: "user", label: "User" },
+  { value: "jukebox-admin", label: "Jukebox admin" },
+  { value: "reporting", label: "Reporting" },
+  { value: "superadmin", label: "Superadmin" },
+  { value: "global-admin", label: "Global admin" }
+];
 
 if (pageMode === "audio") {
   settingsTab = "audio-jack";
@@ -118,11 +125,13 @@ const els = {
   tabAccount: document.getElementById("tabAccount"),
   tabRequestAccess: document.getElementById("tabRequestAccess"),
   tabAudioJack: document.getElementById("tabAudioJack"),
+  tabEmail: document.getElementById("tabEmail"),
   tabSpotify: document.getElementById("tabSpotify"),
   tabAsm: document.getElementById("tabAsm"),
   panelAccount: document.getElementById("panelAccount"),
   panelRequestAccess: document.getElementById("panelRequestAccess"),
   panelAudioJack: document.getElementById("panelAudioJack"),
+  panelEmail: document.getElementById("panelEmail"),
   panelSpotify: document.getElementById("panelSpotify"),
   panelAsm: document.getElementById("panelAsm"),
   asmSubtabConnection: document.getElementById("asmSubtabConnection"),
@@ -135,11 +144,15 @@ const els = {
   saveRequestAccessSettingsBtn: document.getElementById("saveRequestAccessSettingsBtn"),
   defaultRequestLimitInput: document.getElementById("defaultRequestLimitInput"),
   saveDefaultRequestLimitBtn: document.getElementById("saveDefaultRequestLimitBtn"),
-  staffFirstNameInput: document.getElementById("staffFirstNameInput"),
-  staffLastInitialInput: document.getElementById("staffLastInitialInput"),
+  staffDisplayNameInput: document.getElementById("staffDisplayNameInput"),
   staffUsernameInput: document.getElementById("staffUsernameInput"),
   staffPasswordInput: document.getElementById("staffPasswordInput"),
   staffLimitInput: document.getElementById("staffLimitInput"),
+  staffGroupUser: document.getElementById("staffGroupUser"),
+  staffGroupJukeboxAdmin: document.getElementById("staffGroupJukeboxAdmin"),
+  staffGroupReporting: document.getElementById("staffGroupReporting"),
+  staffGroupSuperadmin: document.getElementById("staffGroupSuperadmin"),
+  staffGroupGlobalAdmin: document.getElementById("staffGroupGlobalAdmin"),
   createStaffBtn: document.getElementById("createStaffBtn"),
   staffStatusText: document.getElementById("staffStatusText"),
   staffList: document.getElementById("staffList"),
@@ -175,6 +188,21 @@ const els = {
   systemClockPills: document.getElementById("systemClockPills"),
   saveSystemTimezoneBtn: document.getElementById("saveSystemTimezoneBtn"),
   refreshSystemClockBtn: document.getElementById("refreshSystemClockBtn"),
+  smtpStatusText: document.getElementById("smtpStatusText"),
+  smtpStatusPills: document.getElementById("smtpStatusPills"),
+  smtpHostInput: document.getElementById("smtpHostInput"),
+  smtpPortInput: document.getElementById("smtpPortInput"),
+  smtpFromInput: document.getElementById("smtpFromInput"),
+  smtpReplyToInput: document.getElementById("smtpReplyToInput"),
+  smtpUserInput: document.getElementById("smtpUserInput"),
+  smtpPassInput: document.getElementById("smtpPassInput"),
+  smtpSecureToggle: document.getElementById("smtpSecureToggle"),
+  smtpRequireTlsToggle: document.getElementById("smtpRequireTlsToggle"),
+  smtpPoolToggle: document.getElementById("smtpPoolToggle"),
+  smtpTestToInput: document.getElementById("smtpTestToInput"),
+  smtpSaveBtn: document.getElementById("smtpSaveBtn"),
+  smtpVerifyBtn: document.getElementById("smtpVerifyBtn"),
+  smtpSendTestBtn: document.getElementById("smtpSendTestBtn"),
   streamDeliveryToggleBtn: document.getElementById("streamDeliveryToggleBtn"),
   streamDeliveryStatusText: document.getElementById("streamDeliveryStatusText"),
   audioAutomationStatusText: document.getElementById("audioAutomationStatusText"),
@@ -205,6 +233,7 @@ const els = {
   asmUsernameInput: document.getElementById("asmUsernameInput"),
   asmPasswordInput: document.getElementById("asmPasswordInput"),
   asmMethodInput: document.getElementById("asmMethodInput"),
+  asmAnimalControlReportTitleInput: document.getElementById("asmAnimalControlReportTitleInput"),
   asmCacheSecondsInput: document.getElementById("asmCacheSecondsInput"),
   asmShowSettingsText: document.getElementById("asmShowSettingsText"),
   asmInspectSummary: document.getElementById("asmInspectSummary"),
@@ -1029,15 +1058,17 @@ async function initializeApp() {
 }
 
 function setSettingsTab(name) {
-  settingsTab = ["account", "request", "audio-jack", "spotify", "asm"].includes(name) ? name : "request";
+  settingsTab = ["account", "request", "audio-jack", "email", "spotify", "asm"].includes(name) ? name : "request";
   els.tabAccount?.classList.toggle("active", settingsTab === "account");
   els.tabRequestAccess?.classList.toggle("active", settingsTab === "request");
   els.tabAudioJack?.classList.toggle("active", settingsTab === "audio-jack");
+  els.tabEmail?.classList.toggle("active", settingsTab === "email");
   els.tabSpotify?.classList.toggle("active", settingsTab === "spotify");
   els.tabAsm?.classList.toggle("active", settingsTab === "asm");
   els.panelAccount?.classList.toggle("active", settingsTab === "account");
   els.panelRequestAccess?.classList.toggle("active", settingsTab === "request");
   els.panelAudioJack?.classList.toggle("active", settingsTab === "audio-jack");
+  els.panelEmail?.classList.toggle("active", settingsTab === "email");
   els.panelSpotify?.classList.toggle("active", settingsTab === "spotify");
   els.panelAsm?.classList.toggle("active", settingsTab === "asm");
 }
@@ -1225,9 +1256,94 @@ async function loadSystemSettings() {
     if (els.systemClockStatusText) {
       els.systemClockStatusText.textContent = "Controls the timezone used by all server-side schedulers (audio automation, daily request windows, custom slide scheduling).";
     }
+    await loadSmtpSettings();
   } catch (e) {
     if (els.systemClockStatusText) els.systemClockStatusText.textContent = e.message;
   }
+}
+
+function setSmtpStatusText(message, isError = false) {
+  if (!els.smtpStatusText) return;
+  els.smtpStatusText.textContent = message;
+  els.smtpStatusText.style.color = isError ? "var(--danger, #e54444)" : "";
+}
+
+async function loadSmtpSettings() {
+  if (!els.smtpHostInput) return;
+  try {
+    const data = await api("/api/admin/settings/email");
+    const smtp = data.smtp || {};
+    els.smtpHostInput.value = smtp.host || "";
+    els.smtpPortInput.value = `${Number(smtp.port || 587)}`;
+    els.smtpFromInput.value = smtp.from || "";
+    els.smtpReplyToInput.value = smtp.replyTo || "";
+    els.smtpUserInput.value = smtp.authUser || "";
+    if (els.smtpPassInput) els.smtpPassInput.value = "";
+    els.smtpSecureToggle.checked = Boolean(smtp.secure);
+    els.smtpRequireTlsToggle.checked = Boolean(smtp.requireTls);
+    els.smtpPoolToggle.checked = smtp.pool !== false;
+
+    if (els.smtpStatusPills) {
+      els.smtpStatusPills.innerHTML = [
+        smtp.configured ? "Configured" : "Not Configured",
+        smtp.authConfigured ? `Auth ${smtp.authUser || "enabled"}` : "Auth optional",
+        smtp.host ? `${smtp.host}:${smtp.port}` : "Host missing",
+        smtp.secure ? "Secure SMTP" : "Plain/STARTTLS"
+      ].filter(Boolean).map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
+    }
+    setSmtpStatusText("Shared SMTP transport for invites, reports, and system alerts.");
+  } catch (e) {
+    setSmtpStatusText(e.message, true);
+  }
+}
+
+function buildSmtpPayload({ verifyNow = false } = {}) {
+  const passwordValue = `${els.smtpPassInput?.value || ""}`;
+  const payload = {
+    host: `${els.smtpHostInput?.value || ""}`.trim(),
+    port: Math.max(1, Number(els.smtpPortInput?.value || 587)),
+    from: `${els.smtpFromInput?.value || ""}`.trim(),
+    replyTo: `${els.smtpReplyToInput?.value || ""}`.trim(),
+    user: `${els.smtpUserInput?.value || ""}`.trim(),
+    secure: Boolean(els.smtpSecureToggle?.checked),
+    requireTls: Boolean(els.smtpRequireTlsToggle?.checked),
+    pool: els.smtpPoolToggle?.checked !== false,
+    verifyNow
+  };
+  if (passwordValue) {
+    payload.pass = passwordValue;
+  }
+  return payload;
+}
+
+async function saveSmtpSettings({ verifyNow = false } = {}) {
+  if (!els.smtpHostInput) return;
+  const payload = buildSmtpPayload({ verifyNow });
+  await api("/api/admin/settings/email", {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  if (els.smtpPassInput) {
+    els.smtpPassInput.value = "";
+  }
+  await loadSmtpSettings();
+}
+
+async function verifySmtpSettings() {
+  await api("/api/admin/settings/email/verify", {
+    method: "POST"
+  });
+}
+
+async function sendSmtpTestEmail() {
+  const to = `${els.smtpTestToInput?.value || ""}`.trim();
+  if (!to) {
+    throw new Error("Enter a test recipient email first.");
+  }
+  await api("/api/admin/settings/email/test", {
+    method: "POST",
+    body: JSON.stringify({ to })
+  });
 }
 
 async function saveSystemTimezone() {
@@ -1663,7 +1779,7 @@ async function loadStaffSettings() {
   if (!els.staffStatusText) return;
   try {
     const data = await api("/api/admin/staff");
-    els.defaultRequestLimitInput.value = `${Number(data.defaults?.requestLimit || 3)}`;
+    if (els.defaultRequestLimitInput) els.defaultRequestLimitInput.value = `${Number(data.defaults?.requestLimit || 3)}`;
     els.staffStatusText.textContent = `Daily window ${data.daily?.dateKey || "today"} • ${data.staff?.length || 0} user account(s)`;
 
     els.staffList.innerHTML = "";
@@ -1676,17 +1792,81 @@ async function loadStaffSettings() {
       return;
     }
 
+    const normalizeGroup = (group) => {
+      const normalized = `${group || ""}`.trim().toLowerCase();
+      if (normalized === "admins" || normalized === "admin") return "global-admin";
+      return normalized;
+    };
+
+    const normalizeGroups = (groups) => Array.from(
+      new Set((Array.isArray(groups) ? groups : []).map(normalizeGroup).filter(Boolean))
+    );
+
+    const groupBadges = (groups) => normalizeGroups(groups)
+      .map((g) => `<span class="badge">${escapeHtml(g)}</span>`)
+      .join("");
+
+    const renderGroupEditor = (item) => {
+      const groups = normalizeGroups(item.groups);
+      return STAFF_GROUP_OPTIONS.map((group) => `
+        <label class="staff-perm-check">
+          <input type="checkbox" data-group-value="${escapeHtml(group.value)}" ${groups.includes(group.value) ? "checked" : ""} />
+          ${escapeHtml(group.label)}
+        </label>
+      `).join("");
+    };
+
+    const togglePermEditor = (userId, open) => {
+      const editors = document.querySelectorAll(".staff-perm-editor");
+      editors.forEach((editor) => { editor.hidden = true; });
+      if (!open) return;
+      const target = document.getElementById(`staff-perm-editor-${userId}`);
+      if (target) target.hidden = false;
+    };
+
+    const saveGroups = async (item) => {
+      const editor = document.getElementById(`staff-perm-editor-${item.id}`);
+      if (!editor) return;
+      const groups = Array.from(editor.querySelectorAll("input[data-group-value]:checked"))
+        .map((input) => normalizeGroup(input.getAttribute("data-group-value")));
+      await api(`/api/admin/account/users/${item.id}/groups`, {
+        method: "PATCH",
+        body: JSON.stringify({ groups })
+      });
+    };
+
     for (const item of staff) {
       const li = document.createElement("li");
-      li.className = "req-item staff-row";
+      li.className = "req-item";
+      const initialsSource = `${item.displayName || item.username || "?"}`.trim();
+      const initials = (initialsSource.slice(0, 1) || "?").toUpperCase();
       li.innerHTML = `
-        <span class="req-name">${escapeHtml(item.displayName || `${item.firstName} ${item.lastInitial}.`)}</span>
-        <span class="req-count">${item.usedToday}/${item.requestLimit}</span>
-        <input class="staff-limit-input" data-action="limit" type="number" min="1" step="1" value="${Number(item.requestLimit || 1)}" />
-        <label class="staff-admin-cell"><input type="checkbox" data-action="toggle-admin" ${item.isAdmin ? "checked" : ""} /> Admin</label>
-        <button class="btn-sm staff-action-btn" data-action="reset-password">Reset PW</button>
-        <button class="btn-sm staff-action-btn" data-action="toggle">${item.active ? "Disable" : "Enable"}</button>
-        <button class="btn-sm danger staff-action-btn" data-action="delete">Delete</button>
+        <div class="staff-user-row">
+          <div class="staff-avatar">${escapeHtml(initials)}</div>
+          <div class="staff-user-meta">
+            <div class="staff-user-name">${escapeHtml(item.displayName || `${item.firstName} ${item.lastInitial}.`)}${item.active ? "" : ' <span class="badge">inactive</span>'}</div>
+            <div class="staff-user-email">${escapeHtml(item.username || "")}</div>
+            <div class="staff-user-groups">${groupBadges(item.groups)}</div>
+            <div class="staff-limit-row">
+              <span class="meta">Requests today ${Number(item.usedToday || 0)}/${Number(item.requestLimit || 1)}</span>
+              <input class="staff-limit-input" data-action="limit" type="number" min="1" step="1" value="${Number(item.requestLimit || 1)}" title="Daily request limit" />
+            </div>
+            <div class="staff-perm-editor" id="staff-perm-editor-${escapeHtml(item.id)}" hidden>
+              <div class="staff-perm-grid">${renderGroupEditor(item)}</div>
+              <div class="staff-perm-actions">
+                <button class="btn-sm" data-action="save-permissions" type="button">Save Permissions</button>
+                <button class="btn-sm" data-action="cancel-permissions" type="button">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <div class="staff-actions">
+            <button class="btn-sm" data-action="edit-permissions" type="button">Edit Permissions</button>
+            <button class="btn-sm" data-action="send-invite" type="button">Send Invite</button>
+            <button class="btn-sm" data-action="send-reset" type="button">Email Reset</button>
+            <button class="btn-sm" data-action="toggle">${item.active ? "Disable" : "Enable"}</button>
+            <button class="btn-sm danger" data-action="delete">Delete</button>
+          </div>
+        </div>
       `;
       const limitInput = li.querySelector('[data-action="limit"]');
       let lastLimitValue = Number(item.requestLimit || 1);
@@ -1720,6 +1900,21 @@ async function loadStaffSettings() {
           await applyLimit();
         }
       });
+      li.querySelector('[data-action="edit-permissions"]')?.addEventListener("click", () => {
+        togglePermEditor(item.id, true);
+      });
+      li.querySelector('[data-action="cancel-permissions"]')?.addEventListener("click", () => {
+        togglePermEditor(item.id, false);
+      });
+      li.querySelector('[data-action="save-permissions"]')?.addEventListener("click", async () => {
+        try {
+          await saveGroups(item);
+          await loadStaffSettings();
+          toast("User permissions updated");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      });
       li.querySelector('[data-action="toggle"]').addEventListener("click", async () => {
         try {
           await api(`/api/admin/staff/${item.id}`, {
@@ -1732,36 +1927,23 @@ async function loadStaffSettings() {
           toast(e.message, true);
         }
       });
-      li.querySelector('[data-action="reset-password"]').addEventListener("click", async () => {
-        const newPw = window.prompt(`Set new password for ${item.displayName || item.firstName} (@${item.username}):`);
-        if (!newPw) return;
-        if (newPw.length < 6) {
-          toast("Password must be at least 6 characters", true);
-          return;
-        }
+      li.querySelector('[data-action="send-invite"]').addEventListener("click", async () => {
         try {
-          await api(`/api/admin/staff/${item.id}/reset-password`, {
-            method: "POST",
-            body: JSON.stringify({ password: newPw })
+          await api(`/api/admin/account/users/${item.id}/send-invite`, {
+            method: "POST"
           });
-          toast("Password updated");
+          toast("Invite email sent");
         } catch (e) {
           toast(e.message, true);
         }
       });
-      li.querySelector('[data-action="toggle-admin"]').addEventListener("change", async (event) => {
-        const checkbox = event.target;
-        const makeAdmin = Boolean(checkbox.checked);
+      li.querySelector('[data-action="send-reset"]').addEventListener("click", async () => {
         try {
-          const groups = makeAdmin ? ["admins"] : [];
-          await api(`/api/admin/staff/${item.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({ groups })
+          await api(`/api/admin/account/users/${item.id}/send-password-reset`, {
+            method: "POST"
           });
-          await loadStaffSettings();
-          toast(makeAdmin ? "Admin rights granted" : "Admin rights removed");
+          toast("Password reset email sent");
         } catch (e) {
-          checkbox.checked = !makeAdmin;
           toast(e.message, true);
         }
       });
@@ -1791,22 +1973,30 @@ async function saveDefaultRequestLimit() {
 }
 
 async function createStaffAccount() {
-  const firstName = els.staffFirstNameInput.value.trim();
-  const lastInitial = els.staffLastInitialInput.value.trim();
+  const displayName = els.staffDisplayNameInput?.value.trim() || "";
   const username = els.staffUsernameInput?.value.trim() || "";
-  const password = els.staffPasswordInput?.value || "";
-  const requestLimit = Math.max(1, Number(els.staffLimitInput.value || els.defaultRequestLimitInput.value || 3));
+  const requestLimit = Math.max(1, Number(els.staffLimitInput.value || 5));
+  const groups = [];
+  if (els.staffGroupUser?.checked) groups.push("user");
+  if (els.staffGroupJukeboxAdmin?.checked) groups.push("jukebox-admin");
+  if (els.staffGroupReporting?.checked) groups.push("reporting");
+  if (els.staffGroupSuperadmin?.checked) groups.push("superadmin");
+  if (els.staffGroupGlobalAdmin?.checked) groups.push("global-admin");
 
-  await api("/api/admin/staff", {
+  const result = await api("/api/admin/staff", {
     method: "POST",
-    body: JSON.stringify({ firstName, lastInitial, username, password, requestLimit })
+    body: JSON.stringify({ displayName: displayName || username, username, requestLimit, groups, sendInvite: true })
   });
 
-  els.staffFirstNameInput.value = "";
-  els.staffLastInitialInput.value = "";
+  if (els.staffDisplayNameInput) els.staffDisplayNameInput.value = "";
   if (els.staffUsernameInput) els.staffUsernameInput.value = "";
-  if (els.staffPasswordInput) els.staffPasswordInput.value = "";
   els.staffLimitInput.value = "";
+  if (els.staffGroupUser) els.staffGroupUser.checked = true;
+  if (els.staffGroupJukeboxAdmin) els.staffGroupJukeboxAdmin.checked = false;
+  if (els.staffGroupReporting) els.staffGroupReporting.checked = false;
+  if (els.staffGroupSuperadmin) els.staffGroupSuperadmin.checked = false;
+  if (els.staffGroupGlobalAdmin) els.staffGroupGlobalAdmin.checked = false;
+  return result;
 }
 
 function renderTopList(listEl, rows, scoreKey) {
@@ -1886,6 +2076,9 @@ async function loadAsmSettings() {
     els.asmUsernameInput.value = data.username || "";
     els.asmPasswordInput.value = "";
     els.asmMethodInput.value = data.adoptableMethod || "json_adoptable_animals";
+    if (els.asmAnimalControlReportTitleInput) {
+      els.asmAnimalControlReportTitleInput.value = data.animalControlReportTitle || "";
+    }
     els.asmCacheSecondsInput.value = `${data.cacheSeconds || 600}`;
     const show = data.slideshow || {};
     els.slideshowIntervalInput.value = `${show.intervalSeconds || 12}`;
@@ -1969,6 +2162,7 @@ async function saveAsmSettings() {
       username: els.asmUsernameInput.value.trim(),
       password: els.asmPasswordInput.value.trim(),
       adoptableMethod: els.asmMethodInput.value.trim(),
+      animalControlReportTitle: els.asmAnimalControlReportTitleInput?.value.trim() || "",
       cacheSeconds: Number(els.asmCacheSecondsInput.value || 600),
       intervalSeconds: Number(els.slideshowIntervalInput.value || 12),
       defaultLimit: Number(els.slideshowLimitInput.value || 20),
@@ -2095,8 +2289,19 @@ if (els.explicitToggle) {
 els.tabAccount?.addEventListener("click", () => setSettingsTab("account"));
 els.tabRequestAccess?.addEventListener("click", () => setSettingsTab("request"));
 els.tabAudioJack?.addEventListener("click", () => setSettingsTab("audio-jack"));
+els.tabEmail?.addEventListener("click", () => setSettingsTab("email"));
 els.tabSpotify?.addEventListener("click", () => setSettingsTab("spotify"));
 els.tabAsm?.addEventListener("click", () => setSettingsTab("asm"));
+document.querySelectorAll(".settings-tabs").forEach((tabsEl) => {
+  tabsEl.addEventListener("click", (event) => {
+    const button = event.target.closest(".settings-tab[data-tab]");
+    if (!button) return;
+    event.preventDefault();
+    const nextTab = `${button.getAttribute("data-tab") || ""}`.trim();
+    if (!nextTab) return;
+    setSettingsTab(nextTab);
+  });
+});
 els.asmSubtabConnection.addEventListener("click", () => setAsmSubtab("connection"));
 els.asmSubtabSlideshow.addEventListener("click", () => setAsmSubtab("slideshow"));
 els.asmSubtabDiagnostics.addEventListener("click", () => setAsmSubtab("diagnostics"));
@@ -2193,17 +2398,19 @@ if (els.specialPageTextColorInput) {
   });
 }
 
-els.audioJackVolumeInput.addEventListener("input", () => {
-  els.audioJackVolumeValue.textContent = `${Number(els.audioJackVolumeInput.value || 0)}%`;
-  window.clearTimeout(audioJackDebounce);
-  audioJackDebounce = window.setTimeout(async () => {
-    try {
-      await saveAudioJackSettings();
-    } catch (e) {
-      toast(e.message, true);
-    }
-  }, 250);
-});
+if (els.audioJackVolumeInput && els.audioJackVolumeValue) {
+  els.audioJackVolumeInput.addEventListener("input", () => {
+    els.audioJackVolumeValue.textContent = `${Number(els.audioJackVolumeInput.value || 0)}%`;
+    window.clearTimeout(audioJackDebounce);
+    audioJackDebounce = window.setTimeout(async () => {
+      try {
+        await saveAudioJackSettings();
+      } catch (e) {
+        toast(e.message, true);
+      }
+    }, 250);
+  });
+}
 
 if (els.audioJackRefreshBtn) {
   els.audioJackRefreshBtn.addEventListener("click", async () => {
@@ -2265,6 +2472,34 @@ if (els.refreshSystemClockBtn) {
     try {
       await loadSystemSettings();
       toast("Server clock refreshed");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.smtpSaveBtn) {
+  els.smtpSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveSmtpSettings({ verifyNow: false });
+      toast("SMTP settings saved");
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.smtpVerifyBtn) {
+  els.smtpVerifyBtn.addEventListener("click", async () => {
+    try {
+      await verifySmtpSettings();
+      toast("SMTP verification passed");
+      await loadSmtpSettings();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.smtpSendTestBtn) {
+  els.smtpSendTestBtn.addEventListener("click", async () => {
+    try {
+      await sendSmtpTestEmail();
+      toast("SMTP test email sent");
     } catch (e) { toast(e.message, true); }
   });
 }
@@ -2356,9 +2591,9 @@ if (els.saveDefaultRequestLimitBtn) {
 if (els.createStaffBtn) {
   els.createStaffBtn.addEventListener("click", async () => {
     try {
-      await createStaffAccount();
+      const result = await createStaffAccount();
       await loadStaffSettings();
-      toast("User account created");
+      toast(result?.invite?.sent ? "User created and invite sent" : "User created (invite not sent)");
     } catch (e) { toast(e.message, true); }
   });
 }

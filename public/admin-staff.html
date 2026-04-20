@@ -12,6 +12,44 @@
     />
     <link rel="stylesheet" href="/admin.css" />
     <link rel="stylesheet" href="/admin-pages.css" />
+    <style>
+      .staff-user-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 0.65rem;
+        align-items: start;
+      }
+      .staff-avatar {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        background: rgba(245,166,35,0.18);
+        color: var(--accent);
+        font: 700 0.88rem/2rem "Sora", sans-serif;
+        text-align: center;
+      }
+      .staff-user-meta { min-width: 0; }
+      .staff-user-name { font: 600 0.92rem/1.2 "Outfit", sans-serif; }
+      .staff-user-email { color: var(--muted); font-size: 0.8rem; margin-top: 0.1rem; word-break: break-all; }
+      .staff-user-groups { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+      .staff-limit-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.45rem; }
+      .staff-limit-row input { width: 5rem; }
+      .staff-perm-editor {
+        margin-top: 0.5rem;
+        padding: 0.55rem;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.02);
+      }
+      .staff-perm-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.35rem 0.7rem;
+      }
+      .staff-perm-check { display: flex; align-items: center; gap: 0.38rem; font-size: 0.82rem; color: var(--muted); }
+      .staff-perm-actions { display: flex; gap: 0.45rem; margin-top: 0.55rem; }
+      .staff-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
+    </style>
   </head>
   <body data-admin-page="staff">
     <nav class="admin-page-nav" aria-label="Admin Sections">
@@ -103,29 +141,23 @@
         <div id="panelRequestAccess" class="settings-panel active">
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Default Daily Request Limit</div>
-              <div class="setting-desc">Applies to newly created user accounts. Existing users can override.</div>
-            </div>
-            <div class="setting-form-row">
-              <input id="defaultRequestLimitInput" type="number" min="1" step="1" placeholder="Default limit" />
-              <button id="saveDefaultRequestLimitBtn" class="btn-sm" type="button">Save Default</button>
-            </div>
-          </div>
-
-          <div class="setting-row stack">
-            <div>
               <div class="setting-name">Create User Account</div>
-              <div class="setting-desc">Users sign in with their username and password.</div>
+              <div class="setting-desc">Create an account with groups and request limit, then send a secure invite email.</div>
             </div>
             <div class="setting-form-grid">
-              <input id="staffFirstNameInput" type="text" maxlength="40" placeholder="First name" />
-              <input id="staffLastInitialInput" type="text" maxlength="1" placeholder="Last initial" />
+              <input id="staffDisplayNameInput" type="text" maxlength="60" placeholder="Display name" />
               <input id="staffUsernameInput" type="email" autocomplete="off" placeholder="Email address" />
-              <input id="staffPasswordInput" type="password" autocomplete="new-password" placeholder="Password (6+ chars)" />
-              <input id="staffLimitInput" type="number" min="1" step="1" placeholder="Daily request limit" />
+              <input id="staffLimitInput" type="number" min="1" step="1" placeholder="Daily song request limit (default: 5)" />
+            </div>
+            <div class="setting-form-row" style="gap:1.2rem;margin-top:0.2rem;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem"><input id="staffGroupUser" type="checkbox" checked /> User</label>
+              <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem"><input id="staffGroupJukeboxAdmin" type="checkbox" /> Jukebox admin</label>
+              <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem"><input id="staffGroupReporting" type="checkbox" /> Reporting</label>
+              <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem"><input id="staffGroupSuperadmin" type="checkbox" /> Superadmin</label>
+              <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem"><input id="staffGroupGlobalAdmin" type="checkbox" /> Global admin</label>
             </div>
             <div class="setting-form-actions">
-              <button id="createStaffBtn" class="btn-sm" type="button">Create User</button>
+              <button id="createStaffBtn" class="btn-sm" type="button">Create + Send Invite</button>
             </div>
           </div>
 

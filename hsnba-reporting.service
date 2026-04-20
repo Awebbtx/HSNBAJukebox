@@ -1,0 +1,15 @@
+[Unit]
+Description=HSNBA Reporting Web App
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/HSNBA
+EnvironmentFile=/opt/HSNBA/.env
+ExecStart=/usr/bin/env PORT=3001 BASE_URL=https://reporting.hsnba.org /usr/bin/node /opt/HSNBA/src/server.js
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

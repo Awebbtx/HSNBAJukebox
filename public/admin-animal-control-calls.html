@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSNBA Animal Control Calls</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/admin-pages.css" />
+    <link rel="stylesheet" href="/admin-report-cards.css" />
+    <style>
+      .page-shell { width: min(1180px, 96vw); margin: 1rem auto 2rem; display: grid; gap: 0.9rem; }
+      .head-row { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; }
+      .head-row h1 { margin: 0; font: 700 1.45rem/1.2 "Sora", sans-serif; }
+      .head-row p { margin: 0.25rem 0 0; color: var(--muted); }
+      .report-top-nav { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+      .report-nav-btn {
+        text-decoration: none;
+        border: 1px solid rgba(255,255,255,0.14);
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.82rem;
+      }
+      .report-nav-btn.is-active,
+      .report-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+      .btn-primary {
+        border: 0;
+        border-radius: 9px;
+        background: linear-gradient(140deg, var(--accent), var(--accent-d));
+        color: #fff;
+        padding: 0.55rem 0.9rem;
+        font: 600 0.9rem/1 "Outfit", sans-serif;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+      }
+      .report-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; margin-bottom: 0.65rem; }
+      .report-filters label { font-size: 0.82rem; color: var(--muted); display: grid; gap: 0.2rem; }
+      .report-filters input { width: 130px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: #dceaf5; padding: 0.35rem 0.5rem; font: 500 0.9rem/1 "Outfit", sans-serif; }
+      .report-meta { color: var(--muted); font-size: 0.84rem; margin-bottom: 0.45rem; }
+      .report-table-wrap { overflow-x: auto; }
+      .report-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+      .report-table th { color: var(--muted); font-weight: 600; text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.07); }
+      .report-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+      .report-table tr:last-child td { border-bottom: 0; }
+      @media (max-width: 760px) {
+        .head-row { flex-direction: column; align-items: flex-start; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top-bar">
+      <a class="top-brand" href="/admin-reporting.html">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span class="brand-name">HSNBA Reporting</span>
+      </a>
+      <nav class="report-top-nav" aria-label="Reporting navigation">
+        <a class="report-nav-btn" href="/admin-reporting.html">Dashboard</a>
+        <a class="report-nav-btn" href="/admin-shelter-reports.html">Shelter Reports</a>
+        <a class="report-nav-btn is-active" href="/admin-animal-control.html">Animal Control</a>
+        <a class="report-nav-btn" href="/admin-reporting-account.html">My Account</a>
+        <a class="report-nav-btn" href="/admin-reporting-users.html">User Accounts</a>
+      </nav>
+      <button id="logoutBtn" class="btn-ghost" type="button">Logout</button>
+    </header>
+
+    <main class="page-shell wrap">
+      <section class="card head-row">
+        <div>
+          <h1>Animal Control Calls</h1>
+          <p>District and incident-type reports for Animal Control calls.</p>
+        </div>
+        <a class="btn-primary" href="/admin-animal-control.html">Back To Animal Control</a>
+      </section>
+
+      <section class="card">
+        <div class="card-label">MONTHLY DISTRICT CALLS</div>
+        <div class="report-filters" aria-label="Monthly district call filters">
+          <label>Month
+            <input id="districtCallsMonth" type="number" min="1" max="12" step="1" placeholder="4" />
+          </label>
+          <label>Year
+            <input id="districtCallsYear" type="number" min="2000" max="2100" step="1" placeholder="2026" />
+          </label>
+          <button id="districtCallsRunBtn" class="btn-primary" type="button">Run Report</button>
+        </div>
+        <div id="districtCallsMeta" class="report-meta">Loading monthly district calls...</div>
+        <div id="districtCallsTable" class="report-table-wrap">
+          <span style="color:var(--muted)">Loading...</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-label">CALLS BETWEEN DATES BY TYPE</div>
+        <div class="report-filters" aria-label="Calls by type filters">
+          <label>From Date
+            <input id="callsByTypeFromDate" type="date" />
+          </label>
+          <label>To Date
+            <input id="callsByTypeToDate" type="date" />
+          </label>
+          <button id="callsByTypeRunBtn" class="btn-primary" type="button">Run Report</button>
+        </div>
+        <div id="callsByTypeMeta" class="report-meta">Loading calls-by-type report...</div>
+        <div id="callsByTypeTable" class="report-table-wrap">
+          <span style="color:var(--muted)">Loading...</span>
+        </div>
+      </section>
+    </main>
+
+    <script src="/admin-report-cards.js"></script>
+    <script type="module" src="/admin-animal-control-calls.js"></script>
+  </body>
+</html>

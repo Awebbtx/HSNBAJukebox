@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSNBA Shelter Reports</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/admin-pages.css" />
+    <style>
+      .page-shell { width: min(980px, 95vw); margin: 1rem auto 2rem; display: grid; gap: 0.9rem; }
+      .report-top-nav { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+      .report-nav-btn {
+        text-decoration: none;
+        border: 1px solid rgba(255,255,255,0.14);
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.82rem;
+      }
+      .report-nav-btn.is-active,
+      .report-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+      .link-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 0.75rem;
+      }
+      .link-card {
+        text-decoration: none;
+        color: inherit;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 0.9rem;
+        background: rgba(255,255,255,0.02);
+        display: grid;
+        gap: 0.35rem;
+      }
+      .link-card:hover {
+        border-color: rgba(245,166,35,0.55);
+        background: rgba(245,166,35,0.08);
+      }
+      .link-card h3 { margin: 0; font: 700 1rem/1.2 "Sora", sans-serif; }
+      .link-card p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+      .head h1 { margin: 0; font: 700 1.45rem/1.2 "Sora", sans-serif; }
+      .head p { margin: 0.25rem 0 0; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <header class="top-bar">
+      <a class="top-brand" href="/admin-reporting.html">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span class="brand-name">HSNBA Reporting</span>
+      </a>
+      <nav class="report-top-nav" aria-label="Reporting navigation">
+        <a class="report-nav-btn" href="/admin-reporting.html">Dashboard</a>
+        <a class="report-nav-btn is-active" href="/admin-shelter-reports.html">Shelter Reports</a>
+        <a class="report-nav-btn" href="/admin-animal-control.html">Animal Control</a>
+        <a class="report-nav-btn" href="/admin-reporting-account.html">My Account</a>
+        <a class="report-nav-btn" href="/admin-reporting-users.html">User Accounts</a>
+      </nav>
+      <button id="logoutBtn" class="btn-ghost" type="button">Logout</button>
+    </header>
+
+    <main class="page-shell wrap">
+      <section class="card head">
+        <h1>Shelter Reports</h1>
+        <p>Quick links to detailed shelter reporting pages.</p>
+      </section>
+
+      <section class="card">
+        <div class="card-label" style="margin:0 0 0.55rem">DETAILED REPORT LINKS</div>
+        <div class="link-grid" data-layout-container="shelter-report-links">
+          <div id="linkedReportsList" style="display:contents">
+            <span style="color:var(--muted);font-size:0.88rem">Loading linked reports...</span>
+          </div>
+        </div>
+      </section>
+
+      <button id="addLinkedReportBtn" class="btn-sm" type="button" style="display:none">+ Add Report</button>
+    </main>
+
+    <!-- Linked Report editor dialog -->
+    <dialog id="linkedReportDialog" class="card" style="width:min(640px,95vw);padding:1.2rem;border-radius:14px;border:1px solid rgba(255,255,255,0.14);background:var(--surface,#0d1923);color:inherit">
+      <h2 id="lrDialogTitle" style="margin:0 0 0.9rem;font:700 1.1rem/1.2 'Sora',sans-serif">Add Linked Report</h2>
+      <div class="setting-form-grid" style="margin-bottom:0.55rem">
+        <input id="lrTitle" type="text" placeholder="Display name for this report" />
+        <input id="lrDescription" type="text" placeholder="Short description (optional)" />
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.3rem;flex-wrap:wrap">
+        <input id="lrAsmTitle" type="text" placeholder="Exact ASM report title (copy from Shelter Manager)" style="flex:1;min-width:200px" />
+        <button id="lrProbeBtn" class="btn-sm" type="button">Probe Fields</button>
+      </div>
+      <div class="setting-form-grid" style="margin-bottom:0.35rem">
+        <input id="lrLinkTemplate" type="text" placeholder="Optional ASM link template, e.g. /animal?id={{ID}}" />
+        <input id="lrLinkLabel" type="text" placeholder="Optional link label (default: Open in ASM)" />
+      </div>
+      <div class="card-label" style="margin:0.25rem 0 0.35rem">CHART SETTINGS</div>
+      <div class="setting-form-grid" style="margin-bottom:0.35rem">
+        <input id="lrChartLeftTitle" type="text" placeholder="Left chart title (optional)" />
+        <input id="lrChartRightTitle" type="text" placeholder="Right chart title (optional)" />
+      </div>
+      <div class="setting-form-grid" style="margin-bottom:0.35rem">
+        <select id="lrChartLeftType">
+          <option value="bar">Left chart type: Bar</option>
+          <option value="line">Left chart type: Line</option>
+          <option value="pie">Left chart type: Pie</option>
+          <option value="doughnut">Left chart type: Doughnut</option>
+        </select>
+        <select id="lrChartRightType">
+          <option value="bar">Right chart type: Bar</option>
+          <option value="line">Right chart type: Line</option>
+          <option value="pie">Right chart type: Pie</option>
+          <option value="doughnut">Right chart type: Doughnut</option>
+        </select>
+      </div>
+      <label class="lr-expanded-label" style="margin-bottom:0.25rem"><input id="lrShowChartsOnDashboard" type="checkbox" /> Show configured charts on dashboard</label>
+      <div id="lrTimingHint" class="setting-desc" style="margin-bottom:0.45rem;min-height:1.2em"></div>
+      <div id="lrProbeStatus" class="setting-desc" style="margin-bottom:0.5rem;min-height:1.2em"></div>
+
+      <div id="lrFieldsSection" style="display:none">
+        <div class="card-label" style="margin-bottom:0.35rem">FIELD CONFIGURATION</div>
+        <p class="setting-desc" style="margin:0 0 0.5rem">Drag to reorder. <strong>Expanded</strong> fields appear in the collapsible detail panel; others show inline. <strong>Group By</strong> creates section headings using that field. <strong>Chart L/R</strong> sends that field to left/right chart.</p>
+        <div id="lrFieldList" style="display:grid;gap:0.3rem"></div>
+        <button id="lrAddFieldBtn" class="btn-sm" type="button" style="margin-top:0.5rem;display:none">+ Add Field</button>
+      </div>
+
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.8rem">
+        <button id="lrSaveBtn" class="btn-sm" type="button">Save</button>
+        <button id="lrDeleteBtn" class="btn-sm" type="button" style="display:none;background:rgba(220,50,50,0.18);border-color:rgba(220,50,50,0.4);color:#f08080">Delete</button>
+        <button id="lrCancelBtn" class="btn-sm" type="button" style="background:rgba(255,255,255,0.06)">Cancel</button>
+      </div>
+      <div id="lrStatusMsg" class="setting-desc" style="margin-top:0.4rem;min-height:1.2em"></div>
+    </dialog>
+
+    <style>
+      .lr-field-row {
+        display: grid;
+        grid-template-columns: 20px 1fr 1fr auto auto auto auto auto;
+        gap: 0.4rem;
+        align-items: center;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 7px;
+        padding: 0.35rem 0.5rem;
+        cursor: default;
+      }
+      .lr-field-row.drag-over { border-color: var(--accent); background: rgba(245,166,35,0.07); }
+      .lr-drag-handle { cursor: grab; user-select: none; color: var(--muted); font-size: 1rem; text-align:center; }
+      .lr-drag-handle:active { cursor: grabbing; }
+      .lr-field-key { font-size: 0.78rem; color: var(--muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .lr-field-label { font-size: 0.85rem; padding: 0.25rem 0.45rem; border-radius: 5px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: inherit; width: 100%; }
+      .lr-expanded-label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); white-space: nowrap; cursor: pointer; }
+      .lr-field-remove { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 0.3rem; font-size: 0.9rem; line-height: 1; }
+      .lr-field-remove:hover { color: #f08080; }
+      .btn-sm { padding: 0.35rem 0.75rem; font: 600 0.82rem/1 "Outfit",sans-serif; border-radius: 7px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.07); color: inherit; cursor: pointer; }
+      .btn-sm:hover { background: rgba(255,255,255,0.12); }
+      .lr-card-actions {
+        position: absolute;
+        top: 0.45rem;
+        right: 0.45rem;
+        display: none;
+        gap: 0.35rem;
+        z-index: 4;
+      }
+      body.layout-editing .lr-card-actions { display: inline-flex; }
+      .lr-card-action {
+        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(10,14,20,0.78);
+        color: #f1f3f6;
+        border-radius: 999px;
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font: 700 0.88rem/1 "Outfit", sans-serif;
+      }
+      .lr-card-action:hover { border-color: rgba(245,166,35,0.75); color: #f5a623; }
+      .lr-card-action.danger { border-color: rgba(255,88,88,0.5); color: #ff7f7f; }
+      .lr-card-action.danger:hover { border-color: rgba(255,88,88,0.9); color: #ff5e5e; }
+    </style>
+
+    <script type="module" src="/admin-layout-editor.js"></script>
+    <script type="module" src="/admin-shelter-reports.js"></script>
+
+    <script type="module">
+      async function api(url, opts = {}) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+          ...opts
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(payload.error || `HTTP ${response.status}`);
+          error.status = response.status;
+          throw error;
+        }
+        return payload;
+      }
+
+      const logoutBtn = document.getElementById("logoutBtn");
+      logoutBtn?.addEventListener("click", async () => {
+        try {
+          await api("/api/admin/session/logout", { method: "POST" });
+        } catch {
+          // Navigate away even if logout fails.
+        }
+        window.location.replace("/reporting-login.html");
+      });
+
+      try {
+        await api("/api/admin/account/me");
+      } catch (error) {
+        if (error.status === 401 || error.status === 403) {
+          window.location.replace("/reporting-login.html");
+        }
+      }
+    </script>
+  </body>
+</html>
