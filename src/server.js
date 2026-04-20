@@ -8538,15 +8538,19 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
 
     let blockedExplicit = 0;
     if (state.explicitFilter) {
-      const { explicitByUri } = await evaluateSpotifyExplicitForUris(uris);
-      // Only remove tracks that Spotify confirmed as explicit. Unresolved tracks are allowed through.
+      const BATCH = 100;
       const filtered = [];
-      for (const trackUri of uris) {
-        if (explicitByUri.get(trackUri) === true) {
-          blockedExplicit += 1;
-          continue;
+      for (let i = 0; i < uris.length; i += BATCH) {
+        const batchUris = uris.slice(i, i + BATCH);
+        const { explicitByUri } = await evaluateSpotifyExplicitForUris(batchUris);
+        // Only remove tracks that Spotify confirmed as explicit. Unresolved tracks are allowed through.
+        for (const trackUri of batchUris) {
+          if (explicitByUri.get(trackUri) === true) {
+            blockedExplicit += 1;
+          } else {
+            filtered.push(trackUri);
+          }
         }
-        filtered.push(trackUri);
       }
       uris = filtered;
     }
