@@ -7845,7 +7845,17 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
       state.requestMetaByTlid.clear();
     }
     const added = await mopidyRpc("core.tracklist.add", { uris });
-    res.json({ ok: true, added: (added || []).length });
+    const addedCount = Array.isArray(added) ? added.length : 0;
+    if (addedCount === 0) {
+      res.status(502).json({
+        error: "No tracks from this playlist could be resolved by Mopidy. Check Spotify connection and retry.",
+        playlistUri: uri,
+        requested: uris.length,
+        added: 0
+      });
+      return;
+    }
+    res.json({ ok: true, added: addedCount });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
