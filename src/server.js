@@ -2203,6 +2203,22 @@ function saveAcGeocodeCache() {
 }
 
 const LINKED_REPORT_FIELD_LABEL_MAP = Object.freeze({
+  ANIMALNAME: "Animal Name",
+  SPECIESNAME: "Species",
+  ANIMALTYPE: "Animal Type",
+  ANIMALCOMMENTS: "Animal Comments",
+  BASECOLOUR: "Base Color",
+  DISPLAYLOCATION: "Location",
+  LOCATIONFOUND: "Location Found",
+  DAYSONSHELTER: "Days in Shelter",
+  AGEGROUP: "Age Group",
+  LOCATION: "Location",
+  READY: "Ready",
+  SEX: "Sex",
+  DATE: "Date",
+  MOSTRECENTENTRYDATE: "Most Recent Entry Date",
+  HIDDENANIMALDETAILS: "Hidden Animal Details",
+  MAX: "Max",
   fosteredTo: "Fostered To",
   ownerAddress: "Owner Address",
   homeTelephone: "Home Phone",
