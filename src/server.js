@@ -8044,12 +8044,12 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
       res.status(503).json({ error: "Spotify is not authenticated. Complete OAuth at /auth/login first." });
       return;
     }
-    // Fetch first page — up to 100 tracks
+    // Fetch first page — up to 100 tracks (no fields filter to avoid URL encoding issues)
     const data = await spotifyApiRequest({
       accessToken,
       method: "GET",
       path: `/playlists/${playlistId}`,
-      query: { fields: "id,name,description,tracks.total,tracks.items(track(name,uri,artists(name),duration_ms))", market: "US" }
+      query: { market: "US" }
     });
     const name = data?.name || playlistId;
     const rawItems = data?.tracks?.items || [];
@@ -8065,8 +8065,8 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
       res.status(400).json({ error: `Playlist "${name}" has no playable tracks (or may be private/empty).` });
       return;
     }
-    // Save as a Mopidy playlist
-    const mopidyTracks = tracks.map((t) => ({ uri: t.uri, name: t.name }));
+    // Save as a Mopidy playlist — tracks only need uri field
+    const mopidyTracks = tracks.map((t) => ({ uri: t.uri }));
     const playlist = await mopidyRpc("core.playlists.create", { name });
     if (!playlist) {
       res.status(502).json({ error: "Mopidy could not create a playlist. Check Mopidy connection." });
