@@ -1982,7 +1982,9 @@ loadSystemConfig();
 loadLocalQueue();
 loadReportingSnapshot();
 loadAcGeocodeCache();
-loadLinkedReports();
+queueMicrotask(() => {
+  loadLinkedReports();
+});
 startAudioAutomationScheduler();
 startReportingScheduler();
 
