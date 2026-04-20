@@ -124,6 +124,9 @@ const els = {
   explicitToggle:     document.getElementById("explicitToggle"),
   savePlaylistBtn:    document.getElementById("savePlaylistBtn"),
   refreshPlaylistsBtn:document.getElementById("refreshPlaylistsBtn"),
+  spotifyImportUrlInput: document.getElementById("spotifyImportUrlInput"),
+  spotifyImportBtn:   document.getElementById("spotifyImportBtn"),
+  spotifyImportStatus: document.getElementById("spotifyImportStatus"),
   playlistNameInput:  document.getElementById("playlistNameInput"),
   playlistList:       document.getElementById("playlistList"),
   playlistEditorDialog: document.getElementById("playlistEditorDialog"),
@@ -2872,6 +2875,37 @@ if (els.inspectAsmBtn) {
       setAsmSubtab("diagnostics");
       toast("ASM response inspected");
     } catch (e) { toast(e.message, true); }
+  });
+}
+
+if (els.spotifyImportBtn) {
+  els.spotifyImportBtn.addEventListener("click", async () => {
+    const url = els.spotifyImportUrlInput?.value.trim();
+    if (!url) { toast("Paste a Spotify playlist share URL first.", true); return; }
+    const statusEl = els.spotifyImportStatus;
+    function setStatus(msg, isError = false) {
+      if (!statusEl) return;
+      statusEl.style.display = "";
+      statusEl.style.color = isError ? "var(--danger, #e55)" : "var(--muted)";
+      statusEl.textContent = msg;
+    }
+    setStatus("Fetching playlist from Spotify…");
+    els.spotifyImportBtn.disabled = true;
+    try {
+      const data = await api("/api/admin/playlists/import-spotify", {
+        method: "POST",
+        body: JSON.stringify({ url })
+      });
+      const saved = data.saved ?? data.tracks?.length ?? 0;
+      const total = data.total || saved;
+      setStatus(`✓ Saved "${data.name}" as a playlist (${saved} track${saved !== 1 ? "s" : ""}${total > saved ? ` — first ${saved} of ${total}` : ""}).`);
+      if (els.spotifyImportUrlInput) els.spotifyImportUrlInput.value = "";
+      await loadPlaylists();
+    } catch (err) {
+      setStatus(err.message || "Import failed.", true);
+    } finally {
+      els.spotifyImportBtn.disabled = false;
+    }
   });
 }
 

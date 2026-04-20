@@ -8024,6 +8024,68 @@ app.post("/api/admin/explicit", requireAdmin, (req, res) => {
   res.json({ ok: true, explicitFilter: state.explicitFilter });
 });
 
+// ── Spotify shared playlist import ───────────────────────────────────────────
+app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) => {
+  const rawUrl = `${req.body?.url || ""}`.trim();
+  if (!rawUrl) {
+    res.status(400).json({ error: "url is required." });
+    return;
+  }
+  // Accept share URLs like https://open.spotify.com/playlist/ID?si=... or spotify:playlist:ID
+  const idMatch = rawUrl.match(/(?:playlist[/:])([\w]+)/);
+  if (!idMatch) {
+    res.status(400).json({ error: "Could not extract a playlist ID from that URL. Use a Spotify share link or URI." });
+    return;
+  }
+  const playlistId = idMatch[1];
+  try {
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) {
+      res.status(503).json({ error: "Spotify is not authenticated. Complete OAuth at /auth/login first." });
+      return;
+    }
+    // Fetch first page — up to 100 tracks
+    const data = await spotifyApiRequest({
+      accessToken,
+      method: "GET",
+      path: `/playlists/${playlistId}`,
+      query: { fields: "id,name,description,tracks.total,tracks.items(track(name,uri,artists(name),duration_ms))", market: "US" }
+    });
+    const name = data?.name || playlistId;
+    const rawItems = data?.tracks?.items || [];
+    const tracks = rawItems
+      .map((item) => item?.track)
+      .filter((t) => t?.uri && t.uri.startsWith("spotify:track:"))
+      .map((t) => ({
+        uri: t.uri,
+        name: t.name || "Unknown",
+        artists: (t.artists || []).map((a) => a.name).filter(Boolean)
+      }));
+    if (!tracks.length) {
+      res.status(400).json({ error: `Playlist "${name}" has no playable tracks (or may be private/empty).` });
+      return;
+    }
+    // Save as a Mopidy playlist
+    const mopidyTracks = tracks.map((t) => ({ uri: t.uri, name: t.name }));
+    const playlist = await mopidyRpc("core.playlists.create", { name });
+    if (!playlist) {
+      res.status(502).json({ error: "Mopidy could not create a playlist. Check Mopidy connection." });
+      return;
+    }
+    const saved = await mopidyRpc("core.playlists.save", { playlist: { ...playlist, tracks: mopidyTracks } });
+    res.json({ ok: true, playlistId, name, uri: saved?.uri || playlist.uri, total: data?.tracks?.total || tracks.length, saved: mopidyTracks.length, tracks });
+  } catch (err) {
+    const msg = err?.message || "Unknown error";
+    if (msg.includes("401") || msg.includes("403")) {
+      res.status(503).json({ error: "Spotify authentication failed. Re-authenticate at /auth/login." });
+    } else if (msg.includes("404")) {
+      res.status(404).json({ error: "Playlist not found. It may be private or the ID is invalid." });
+    } else {
+      res.status(500).json({ error: `Spotify API error: ${msg}` });
+    }
+  }
+});
+
 // ── Admin playlists ──────────────────────────────────────────────────────────
 app.get("/api/admin/playlists", requireAdmin, async (_req, res) => {
   try {
