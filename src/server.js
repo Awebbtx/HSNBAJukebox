@@ -6462,6 +6462,97 @@ app.post("/api/admin/audio-automation/schedules/:id/run", requireAdmin, requireJ
 
 // ── Admin Spotify enrollment/settings ────────────────────────────────────────
 
+function writeMopidyConfSection(filePath, section, updates) {
+  // Read the existing file (or start fresh), then patch/add the given keys
+  // under [section], preserving all other content.
+  let text = "";
+  if (fs.existsSync(filePath)) {
+    text = fs.readFileSync(filePath, "utf8");
+  }
+  const lines = text.split(/\r?\n/);
+  const sectionHeader = `[${section}]`;
+  let inSection = false;
+  let sectionStart = -1;
+  let sectionEnd = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed === sectionHeader) {
+      inSection = true;
+      sectionStart = i;
+      continue;
+    }
+    if (inSection) {
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        sectionEnd = i;
+        break;
+      }
+    }
+  }
+  if (inSection && sectionEnd === -1) sectionEnd = lines.length;
+
+  // Track which keys we already replaced
+  const replaced = new Set();
+  if (sectionStart !== -1) {
+    for (let i = sectionStart + 1; i < sectionEnd; i++) {
+      const eq = lines[i].indexOf("=");
+      if (eq < 0) continue;
+      const key = lines[i].slice(0, eq).trim().toLowerCase();
+      if (key in updates) {
+        lines[i] = `${key} = ${updates[key]}`;
+        replaced.add(key);
+      }
+    }
+    // Append any keys not already in the section (before sectionEnd)
+    const appended = [];
+    for (const [k, v] of Object.entries(updates)) {
+      if (!replaced.has(k)) appended.push(`${k} = ${v}`);
+    }
+    if (appended.length) {
+      lines.splice(sectionEnd, 0, ...appended);
+    }
+  } else {
+    // Section doesn't exist — append it
+    const newLines = [``, sectionHeader];
+    for (const [k, v] of Object.entries(updates)) newLines.push(`${k} = ${v}`);
+    lines.push(...newLines);
+  }
+  fs.writeFileSync(filePath, lines.join("\n"), "utf8");
+}
+
+app.post("/api/admin/settings/spotify/mopidy-credentials", requireAdmin, requireJukeboxPlaybackAdmin, async (req, res) => {
+  const body = req.body || {};
+  const clientId = `${body.clientId || ""}`.trim();
+  const clientSecret = `${body.clientSecret || ""}`.trim();
+  if (!clientId || !clientSecret) {
+    res.status(400).json({ error: "Both clientId and clientSecret are required." });
+    return;
+  }
+  // Basic sanity — mopidy-spotify client_id is UUID-like, client_secret is base64-like
+  if (clientId.length < 8 || clientSecret.length < 8) {
+    res.status(400).json({ error: "Credentials appear too short — paste them directly from mopidy.com/ext/spotify." });
+    return;
+  }
+  const configPath = "/etc/mopidy/mopidy.conf";
+  try {
+    writeMopidyConfSection(configPath, "spotify", {
+      client_id: clientId,
+      client_secret: clientSecret
+    });
+    // Restart mopidy so the new credentials take effect
+    await execFileAsync("systemctl", ["restart", "mopidy"]);
+    // Give mopidy a moment to come up then refresh URI scheme list
+    await new Promise((r) => setTimeout(r, 2000));
+    const uriSchemes = await mopidyRpc("core.get_uri_schemes").catch(() => []);
+    res.json({
+      ok: true,
+      spotifySchemeAvailable: Array.isArray(uriSchemes) && uriSchemes.includes("spotify"),
+      message: "mopidy.conf updated and Mopidy restarted."
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to update mopidy credentials." });
+  }
+});
+
 app.get("/api/admin/settings/spotify", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   const configPath = "/etc/mopidy/mopidy.conf";
   try {
@@ -7822,6 +7913,97 @@ app.post("/api/admin/playlists", requireAdmin, async (req, res) => {
     const playlist = await mopidyRpc("core.playlists.create", { name });
     const saved = await mopidyRpc("core.playlists.save", { playlist: { ...playlist, tracks } });
     res.status(201).json({ ok: true, uri: saved?.uri || playlist.uri, name: saved?.name || name });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin/playlists/details", requireAdmin, async (req, res) => {
+  const uri = `${req.query?.uri || ""}`.trim();
+  if (!uri) {
+    res.status(400).json({ error: "uri is required." });
+    return;
+  }
+  try {
+    const [playlists, tracks] = await Promise.all([
+      mopidyRpc("core.playlists.as_list"),
+      mopidyRpc("core.playlists.get_items", { uri })
+    ]);
+    const summary = (playlists || []).find((item) => item?.uri === uri);
+    const rows = (tracks || []).map((track, index) => ({
+      index,
+      uri: track?.uri || "",
+      name: track?.name || "Unknown track",
+      artists: Array.isArray(track?.artists)
+        ? track.artists.map((artist) => artist?.name).filter(Boolean)
+        : [],
+      album: track?.album?.name || ""
+    }));
+    res.json({
+      playlist: {
+        uri,
+        name: summary?.name || uri
+      },
+      tracks: rows
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/playlists/update", requireAdmin, async (req, res) => {
+  const uri = `${req.body?.uri || ""}`.trim();
+  const requestedName = `${req.body?.name || ""}`.trim();
+  const keepIndexesRaw = Array.isArray(req.body?.keepIndexes) ? req.body.keepIndexes : null;
+  if (!uri) {
+    res.status(400).json({ error: "uri is required." });
+    return;
+  }
+  try {
+    const [playlists, existingTracks] = await Promise.all([
+      mopidyRpc("core.playlists.as_list"),
+      mopidyRpc("core.playlists.get_items", { uri })
+    ]);
+    const summary = (playlists || []).find((item) => item?.uri === uri);
+    const playlistName = requestedName || summary?.name || uri;
+    const safeTracks = Array.isArray(existingTracks) ? existingTracks : [];
+
+    let nextTracks = safeTracks;
+    if (keepIndexesRaw) {
+      const indexes = keepIndexesRaw
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value >= 0 && value < safeTracks.length);
+      nextTracks = indexes.map((index) => safeTracks[index]).filter(Boolean);
+    }
+
+    const saved = await mopidyRpc("core.playlists.save", {
+      playlist: {
+        uri,
+        name: playlistName,
+        tracks: nextTracks
+      }
+    });
+
+    res.json({
+      ok: true,
+      uri: saved?.uri || uri,
+      name: saved?.name || playlistName,
+      trackCount: nextTracks.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/playlists", requireAdmin, async (req, res) => {
+  const uri = `${req.query?.uri || ""}`.trim();
+  if (!uri) {
+    res.status(400).json({ error: "uri is required." });
+    return;
+  }
+  try {
+    await mopidyRpc("core.playlists.delete", { uri });
+    res.json({ ok: true, uri });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

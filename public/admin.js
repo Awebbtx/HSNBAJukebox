@@ -44,6 +44,11 @@ let slideshowDisplayFieldOptions = [...SLIDESHOW_DISPLAY_FIELD_OPTIONS];
 let asmKnownFieldNames = [];
 let specialPages = [];
 let audioAutomationSchedules = [];
+const playlistEditorState = {
+  uri: "",
+  name: "",
+  tracks: []
+};
 const AUDIO_AUTOMATION_TARGET_ACTIONS = {
   stream: ["start", "stop"],
   playback: ["play", "pause", "stop"],
@@ -121,6 +126,15 @@ const els = {
   refreshPlaylistsBtn:document.getElementById("refreshPlaylistsBtn"),
   playlistNameInput:  document.getElementById("playlistNameInput"),
   playlistList:       document.getElementById("playlistList"),
+  playlistEditorDialog: document.getElementById("playlistEditorDialog"),
+  playlistEditorTitle: document.getElementById("playlistEditorTitle"),
+  playlistEditorStatus: document.getElementById("playlistEditorStatus"),
+  playlistEditorNameInput: document.getElementById("playlistEditorNameInput"),
+  playlistEditorCount: document.getElementById("playlistEditorCount"),
+  playlistEditorTracks: document.getElementById("playlistEditorTracks"),
+  playlistEditorCloseBtn: document.getElementById("playlistEditorCloseBtn"),
+  playlistEditorSaveBtn: document.getElementById("playlistEditorSaveBtn"),
+  playlistEditorDeleteBtn: document.getElementById("playlistEditorDeleteBtn"),
 
   tabAccount: document.getElementById("tabAccount"),
   tabRequestAccess: document.getElementById("tabRequestAccess"),
@@ -223,7 +237,11 @@ const els = {
   spotifyStatusText: document.getElementById("spotifyStatusText"),
   spotifyAccountText: document.getElementById("spotifyAccountText"),
   spotifyRefreshBtn: document.getElementById("spotifyRefreshBtn"),
+  spotifyAuthBtn: document.getElementById("spotifyAuthBtn"),
   spotifyDetails: document.getElementById("spotifyDetails"),
+  spotifyMopidyClientIdInput: document.getElementById("spotifyMopidyClientIdInput"),
+  spotifyMopidyClientSecretInput: document.getElementById("spotifyMopidyClientSecretInput"),
+  spotifyApplyCredentialsBtn: document.getElementById("spotifyApplyCredentialsBtn"),
 
   asmStatusText: document.getElementById("asmStatusText"),
   asmDetailsText: document.getElementById("asmDetailsText"),
@@ -2220,6 +2238,164 @@ async function inspectAsmSettings() {
 }
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
+function ensurePlaylistEditorDialog() {
+  if (els.playlistEditorDialog) return;
+  const dialog = document.createElement("dialog");
+  dialog.id = "playlistEditorDialog";
+  dialog.className = "map-dialog playlist-editor-dialog";
+  dialog.innerHTML = `
+    <form method="dialog" class="map-dialog-form playlist-editor-form">
+      <div class="map-dialog-head">
+        <h3 id="playlistEditorTitle">Edit Playlist</h3>
+        <button id="playlistEditorCloseBtn" class="btn-sm" type="button">Close</button>
+      </div>
+      <p id="playlistEditorStatus" class="setting-desc">Loading playlist...</p>
+      <div class="setting-row stack playlist-editor-name-row">
+        <div class="setting-name">Playlist Name</div>
+        <input id="playlistEditorNameInput" type="text" maxlength="120" placeholder="Playlist name" />
+      </div>
+      <div class="setting-row stack playlist-editor-tracks-row">
+        <div class="setting-name">Tracks</div>
+        <div id="playlistEditorCount" class="setting-desc">0 tracks</div>
+        <ul id="playlistEditorTracks" class="req-list playlist-editor-tracks"></ul>
+      </div>
+      <div class="setting-form-actions playlist-editor-actions">
+        <button id="playlistEditorDeleteBtn" class="btn-sm danger" type="button">Delete Playlist</button>
+        <div class="playlist-editor-actions-right">
+          <button id="playlistEditorSaveBtn" class="btn-sm" type="button">Save Changes</button>
+        </div>
+      </div>
+    </form>
+  `;
+  document.body.append(dialog);
+  els.playlistEditorDialog = document.getElementById("playlistEditorDialog");
+  els.playlistEditorTitle = document.getElementById("playlistEditorTitle");
+  els.playlistEditorStatus = document.getElementById("playlistEditorStatus");
+  els.playlistEditorNameInput = document.getElementById("playlistEditorNameInput");
+  els.playlistEditorCount = document.getElementById("playlistEditorCount");
+  els.playlistEditorTracks = document.getElementById("playlistEditorTracks");
+  els.playlistEditorCloseBtn = document.getElementById("playlistEditorCloseBtn");
+  els.playlistEditorSaveBtn = document.getElementById("playlistEditorSaveBtn");
+  els.playlistEditorDeleteBtn = document.getElementById("playlistEditorDeleteBtn");
+
+  els.playlistEditorCloseBtn?.addEventListener("click", () => els.playlistEditorDialog?.close());
+  els.playlistEditorSaveBtn?.addEventListener("click", savePlaylistEditorChanges);
+  els.playlistEditorDeleteBtn?.addEventListener("click", deletePlaylistFromEditor);
+}
+
+function renderPlaylistEditorTracks() {
+  if (!els.playlistEditorTracks || !els.playlistEditorCount) return;
+  els.playlistEditorTracks.innerHTML = "";
+  if (!playlistEditorState.tracks.length) {
+    const li = document.createElement("li");
+    li.className = "req-item empty playlist-editor-track-empty";
+    li.textContent = "No tracks remain in this playlist.";
+    els.playlistEditorTracks.append(li);
+    els.playlistEditorCount.textContent = "0 tracks";
+    return;
+  }
+  playlistEditorState.tracks.forEach((track, displayIndex) => {
+    const li = document.createElement("li");
+    li.className = "req-item playlist-editor-track";
+    const artistText = Array.isArray(track.artists) && track.artists.length ? track.artists.join(", ") : "Unknown artist";
+    li.innerHTML = `
+      <div class="playlist-editor-track-main">
+        <span class="playlist-editor-track-name">${escapeHtml(`${displayIndex + 1}. ${track.name || "Unknown track"}`)}</span>
+        <span class="playlist-editor-track-meta">${escapeHtml(artistText)}</span>
+      </div>
+      <button class="q-btn danger" data-action="remove" type="button">✕</button>
+    `;
+    li.querySelector('[data-action="remove"]')?.addEventListener("click", () => {
+      playlistEditorState.tracks.splice(displayIndex, 1);
+      renderPlaylistEditorTracks();
+    });
+    els.playlistEditorTracks.append(li);
+  });
+  const count = playlistEditorState.tracks.length;
+  els.playlistEditorCount.textContent = `${count} track${count === 1 ? "" : "s"}`;
+}
+
+async function openPlaylistEditor(uri) {
+  ensurePlaylistEditorDialog();
+  playlistEditorState.uri = `${uri || ""}`.trim();
+  if (!playlistEditorState.uri) {
+    toast("Playlist URI is missing.", true);
+    return;
+  }
+  if (els.playlistEditorStatus) els.playlistEditorStatus.textContent = "Loading playlist details...";
+  if (els.playlistEditorTracks) els.playlistEditorTracks.innerHTML = "";
+  if (els.playlistEditorNameInput) els.playlistEditorNameInput.value = "";
+  if (typeof els.playlistEditorDialog?.showModal === "function") {
+    els.playlistEditorDialog.showModal();
+  }
+  try {
+    const data = await api(`/api/admin/playlists/details?uri=${encodeURIComponent(playlistEditorState.uri)}`);
+    playlistEditorState.name = `${data.playlist?.name || ""}`.trim() || "Untitled Playlist";
+    playlistEditorState.tracks = (data.tracks || []).map((track) => ({
+      ...track,
+      originalIndex: Number(track.index)
+    }));
+    if (els.playlistEditorTitle) {
+      els.playlistEditorTitle.textContent = `Edit Playlist: ${playlistEditorState.name}`;
+    }
+    if (els.playlistEditorStatus) {
+      els.playlistEditorStatus.textContent = "Remove tracks, rename the playlist, then click Save Changes.";
+    }
+    if (els.playlistEditorNameInput) {
+      els.playlistEditorNameInput.value = playlistEditorState.name;
+    }
+    renderPlaylistEditorTracks();
+  } catch (error) {
+    if (els.playlistEditorStatus) {
+      els.playlistEditorStatus.textContent = error.message;
+    }
+    toast(error.message, true);
+  }
+}
+
+async function savePlaylistEditorChanges() {
+  if (!playlistEditorState.uri) return;
+  const name = (els.playlistEditorNameInput?.value || "").trim();
+  if (!name) {
+    toast("Playlist name cannot be empty.", true);
+    return;
+  }
+  const keepIndexes = playlistEditorState.tracks
+    .map((track) => Number(track.originalIndex))
+    .filter((index) => Number.isInteger(index) && index >= 0);
+  try {
+    const result = await api("/api/admin/playlists/update", {
+      method: "POST",
+      body: JSON.stringify({
+        uri: playlistEditorState.uri,
+        name,
+        keepIndexes
+      })
+    });
+    toast(`Saved playlist (${result.trackCount} tracks)`);
+    els.playlistEditorDialog?.close();
+    await loadPlaylists();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function deletePlaylistFromEditor() {
+  if (!playlistEditorState.uri) return;
+  const targetName = (els.playlistEditorNameInput?.value || playlistEditorState.name || "this playlist").trim();
+  if (!window.confirm(`Delete ${targetName}? This cannot be undone.`)) {
+    return;
+  }
+  try {
+    await api(`/api/admin/playlists?uri=${encodeURIComponent(playlistEditorState.uri)}`, { method: "DELETE" });
+    toast("Playlist deleted");
+    els.playlistEditorDialog?.close();
+    await loadPlaylists();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 async function loadPlaylists() {
   try {
     const data = await api("/api/admin/playlists");
@@ -2238,12 +2414,14 @@ async function loadPlaylists() {
       li.innerHTML = `
         <span class="playlist-name">${escapeHtml(pl.name || pl.uri)}</span>
         <div class="playlist-btns">
-          <button class="q-btn" data-action="add" title="Add to end of queue">+ Add</button>
-          <button class="q-btn" data-action="replace" title="Clear queue then load">↺ Replace</button>
+          <button class="q-btn" data-action="edit" title="Edit saved playlist" aria-label="Edit playlist">✎</button>
+          <button class="q-btn" data-action="add" title="Add to end of queue" aria-label="Add playlist to queue">+</button>
+          <button class="q-btn danger" data-action="delete" title="Delete saved playlist" aria-label="Delete playlist">✕</button>
         </div>
       `;
       li.querySelector('[data-action="add"]').addEventListener("click", () => loadPlaylist(pl.uri, false));
-      li.querySelector('[data-action="replace"]').addEventListener("click", () => loadPlaylist(pl.uri, true));
+      li.querySelector('[data-action="edit"]').addEventListener("click", () => openPlaylistEditor(pl.uri));
+      li.querySelector('[data-action="delete"]').addEventListener("click", () => deletePlaylist(pl.uri, pl.name || pl.uri));
       els.playlistList.append(li);
     }
   } catch (e) { toast(e.message, true); }
@@ -2269,6 +2447,18 @@ async function loadPlaylist(uri, replace) {
     await loadQueue();
     toast(`Loaded ${result.added} track${result.added !== 1 ? "s" : ""}${replace ? " (replaced queue)" : ""}`);
   } catch (e) { toast(e.message, true); }
+}
+
+async function deletePlaylist(uri, name) {
+  const label = `${name || "this playlist"}`.trim();
+  if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+  try {
+    await api(`/api/admin/playlists?uri=${encodeURIComponent(uri)}`, { method: "DELETE" });
+    toast("Playlist deleted");
+    await loadPlaylists();
+  } catch (e) {
+    toast(e.message, true);
+  }
 }
 
 if (els.explicitToggle) {
@@ -2611,6 +2801,35 @@ if (els.spotifyRefreshBtn) {
   els.spotifyRefreshBtn.addEventListener("click", async () => {
     await loadSpotifySettings();
     toast("Spotify settings refreshed");
+  });
+}
+
+if (els.spotifyAuthBtn) {
+  els.spotifyAuthBtn.addEventListener("click", () => {
+    window.open("https://mopidy.com/ext/spotify/", "_blank", "noopener,noreferrer");
+  });
+}
+
+if (els.spotifyApplyCredentialsBtn) {
+  els.spotifyApplyCredentialsBtn.addEventListener("click", async () => {
+    const clientId = (els.spotifyMopidyClientIdInput?.value || "").trim();
+    const clientSecret = (els.spotifyMopidyClientSecretInput?.value || "").trim();
+    if (!clientId || !clientSecret) {
+      toast("Paste both Client ID and Client Secret from mopidy.com/ext/spotify first.", true);
+      return;
+    }
+    try {
+      const result = await api("/api/admin/settings/spotify/mopidy-credentials", {
+        method: "POST",
+        body: JSON.stringify({ clientId, clientSecret })
+      });
+      if (els.spotifyMopidyClientIdInput) els.spotifyMopidyClientIdInput.value = "";
+      if (els.spotifyMopidyClientSecretInput) els.spotifyMopidyClientSecretInput.value = "";
+      toast(result.message || "Mopidy credentials applied and Mopidy restarted.");
+      await loadSpotifySettings();
+    } catch (e) {
+      toast(e.message, true);
+    }
   });
 }
 

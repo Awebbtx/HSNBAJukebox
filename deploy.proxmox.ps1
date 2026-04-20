@@ -29,8 +29,12 @@ function Test-SshTarget {
     [string]$TargetHost
   )
 
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "SilentlyContinue"
   ssh -i $SshKeyPath -o BatchMode=yes -o ConnectTimeout=8 "${SshUser}@${TargetHost}" "true" *> $null
-  return $LASTEXITCODE -eq 0
+  $result = $LASTEXITCODE -eq 0
+  $ErrorActionPreference = $prev
+  return $result
 }
 
 function Find-ReachableContainerHost {

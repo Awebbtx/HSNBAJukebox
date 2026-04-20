@@ -214,6 +214,7 @@
               <div id="spotifyStatusText" class="setting-desc">Reading Spotify backend status from Mopidy.</div>
             </div>
             <div class="setting-form-actions">
+              <button id="spotifyAuthBtn" class="btn-sm" type="button">Auth / Re-auth</button>
               <button id="spotifyRefreshBtn" class="btn-sm">Refresh</button>
             </div>
           </div>
@@ -231,6 +232,19 @@
               <div class="setting-desc">These values come from the Mopidy server configuration and runtime capabilities.</div>
             </div>
             <div id="spotifyDetails" class="inline-list"></div>
+          </div>
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Apply Mopidy-Spotify Credentials</div>
+              <div class="setting-desc">Click <strong>Auth / Re-auth</strong> above to open mopidy.com/ext/spotify. After the popup closes, paste the <code>client_id</code> and <code>client_secret</code> values shown on that page here, then click <strong>Apply</strong>. This writes them to <code>mopidy.conf</code> and restarts Mopidy.</div>
+            </div>
+            <div class="setting-form-grid">
+              <input id="spotifyMopidyClientIdInput" type="text" placeholder="client_id (UUID from mopidy.com/ext/spotify)" autocomplete="off" />
+              <input id="spotifyMopidyClientSecretInput" type="password" placeholder="client_secret (base64 from mopidy.com/ext/spotify)" autocomplete="new-password" />
+            </div>
+            <div class="setting-form-actions">
+              <button id="spotifyApplyCredentialsBtn" class="btn-sm" type="button">Apply Credentials</button>
+            </div>
           </div>
         </div>
 
