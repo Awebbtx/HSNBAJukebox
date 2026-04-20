@@ -2267,6 +2267,20 @@ function saveLinkedReports() {
   }
 }
 
+function invalidateLinkedReportDataCache(reportId = "") {
+  const id = `${reportId || ""}`.trim();
+  if (!id) {
+    state.linkedReportDataCache.clear();
+    return;
+  }
+  const prefix = `${id}:`;
+  for (const key of state.linkedReportDataCache.keys()) {
+    if (`${key || ""}`.startsWith(prefix)) {
+      state.linkedReportDataCache.delete(key);
+    }
+  }
+}
+
 function extractAsmRetryHint(error) {
   const message = `${error?.message || ""}`;
   const untilMatch = message.match(/until\s+'([^']+)'/i);
@@ -6092,7 +6106,11 @@ app.get("/api/admin/reporting/linked-reports/:id/data", requireAdmin, requireRep
     const REPORT_DATA_CACHE_TTL_MS = 5 * 60 * 1000;
     const cached = state.linkedReportDataCache.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < REPORT_DATA_CACHE_TTL_MS) {
-      return res.json(cached.payload);
+      return res.json({
+        ...cached.payload,
+        report: reportMeta,
+        sourceMethod: `json_report:${report.asmReportTitle}`
+      });
     }
 
     const rawRows = await fetchAsmRowsForMethod("json_report", extraParams);
@@ -6128,6 +6146,7 @@ app.patch("/api/admin/reporting/linked-reports/:id", requireAdmin, requireReport
   const updated = sanitizeLinkedReport({ ...existing, ...req.body, id: existing.id, createdAt: existing.createdAt });
   state.linkedReports[idx] = updated;
   saveLinkedReports();
+  invalidateLinkedReportDataCache(id);
   res.json({ ok: true, report: updated });
 });
 
@@ -6139,6 +6158,7 @@ app.delete("/api/admin/reporting/linked-reports/:id", requireAdmin, requireRepor
   }
   state.linkedReports.splice(idx, 1);
   saveLinkedReports();
+  invalidateLinkedReportDataCache(id);
   res.json({ ok: true });
 });
 
