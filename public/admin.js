@@ -963,13 +963,14 @@ async function loadQueue() {
     const li = document.createElement("li");
     li.className = "q-item";
     const byline = [item.artists, item.album].filter(Boolean).join(" • ");
+    const explicitTag = item.explicit ? '<span class="req-tag">[E]</span>' : "";
     const reqTag = item.requestedBy
       ? `<span class="req-tag">• Added by ${escapeHtml(item.requestedBy)}</span>`
       : "";
     li.innerHTML = `
       <span class="q-num">${idx + 1}</span>
       <div class="q-info">
-        <div class="q-title">${escapeHtml(item.name)}</div>
+        <div class="q-title">${escapeHtml(item.name)} ${explicitTag}</div>
         <div class="q-meta">${escapeHtml(byline)} ${reqTag}</div>
       </div>
       <div class="q-btns">

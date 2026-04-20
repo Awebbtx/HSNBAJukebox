@@ -44,6 +44,7 @@ const SESSION_SECRET = `${process.env.SESSION_SECRET || ""}`.trim();
 const ADMIN_SESSION_TTL_HOURS = Math.max(1, Number(process.env.ADMIN_SESSION_TTL_HOURS || 12));
 const ACCOUNT_INVITE_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_INVITE_TTL_HOURS || 72));
 const ACCOUNT_RESET_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_RESET_TTL_HOURS || 2));
+const SPOTIFY_EXPLICIT_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_EXPLICIT_CACHE_TTL_MS || 6 * 60 * 60 * 1000));
 if (!SESSION_SECRET) {
   console.warn("WARNING: SESSION_SECRET is not set. Admin sessions will not be valid across process restarts or between jukebox/reporting processes.");
 }
@@ -354,6 +355,10 @@ const state = {
   userDb: null,
   adminDb: null,
   lastKnownCurrentTrackUri: null,
+  spotifyExplicitByTrackId: new Map(),
+  explicitAutoSkipInProgress: false,
+  lastExplicitAutoSkippedUri: "",
+  lastExplicitAutoSkippedAt: 0,
   explicitFilter: EXPLICIT_FILTER_ENABLED,
   audioAutomation: {
     streamDeliveryEnabled: true,
@@ -3349,6 +3354,111 @@ function mapMopidyTrack(track = {}) {
   };
 }
 
+function getSpotifyTrackIdFromUri(uri = "") {
+  const match = `${uri || ""}`.trim().match(/^spotify:track:([A-Za-z0-9]+)$/);
+  return match ? match[1] : "";
+}
+
+async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
+  const ids = [...new Set((trackIds || []).filter(Boolean))];
+  if (!ids.length || !state.tokens?.access_token) {
+    return;
+  }
+
+  const now = Date.now();
+  const staleIds = ids.filter((id) => {
+    const cached = state.spotifyExplicitByTrackId.get(id);
+    return !cached || (now - Number(cached.checkedAt || 0)) > SPOTIFY_EXPLICIT_CACHE_TTL_MS;
+  });
+
+  if (!staleIds.length) {
+    return;
+  }
+
+  const accessToken = await getValidAccessToken();
+  for (let i = 0; i < staleIds.length; i += 50) {
+    const batch = staleIds.slice(i, i + 50);
+    const data = await spotifyApiRequest({
+      accessToken,
+      method: "GET",
+      path: "/tracks",
+      query: { ids: batch.join(",") }
+    });
+    for (const track of data?.tracks || []) {
+      if (!track?.id) continue;
+      state.spotifyExplicitByTrackId.set(track.id, {
+        explicit: Boolean(track.explicit),
+        checkedAt: Date.now()
+      });
+    }
+  }
+}
+
+async function applySpotifyExplicitToTracks(tracks = []) {
+  const list = Array.isArray(tracks) ? tracks : [];
+  const ids = list
+    .map((track) => getSpotifyTrackIdFromUri(track?.uri || ""))
+    .filter(Boolean);
+
+  if (!ids.length) {
+    return list;
+  }
+
+  try {
+    await hydrateSpotifyExplicitCacheForTrackIds(ids);
+  } catch {
+    // Keep existing explicit values if Spotify enrichment is unavailable.
+  }
+
+  return list.map((track) => {
+    const id = getSpotifyTrackIdFromUri(track?.uri || "");
+    if (!id) return track;
+    const cached = state.spotifyExplicitByTrackId.get(id);
+    if (!cached) return track;
+    return {
+      ...track,
+      explicit: Boolean(cached.explicit)
+    };
+  });
+}
+
+async function enforceExplicitAutoSkip() {
+  if (!state.explicitFilter || state.explicitAutoSkipInProgress) {
+    return;
+  }
+
+  state.explicitAutoSkipInProgress = true;
+  try {
+    const [playbackState, currentTrack] = await Promise.all([
+      mopidyRpc("core.playback.get_state"),
+      mopidyRpc("core.playback.get_current_track")
+    ]);
+
+    if (playbackState !== "playing" || !currentTrack?.uri) {
+      return;
+    }
+
+    const [enriched] = await applySpotifyExplicitToTracks([mapMopidyTrack(currentTrack)]);
+    if (!enriched?.explicit) {
+      return;
+    }
+
+    const now = Date.now();
+    if (state.lastExplicitAutoSkippedUri === enriched.uri && (now - state.lastExplicitAutoSkippedAt) < 3000) {
+      return;
+    }
+
+    await mopidyRpc("core.playback.next");
+    state.lastExplicitAutoSkippedUri = enriched.uri;
+    state.lastExplicitAutoSkippedAt = now;
+    console.log(`Auto-skipped explicit track: ${enriched.name || enriched.uri}`);
+  } catch {
+    // Ignore transient errors in background auto-skip checks.
+  } finally {
+    state.explicitAutoSkipInProgress = false;
+  }
+}
+
 function mapQueueTrack(entry = {}) {
   const mapped = mapMopidyTrack(entry.track || {});
   const meta = state.requestMetaByTlid.get(entry.tlid) || null;
@@ -3457,6 +3567,14 @@ const cleanupTimer = setInterval(() => {
 }, 60000);
 
 cleanupTimer.unref();
+
+const explicitAutoSkipTimer = setInterval(() => {
+  enforceExplicitAutoSkip().catch(() => {
+    // Ignore auto-skip loop failures; next tick will retry.
+  });
+}, 5000);
+
+explicitAutoSkipTimer.unref();
 
 const adminDbSnapshotTimer = setInterval(() => {
   try {
@@ -7143,13 +7261,14 @@ app.get("/api/admin/playback/state", requireAdmin, requireJukeboxPlaybackAdmin, 
       mopidyRpc("core.mixer.get_volume")
     ]);
     const mapped = currentTrack ? mapMopidyTrack(currentTrack) : null;
+    const [enrichedCurrent] = mapped ? await applySpotifyExplicitToTracks([mapped]) : [null];
     if (mapped?.uri && mapped.uri !== state.lastKnownCurrentTrackUri) {
       state.lastKnownCurrentTrackUri = mapped.uri;
       recordTrackStat(mapped.uri, mapped.name, mapped.artists, mapped.album, "playCount");
     }
     res.json({
       state: playbackState || "stopped",
-      current: mapped,
+      current: enrichedCurrent,
       positionMs: position || 0,
       volume: volume ?? 80
     });
@@ -7217,7 +7336,7 @@ app.post("/api/admin/volume", requireAdmin, requireJukeboxPlaybackAdmin, async (
 app.get("/api/admin/queue", requireAdmin, requireJukeboxQueueAdmin, async (_req, res) => {
   try {
     const tlTracks = await mopidyRpc("core.tracklist.get_tl_tracks");
-    const queue = (tlTracks || []).map(mapQueueTrack);
+    const queue = await applySpotifyExplicitToTracks((tlTracks || []).map(mapQueueTrack));
     res.json({ queue });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -7442,19 +7561,24 @@ app.get("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, async
       mopidyRpc("core.tracklist.get_tl_tracks")
     ]);
 
-    const queue = (tlTracks || []).map((entry) => {
+    const queueBase = (tlTracks || []).map((entry) => {
       const mapped = mapQueueTrack(entry);
       return {
         ...mapped,
         userVote: staffId ? getUserVoteForTrack(staffId, mapped.uri || "") : 0
       };
     });
+    const queue = await applySpotifyExplicitToTracks(queueBase);
     const currentUri = currentTrack?.uri || "";
-    const current = currentUri ? queue.find((item) => item.uri === currentUri) || {
+    const currentFallback = currentUri ? {
       ...mapMopidyTrack(currentTrack),
       ...getTrackVoteSummary(currentUri),
       userVote: staffId ? getUserVoteForTrack(staffId, currentUri) : 0
     } : null;
+    const [enrichedFallbackCurrent] = currentFallback
+      ? await applySpotifyExplicitToTracks([currentFallback])
+      : [null];
+    const current = currentUri ? queue.find((item) => item.uri === currentUri) || enrichedFallbackCurrent : null;
 
     res.json({
       current,
@@ -7474,13 +7598,19 @@ app.get("/api/display/queue", async (_req, res) => {
       mopidyRpc("core.tracklist.get_tl_tracks")
     ]);
 
-    const queue = (tlTracks || []).map(mapQueueTrack);
+    const queue = await applySpotifyExplicitToTracks((tlTracks || []).map(mapQueueTrack));
     const currentUri = currentTrack?.uri || "";
-    const current = currentUri
-      ? queue.find((item) => item.uri === currentUri) || {
+    const fallbackCurrent = currentUri
+      ? {
         ...mapMopidyTrack(currentTrack),
         ...getTrackVoteSummary(currentUri)
       }
+      : null;
+    const [enrichedFallbackCurrent] = fallbackCurrent
+      ? await applySpotifyExplicitToTracks([fallbackCurrent])
+      : [null];
+    const current = currentUri
+      ? queue.find((item) => item.uri === currentUri) || enrichedFallbackCurrent
       : null;
 
     const upNext = current?.uri ? queue.filter((item) => item.uri !== current.uri).slice(0, 8) : queue.slice(0, 8);
@@ -7599,6 +7729,14 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
       return;
     }
 
+    if (state.explicitFilter) {
+      const [candidate] = await applySpotifyExplicitToTracks([{ uri, explicit: false }]);
+      if (candidate?.explicit) {
+        res.status(403).json({ error: "Explicit songs are currently blocked by admin settings." });
+        return;
+      }
+    }
+
     const added = await mopidyRpc("core.tracklist.add", { uris: [uri] });
     const createdAt = new Date().toISOString();
     const result = (added || []).map((entry) => {
@@ -7616,12 +7754,13 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
         userVote: staff ? getUserVoteForTrack(staff.id, mappedTrack.uri || "") : 0
       };
     });
+    const enrichedResult = await applySpotifyExplicitToTracks(result);
 
     if (staff) {
       incrementDailyRequestsUsed(staff.id);
     }
 
-    res.status(201).json({ ok: true, items: result });
+    res.status(201).json({ ok: true, items: enrichedResult });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -8049,6 +8188,11 @@ app.post("/api/admin/explicit", requireAdmin, (req, res) => {
   const { enabled } = req.body || {};
   state.explicitFilter = Boolean(enabled);
   persistEnvSetting("EXPLICIT_FILTER_ENABLED", state.explicitFilter ? "true" : "false");
+  if (state.explicitFilter) {
+    enforceExplicitAutoSkip().catch(() => {
+      // Best-effort immediate check when enabling the filter.
+    });
+  }
   res.json({ ok: true, explicitFilter: state.explicitFilter });
 });
 

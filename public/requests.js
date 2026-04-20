@@ -113,9 +113,11 @@ function toQueueItem(track, showAddButton = false) {
     byline.push(formatDuration(track.durationMs));
   }
 
+  const title = `${track.name || "Unknown"}${track.explicit ? " [E]" : ""}`;
+
   li.innerHTML = `
     <div>
-      <div class="track-title">${escapeHtml(track.name || "Unknown")}</div>
+      <div class="track-title">${escapeHtml(title)}</div>
       <div class="track-meta">${escapeHtml(byline.join(" • "))}</div>
       ${track.requestedBy ? `<div class="tag">Added by ${escapeHtml(track.requestedBy)}</div>` : ""}
       <div class="track-meta">👍 ${Number(track.upvotes || 0)} • 👎 ${Number(track.downvotes || 0)}</div>
@@ -189,8 +191,9 @@ async function loadQueue() {
   const current = result.current;
   if (current && current.name) {
     els.currentTrack.classList.remove("empty");
+    const currentTitle = `${current.name}${current.explicit ? " [E]" : ""}`;
     els.currentTrack.innerHTML = `
-      <div class="track-title">${escapeHtml(current.name)}</div>
+      <div class="track-title">${escapeHtml(currentTitle)}</div>
       <div class="track-meta">${escapeHtml(current.artists || "Unknown artist")}</div>
       ${current.requestedBy ? `<div class="tag">Requested by ${escapeHtml(current.requestedBy)}</div>` : ""}
     `;

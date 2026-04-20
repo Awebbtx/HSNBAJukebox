@@ -44,7 +44,8 @@ async function loadDisplay() {
     els.albumArt.alt = "Album art";
     els.albumArt.parentElement.classList.remove("has-image");
   } else {
-    els.trackTitle.textContent = current.name || "Unknown track";
+    const currentTitle = `${current.name || "Unknown track"}${current.explicit ? " [E]" : ""}`;
+    els.trackTitle.textContent = currentTitle;
     els.trackMeta.textContent = fmtTrackMeta(current);
 
     if (current.imageUrl) {
@@ -72,8 +73,9 @@ async function loadDisplay() {
   for (const track of upNext) {
     const li = document.createElement("li");
     li.className = "item";
+    const title = `${track.name || "Unknown track"}${track.explicit ? " [E]" : ""}`;
     li.innerHTML = `
-      <div class="track-title">${escapeHtml(track.name || "Unknown track")}</div>
+      <div class="track-title">${escapeHtml(title)}</div>
       <div class="track-meta">${escapeHtml(fmtTrackMeta(track))}</div>
     `;
     els.upNextList.append(li);
