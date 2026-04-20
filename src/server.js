@@ -3604,6 +3604,34 @@ app.get("/api/account/action", (req, res) => {
   });
 });
 
+app.post("/api/account/password-reset-request", async (req, res) => {
+  const usernameResult = normalizeEmailUsername(req.body?.username, { requireValid: true });
+  const genericMessage = "If that account exists, a password reset email has been sent.";
+
+  if (!usernameResult.ok) {
+    res.json({ ok: true, message: genericMessage });
+    return;
+  }
+
+  try {
+    loadAdminDb();
+    const user = findUserByUsername(usernameResult.email);
+    if (user && isUserAdmin(user) && user.active !== false) {
+      await sendAccountActionEmail({
+        req,
+        targetUser: user,
+        action: "reset",
+        actor: null
+      });
+      logAdminHistory(user.id, "password-reset-request", `Self-service password reset requested for ${user.username}`);
+    }
+  } catch (error) {
+    console.warn(`Password reset request failed: ${error.message}`);
+  }
+
+  res.json({ ok: true, message: genericMessage });
+});
+
 app.post("/api/account/action/complete", (req, res) => {
   const token = `${req.body?.token || ""}`.trim();
   const password = `${req.body?.password || ""}`;

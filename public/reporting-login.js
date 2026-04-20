@@ -3,6 +3,7 @@ const usernameInput = document.getElementById("usernameInput");
 const passwordInput = document.getElementById("passwordInput");
 const statusText = document.getElementById("statusText");
 const loginBtn = document.getElementById("loginBtn");
+const forgotPasswordBtn = document.getElementById("forgotPasswordBtn");
 
 async function api(url, opts = {}) {
   const res = await fetch(url, {
@@ -56,6 +57,28 @@ form?.addEventListener("submit", async (event) => {
     setStatus(error.message || "Sign-in failed.", true);
   } finally {
     loginBtn.disabled = false;
+  }
+});
+
+forgotPasswordBtn?.addEventListener("click", async () => {
+  const username = `${usernameInput?.value || ""}`.trim();
+  if (!username) {
+    setStatus("Enter your email username, then click Forgot password again.", true);
+    return;
+  }
+
+  forgotPasswordBtn.disabled = true;
+  setStatus("Sending password reset email...");
+  try {
+    const result = await api("/api/account/password-reset-request", {
+      method: "POST",
+      body: JSON.stringify({ username })
+    });
+    setStatus(result.message || "If that account exists, a password reset email has been sent.");
+  } catch (error) {
+    setStatus(error.message || "Unable to request password reset.", true);
+  } finally {
+    forgotPasswordBtn.disabled = false;
   }
 });
 

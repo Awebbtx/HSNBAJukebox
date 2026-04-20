@@ -43,6 +43,22 @@
         gap: 0.7rem;
         margin-top: 0.8rem;
       }
+      .login-links {
+        margin-top: 0.5rem;
+        display: flex;
+        justify-content: flex-start;
+      }
+      .text-link {
+        border: 0;
+        background: transparent;
+        color: var(--accent);
+        font: 600 0.9rem/1 "Outfit", sans-serif;
+        padding: 0;
+        cursor: pointer;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .text-link:hover { color: var(--accent-d); }
       .btn-primary {
         border: 0;
         border-radius: 10px;
@@ -76,6 +92,9 @@
         <div class="login-actions">
           <button class="btn-primary" type="submit" id="loginBtn">Sign In</button>
           <span id="statusText" class="status" aria-live="polite"></span>
+        </div>
+        <div class="login-links">
+          <button type="button" class="text-link" id="forgotPasswordBtn">Forgot password?</button>
         </div>
       </form>
     </main>
