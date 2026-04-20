@@ -3378,20 +3378,63 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
   const accessToken = await getValidAccessToken();
   for (let i = 0; i < staleIds.length; i += 50) {
     const batch = staleIds.slice(i, i + 50);
-    const data = await spotifyApiRequest({
-      accessToken,
-      method: "GET",
-      path: "/tracks",
-      query: { ids: batch.join(",") }
-    });
-    for (const track of data?.tracks || []) {
-      if (!track?.id) continue;
-      state.spotifyExplicitByTrackId.set(track.id, {
-        explicit: Boolean(track.explicit),
-        checkedAt: Date.now()
+    try {
+      const data = await spotifyApiRequest({
+        accessToken,
+        method: "GET",
+        path: "/tracks",
+        query: { ids: batch.join(",") }
       });
+      for (const track of data?.tracks || []) {
+        if (!track?.id) continue;
+        state.spotifyExplicitByTrackId.set(track.id, {
+          explicit: Boolean(track.explicit),
+          checkedAt: Date.now()
+        });
+      }
+    } catch {
+      // Some environments reject /tracks lookups; fall back to search below.
+    }
+
+    const unresolved = batch.filter((id) => !state.spotifyExplicitByTrackId.has(id));
+    for (const id of unresolved) {
+      try {
+        const searchData = await spotifyApiRequest({
+          accessToken,
+          method: "GET",
+          path: "/search",
+          query: { q: `track:${id}`, type: "track", limit: "5", market: "from_token" }
+        });
+        const hit = (searchData?.tracks?.items || []).find((item) => `${item?.id || ""}` === id);
+        if (!hit) continue;
+        state.spotifyExplicitByTrackId.set(id, {
+          explicit: Boolean(hit.explicit),
+          checkedAt: Date.now()
+        });
+      } catch {
+        // Keep unresolved; caller can decide whether strict blocking is needed.
+      }
     }
   }
+}
+
+async function getSpotifyExplicitForUri(uri = "") {
+  const trackId = getSpotifyTrackIdFromUri(uri);
+  if (!trackId || !state.tokens?.access_token) {
+    return null;
+  }
+
+  try {
+    await hydrateSpotifyExplicitCacheForTrackIds([trackId]);
+  } catch {
+    return null;
+  }
+
+  const cached = state.spotifyExplicitByTrackId.get(trackId);
+  if (!cached) {
+    return null;
+  }
+  return Boolean(cached.explicit);
 }
 
 async function applySpotifyExplicitToTracks(tracks = []) {
@@ -7730,8 +7773,12 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
     }
 
     if (state.explicitFilter) {
-      const [candidate] = await applySpotifyExplicitToTracks([{ uri, explicit: false }]);
-      if (candidate?.explicit) {
+      const explicit = await getSpotifyExplicitForUri(uri);
+      if (explicit === null) {
+        res.status(503).json({ error: "Could not verify explicit status right now. Please re-auth Spotify and retry." });
+        return;
+      }
+      if (explicit) {
         res.status(403).json({ error: "Explicit songs are currently blocked by admin settings." });
         return;
       }
