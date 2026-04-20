@@ -327,7 +327,8 @@ a.top-brand:hover .brand-name {
 
 .status-hud {
   position: fixed;
-  left: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
   bottom: calc(50px + 1rem);
   z-index: 8;
   width: min(450px, calc(100vw - 1.5rem));
@@ -427,6 +428,7 @@ a.top-brand:hover .brand-name {
 
   .status-hud {
     position: static;
+    transform: none;
     margin: 0 auto 1rem;
     width: min(1000px, 97vw);
   }
