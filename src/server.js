@@ -8038,41 +8038,76 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
     return;
   }
   const playlistId = idMatch[1];
+  const remotePlaylistUri = `spotify:playlist:${playlistId}`;
   try {
     const accessToken = await getValidAccessToken();
     if (!accessToken) {
       res.status(503).json({ error: "Spotify is not authenticated. Complete OAuth at /auth/login first." });
       return;
     }
-    const playlistData = await spotifyApiRequest({
-      accessToken,
-      method: "GET",
-      path: `/playlists/${playlistId}`,
-      query: { market: "US" }
-    });
-    const name = playlistData?.name || playlistId;
+    let name = playlistId;
+    let total = 0;
+    let tracks = [];
 
-    const tracksData = await spotifyApiRequest({
-      accessToken,
-      method: "GET",
-      path: `/playlists/${playlistId}/tracks`,
-      query: { market: "US", limit: 50 }
-    });
+    // Primary path: Spotify Web API
+    try {
+      const playlistData = await spotifyApiRequest({
+        accessToken,
+        method: "GET",
+        path: `/playlists/${playlistId}`,
+        query: { market: "US" }
+      });
+      name = playlistData?.name || name;
+      total = Number(playlistData?.tracks?.total) || total;
 
-    const rawItems = tracksData?.items || [];
-    const tracks = rawItems
-      .map((item) => item?.track || item?.item)
-      .filter((t) => t?.uri && t.uri.startsWith("spotify:track:"))
-      .map((t) => ({
-        uri: t.uri,
-        name: t.name || "Unknown",
-        artists: (t.artists || []).map((a) => a.name).filter(Boolean)
-      }));
+      const tracksData = await spotifyApiRequest({
+        accessToken,
+        method: "GET",
+        path: `/playlists/${playlistId}/items`,
+        query: { market: "US", limit: 50 }
+      });
+
+      const rawItems = tracksData?.items || [];
+      tracks = rawItems
+        .map((item) => item?.track || item?.item)
+        .filter((t) => t?.uri && t.uri.startsWith("spotify:track:"))
+        .map((t) => ({
+          uri: t.uri,
+          name: t.name || "Unknown",
+          artists: (t.artists || []).map((a) => a.name).filter(Boolean)
+        }));
+      total = Number(tracksData?.total) || total || tracks.length;
+    } catch {
+      // Fallback path below handles environments where Spotify items API returns 403.
+    }
+
+    // Fallback path: ask Mopidy-Spotify to resolve the shared playlist URI.
     if (!tracks.length) {
-      res.status(400).json({ error: `Playlist "${name}" has no playable tracks (or may be private/empty).` });
+      try {
+        const lookedUp = await mopidyRpc("core.playlists.lookup", { uri: remotePlaylistUri });
+        if (lookedUp?.name) name = lookedUp.name;
+        const mopidyResolved = Array.isArray(lookedUp?.tracks) ? lookedUp.tracks : [];
+        tracks = mopidyResolved
+          .filter((t) => t?.uri && `${t.uri}`.startsWith("spotify:track:"))
+          .map((t) => ({
+            uri: t.uri,
+            name: t.name || "Unknown",
+            artists: Array.isArray(t?.artists) ? t.artists.map((a) => a?.name).filter(Boolean) : []
+          }));
+        total = total || tracks.length;
+      } catch {
+        // Final error handling below reports if both strategies fail.
+      }
+    }
+
+    if (!tracks.length) {
+      res.status(400).json({
+        error: `Playlist "${name}" has no playable tracks, or Spotify blocked item reads for this app/user.`,
+        hint: "Try /auth/login again, then retry. If it still fails, verify the playlist has Spotify tracks (not local files) and Mopidy-Spotify can open spotify:playlist URIs."
+      });
       return;
     }
-    // Save as a Mopidy playlist — tracks only need uri field
+
     const mopidyTracks = tracks.map((t) => ({ uri: t.uri }));
     const playlist = await mopidyRpc("core.playlists.create", { name });
     if (!playlist) {
@@ -8080,11 +8115,11 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
       return;
     }
     const saved = await mopidyRpc("core.playlists.save", { playlist: { ...playlist, tracks: mopidyTracks } });
-    res.json({ ok: true, playlistId, name, uri: saved?.uri || playlist.uri, total: tracksData?.total || playlistData?.tracks?.total || tracks.length, saved: mopidyTracks.length, tracks });
+    res.json({ ok: true, playlistId, sourceUri: remotePlaylistUri, name, uri: saved?.uri || playlist.uri, total: total || tracks.length, saved: mopidyTracks.length, tracks });
   } catch (err) {
     const msg = err?.message || "Unknown error";
     if (msg.includes("401") || msg.includes("403")) {
-      res.status(503).json({ error: "Spotify authentication failed or is missing playlist-read scope. Re-authenticate at /auth/login." });
+      res.status(503).json({ error: "Spotify authentication failed. Re-authenticate at /auth/login and retry import." });
     } else if (msg.includes("404")) {
       res.status(404).json({ error: "Playlist not found. It may be private or the ID is invalid." });
     } else {
