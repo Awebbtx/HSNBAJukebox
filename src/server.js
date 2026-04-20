@@ -8048,6 +8048,7 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
     let name = playlistId;
     let total = 0;
     let tracks = [];
+    let saveTracks = [];
 
     // Primary path: Spotify Web API
     try {
@@ -8077,6 +8078,18 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
           artists: (t.artists || []).map((a) => a.name).filter(Boolean)
         }));
       total = Number(tracksData?.total) || total || tracks.length;
+
+      if (tracks.length) {
+        const uriList = tracks.map((t) => t.uri);
+        const lookedUpByUri = await mopidyRpc("core.library.lookup", { uris: uriList });
+        saveTracks = uriList
+          .map((uri) => {
+            const entry = lookedUpByUri?.[uri];
+            if (Array.isArray(entry) && entry.length) return entry[0];
+            return null;
+          })
+          .filter((t) => t?.uri);
+      }
     } catch {
       // Fallback path below handles environments where Spotify items API returns 403.
     }
@@ -8087,6 +8100,7 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
         const lookedUp = await mopidyRpc("core.playlists.lookup", { uri: remotePlaylistUri });
         if (lookedUp?.name) name = lookedUp.name;
         const mopidyResolved = Array.isArray(lookedUp?.tracks) ? lookedUp.tracks : [];
+        saveTracks = mopidyResolved.filter((t) => t?.uri && `${t.uri}`.startsWith("spotify:track:"));
         tracks = mopidyResolved
           .filter((t) => t?.uri && `${t.uri}`.startsWith("spotify:track:"))
           .map((t) => ({
@@ -8108,14 +8122,24 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
       return;
     }
 
-    const mopidyTracks = tracks.map((t) => ({ uri: t.uri }));
+    const mopidyTracks = (Array.isArray(saveTracks) && saveTracks.length)
+      ? saveTracks
+      : tracks.map((t) => ({ uri: t.uri }));
     const playlist = await mopidyRpc("core.playlists.create", { name });
     if (!playlist) {
       res.status(502).json({ error: "Mopidy could not create a playlist. Check Mopidy connection." });
       return;
     }
     const saved = await mopidyRpc("core.playlists.save", { playlist: { ...playlist, tracks: mopidyTracks } });
-    res.json({ ok: true, playlistId, sourceUri: remotePlaylistUri, name, uri: saved?.uri || playlist.uri, total: total || tracks.length, saved: mopidyTracks.length, tracks });
+    const savedCount = Array.isArray(saved?.tracks) ? saved.tracks.length : mopidyTracks.length;
+    if (!savedCount) {
+      res.status(502).json({
+        error: `Imported playlist "${name}" but no tracks were saved by Mopidy.`,
+        hint: "Mopidy Spotify could not resolve the track entries for saving."
+      });
+      return;
+    }
+    res.json({ ok: true, playlistId, sourceUri: remotePlaylistUri, name, uri: saved?.uri || playlist.uri, total: total || tracks.length, saved: savedCount, tracks });
   } catch (err) {
     const msg = err?.message || "Unknown error";
     if (msg.includes("401") || msg.includes("403")) {
