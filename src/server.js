@@ -7381,15 +7381,43 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
   }
 
   try {
-    const result = await mopidyRpc("core.library.search", {
-      query: { any: [q] },
-      uris: ["spotify:"]
-    });
+    let tracks = [];
 
-    const tracks = [];
-    for (const bucket of result || []) {
-      for (const track of bucket.tracks || []) {
-        tracks.push(mapMopidyTrack(track));
+    // Use Spotify Web API when a token is available — it reliably returns the
+    // `explicit` field needed for the explicit filter.
+    if (state.tokens?.access_token) {
+      try {
+        const spotifyResult = await spotify({
+          path: "/search",
+          query: { q, type: "track", limit: "40", market: "from_token" }
+        });
+        for (const item of spotifyResult?.tracks?.items || []) {
+          let imageUrl = item.album?.images?.[0]?.url || "";
+          tracks.push({
+            uri: item.uri,
+            name: item.name || "Unknown track",
+            album: item.album?.name || "",
+            artists: (item.artists || []).map((a) => a.name).join(", "),
+            durationMs: Number(item.duration_ms || 0),
+            explicit: Boolean(item.explicit),
+            imageUrl
+          });
+        }
+      } catch (_spotifyErr) {
+        // Spotify search failed — fall through to Mopidy
+      }
+    }
+
+    // Fallback: Mopidy search (explicit field will always be false here)
+    if (tracks.length === 0) {
+      const result = await mopidyRpc("core.library.search", {
+        query: { any: [q] },
+        uris: ["spotify:"]
+      });
+      for (const bucket of result || []) {
+        for (const track of bucket.tracks || []) {
+          tracks.push(mapMopidyTrack(track));
+        }
       }
     }
 
