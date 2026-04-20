@@ -7806,11 +7806,8 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
 
     if (state.explicitFilter) {
       const explicit = await getSpotifyExplicitForUri(uri);
-      if (explicit === null) {
-        res.status(503).json({ error: "Could not verify explicit status right now. Please re-auth Spotify and retry." });
-        return;
-      }
-      if (explicit) {
+      // Only block when Spotify confirms explicit=true. If lookup fails (null), allow through.
+      if (explicit === true) {
         res.status(403).json({ error: "Explicit songs are currently blocked by admin settings." });
         return;
       }
@@ -8541,18 +8538,11 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
 
     let blockedExplicit = 0;
     if (state.explicitFilter) {
-      const { explicitByUri, unresolvedUris } = await evaluateSpotifyExplicitForUris(uris);
-      if (unresolvedUris.length) {
-        res.status(503).json({
-          error: "Could not verify explicit status for all playlist tracks. Re-auth Spotify and retry.",
-          unresolved: unresolvedUris.length
-        });
-        return;
-      }
-
+      const { explicitByUri } = await evaluateSpotifyExplicitForUris(uris);
+      // Only remove tracks that Spotify confirmed as explicit. Unresolved tracks are allowed through.
       const filtered = [];
       for (const trackUri of uris) {
-        if (explicitByUri.get(trackUri)) {
+        if (explicitByUri.get(trackUri) === true) {
           blockedExplicit += 1;
           continue;
         }
