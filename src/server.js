@@ -3437,6 +3437,38 @@ async function getSpotifyExplicitForUri(uri = "") {
   return Boolean(cached.explicit);
 }
 
+async function evaluateSpotifyExplicitForUris(uris = []) {
+  const trackIds = [...new Set(
+    (uris || [])
+      .map((uri) => getSpotifyTrackIdFromUri(uri))
+      .filter(Boolean)
+  )];
+
+  if (!trackIds.length) {
+    return { explicitByUri: new Map(), unresolvedUris: [] };
+  }
+
+  await hydrateSpotifyExplicitCacheForTrackIds(trackIds);
+
+  const explicitByUri = new Map();
+  const unresolvedUris = [];
+  for (const uri of uris || []) {
+    const id = getSpotifyTrackIdFromUri(uri);
+    if (!id) {
+      explicitByUri.set(uri, false);
+      continue;
+    }
+    const cached = state.spotifyExplicitByTrackId.get(id);
+    if (!cached) {
+      unresolvedUris.push(uri);
+      continue;
+    }
+    explicitByUri.set(uri, Boolean(cached.explicit));
+  }
+
+  return { explicitByUri, unresolvedUris };
+}
+
 async function applySpotifyExplicitToTracks(tracks = []) {
   const list = Array.isArray(tracks) ? tracks : [];
   const ids = list
@@ -8501,11 +8533,42 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
   }
   try {
     const tracks = await mopidyRpc("core.playlists.get_items", { uri });
-    const uris = (tracks || []).map((t) => t.uri).filter(Boolean);
+    let uris = (tracks || []).map((t) => t.uri).filter(Boolean);
     if (!uris.length) {
       res.status(400).json({ error: "Playlist is empty." });
       return;
     }
+
+    let blockedExplicit = 0;
+    if (state.explicitFilter) {
+      const { explicitByUri, unresolvedUris } = await evaluateSpotifyExplicitForUris(uris);
+      if (unresolvedUris.length) {
+        res.status(503).json({
+          error: "Could not verify explicit status for all playlist tracks. Re-auth Spotify and retry.",
+          unresolved: unresolvedUris.length
+        });
+        return;
+      }
+
+      const filtered = [];
+      for (const trackUri of uris) {
+        if (explicitByUri.get(trackUri)) {
+          blockedExplicit += 1;
+          continue;
+        }
+        filtered.push(trackUri);
+      }
+      uris = filtered;
+    }
+
+    if (!uris.length) {
+      res.status(400).json({
+        error: "All tracks in this playlist are explicit and were blocked by filter settings.",
+        blockedExplicit
+      });
+      return;
+    }
+
     if (replace) {
       await mopidyRpc("core.tracklist.clear");
       state.requestMetaByTlid.clear();
@@ -8521,7 +8584,7 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
       });
       return;
     }
-    res.json({ ok: true, added: addedCount });
+    res.json({ ok: true, added: addedCount, blockedExplicit });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
