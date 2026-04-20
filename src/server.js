@@ -28,6 +28,7 @@ const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const REPORTING_HOST = `${process.env.REPORTING_HOST || "reporting.hsnba.org"}`.trim().toLowerCase();
+const ASM_FETCH_TIMEOUT_MS = Math.max(3000, Number(process.env.ASM_FETCH_TIMEOUT_MS || 15000));
 const ADMIN_SESSION_COOKIE = "hsnba_admin_session";
 const MOPIDY_URL = process.env.MOPIDY_URL || "http://127.0.0.1:6680/mopidy/rpc";
 const MAX_PENDING_PER_USER = Number(process.env.MAX_PENDING_PER_USER || 3);
@@ -2029,7 +2030,22 @@ async function fetchAsmRowsForMethod(method, extraParams = {}) {
   if (!requestUrl) {
     throw new Error(`ASM service URL missing for ${method}`);
   }
-  const response = await fetch(requestUrl, { headers: { Accept: "application/json" } });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ASM_FETCH_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(requestUrl, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`ASM ${method} request timed out after ${Math.round(ASM_FETCH_TIMEOUT_MS / 1000)}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   const bodyText = await response.text();
   if (!response.ok) {
     const detail = bodyText.slice(0, 240).replace(/\s+/g, " ").trim();

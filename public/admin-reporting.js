@@ -29,6 +29,7 @@ const chartState = {
 };
 
 let linkedDashboardChartState = [];
+const API_TIMEOUT_MS = 20000;
 
 const SPECIES_COLOR_MAP = {
   dog: "#4da3ff",
@@ -55,14 +56,27 @@ function getSpeciesColor(label, index) {
 }
 
 async function api(url, opts = {}) {
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      ...(opts.headers || {})
-    },
-    ...opts
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(url, {
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...(opts.headers || {})
+      },
+      ...opts,
+      signal: opts.signal || controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Request timed out while loading report data.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload.error || `HTTP ${response.status}`);
