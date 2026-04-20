@@ -182,7 +182,7 @@ function renderEmptySlide() {
     els.animalProfileLink.style.pointerEvents = "none";
     els.animalProfileLink.style.opacity = "0.5";
     els.animalImage.removeAttribute("src");
-    els.animalImage.parentElement.classList.remove("has-image");
+    els.animalImage.parentElement.classList.remove("has-image", "portrait", "landscape");
 }
 
 function showAnimalSlide(animal) {
@@ -211,11 +211,18 @@ function showAnimalSlide(animal) {
   }
 
   if (a.imageUrl) {
+    const photoWrap = els.animalImage.parentElement;
+    els.animalImage.onload = function () {
+      const portrait = this.naturalHeight > this.naturalWidth;
+      photoWrap.classList.toggle("portrait", portrait);
+      photoWrap.classList.toggle("landscape", !portrait);
+    };
     els.animalImage.src = a.imageUrl;
-    els.animalImage.parentElement.classList.add("has-image");
+    photoWrap.classList.add("has-image");
   } else {
+    els.animalImage.onload = null;
     els.animalImage.removeAttribute("src");
-    els.animalImage.parentElement.classList.remove("has-image");
+    els.animalImage.parentElement.classList.remove("has-image", "portrait", "landscape");
   }
 }
 

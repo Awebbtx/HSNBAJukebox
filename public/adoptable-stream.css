@@ -200,6 +200,17 @@ a.top-brand:hover .brand-name {
   display: block;
 }
 
+/* Portrait images: contain so the full animal shows without cropping */
+.photo-wrap.portrait img {
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* Landscape images: cover fills the frame (default, explicit for clarity) */
+.photo-wrap.landscape img {
+  object-fit: cover;
+}
+
 .image-fallback {
   width: 100%;
   height: 100%;
@@ -316,7 +327,7 @@ a.top-brand:hover .brand-name {
 
 .status-hud {
   position: fixed;
-  right: 1rem;
+  left: 1rem;
   bottom: calc(50px + 1rem);
   z-index: 8;
   width: min(450px, calc(100vw - 1.5rem));
