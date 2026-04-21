@@ -330,6 +330,10 @@ input[type="range"] {
   font-size: 0.8rem;
 }
 
+.req-tag.held {
+  color: #ffcf7a;
+}
+
 .q-btns {
   display: flex;
   gap: 0.3rem;
@@ -353,6 +357,16 @@ input[type="range"] {
 .q-btn:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
 .q-btn:disabled { opacity: 0.25; cursor: default; }
 .q-btn.danger:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+
+.q-btn.allow-explicit {
+  color: #ffd56f;
+  border-color: rgba(255, 213, 111, 0.45);
+}
+
+.q-btn.allow-explicit:hover:not(:disabled) {
+  color: #ffe39d;
+  border-color: #ffd56f;
+}
 
 /* ── Requester stats ── */
 .req-list {

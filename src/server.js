@@ -92,6 +92,7 @@ const SLIDESHOW_CONFIG_PATH = path.resolve(__dirname, "../data/slideshow-config.
 const AUDIO_AUTOMATION_CONFIG_PATH = path.resolve(__dirname, "../data/audio-automation.json");
 const SPOTIFY_TOKENS_PATH = path.resolve(__dirname, "../data/spotify-tokens.json");
 const LOCAL_QUEUE_PATH = path.resolve(__dirname, "../data/local-queue.json");
+const PLAYLISTS_PATH = path.resolve(__dirname, "../data/playlists.json");
 const OAUTH_PENDING_PATH = path.resolve(__dirname, "../data/oauth-pending.json");
 const SYSTEM_CONFIG_PATH = path.resolve(__dirname, "../data/system-config.json");
 const REPORTING_SNAPSHOT_PATH = path.resolve(__dirname, "../data/reporting-snapshot.json");
@@ -320,6 +321,7 @@ const state = {
     activeDeviceId: `${process.env.SPOTIFY_DEVICE_ID || ""}`.trim() || null
   },
   localQueue: [],
+  playlists: [],
   nowPlaying: null,
   playbackAdvancing: false,
   playbackLoopRunning: false,
@@ -1977,6 +1979,7 @@ loadSlideshowConfig();
 loadAudioAutomationConfig();
 loadSystemConfig();
 loadLocalQueue();
+loadPlaylists();
 loadReportingSnapshot();
 loadAcGeocodeCache();
 startAudioAutomationScheduler();
@@ -3050,6 +3053,34 @@ function loadLocalQueue() {
   }
 }
 
+function savePlaylists() {
+  try {
+    const dir = path.dirname(PLAYLISTS_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(PLAYLISTS_PATH, JSON.stringify(state.playlists, null, 2), "utf8");
+  } catch (error) {
+    console.warn(`Unable to persist playlists: ${error.message}`);
+  }
+}
+
+function loadPlaylists() {
+  try {
+    if (fs.existsSync(PLAYLISTS_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(PLAYLISTS_PATH, "utf8"));
+      if (Array.isArray(parsed)) {
+        state.playlists = parsed.filter(
+          (p) => p && typeof p === "object" && p.id && p.name && Array.isArray(p.tracks)
+        );
+        if (state.playlists.length) {
+          console.log(`Loaded ${state.playlists.length} playlist(s) from disk.`);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`Unable to load playlists: ${error.message}`);
+  }
+}
+
 function readIniFile(filePath) {
   const result = {};
   if (!fs.existsSync(filePath)) {
@@ -3553,7 +3584,19 @@ async function playNextFromQueue() {
   }
   state.playbackAdvancing = true;
   try {
-    const next = { ...state.localQueue[0] };
+    // When explicit filter is on, find the first non-explicit (or admin-approved) track.
+    let nextIdx = 0;
+    if (state.explicitFilter) {
+      nextIdx = state.localQueue.findIndex(
+        (item) => !item.explicit || item.explicitApproved === true
+      );
+      if (nextIdx === -1) {
+        // All remaining tracks are explicit and unapproved — wait for admin to allow one.
+        state.playbackAdvancing = false;
+        return;
+      }
+    }
+    const next = { ...state.localQueue[nextIdx] };
     await mopidyRpc("core.tracklist.clear");
     const added = await mopidyRpc("core.tracklist.add", { uris: [next.uri] });
     const tlid = added?.[0]?.tlid ?? null;
@@ -3562,7 +3605,8 @@ async function playNextFromQueue() {
     } else {
       await mopidyRpc("core.playback.play");
     }
-    state.localQueue.shift();
+
+    state.localQueue.splice(nextIdx, 1);
     state.nowPlaying = { ...next, tlid };
     if (tlid != null) {
       state.requestMetaByTlid.set(tlid, {
@@ -7548,6 +7592,37 @@ app.post("/api/admin/queue/move", requireAdmin, requireJukeboxQueueAdmin, async 
   }
 });
 
+app.post("/api/admin/queue/approve-explicit", requireAdmin, requireJukeboxQueueAdmin, async (req, res) => {
+  const { id } = req.body || {};
+  if (!id) {
+    res.status(400).json({ error: "id is required." });
+    return;
+  }
+  try {
+    const item = state.localQueue.find((i) => i.id === id);
+    if (!item) {
+      res.status(404).json({ error: "Track not found in queue." });
+      return;
+    }
+    if (!item.explicit) {
+      res.status(400).json({ error: "Track is not marked explicit." });
+      return;
+    }
+    item.explicitApproved = true;
+    saveLocalQueue();
+    // Kick playback if Mopidy is stopped and nothing is playing (was held waiting for approval).
+    try {
+      const playbackState = await mopidyRpc("core.playback.get_state");
+      if (playbackState === "stopped" && !state.nowPlaying && !state.playbackAdvancing) {
+        setImmediate(() => playNextFromQueue().catch(() => {}));
+      }
+    } catch { /* ignore */ }
+    res.json({ ok: true, id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/admin/modes", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
     const repeat = await mopidyRpc("core.tracklist.get_repeat");
@@ -7683,14 +7758,47 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
     if (tracks.length === 0 && spotifySearchError) {
       const detail = `${spotifySearchError.message || ""}`;
       const isRateLimited = /\b429\b/.test(detail) || /too many requests/i.test(detail);
-      res.json({
-        tracks: [],
-        warning: isRateLimited
-          ? "Spotify search is rate-limited right now. Please try again in a few seconds."
-          : "Spotify search is temporarily unavailable.",
-        suggestion: detail || undefined
-      });
-      return;
+
+      // Mopidy fallback — use core.library.search when Spotify is rate-limited.
+      if (isRateLimited) {
+        try {
+          const mopidyResult = await mopidyRpc("core.library.search", {
+            query: { any: [q] },
+            uris: ["spotify:"]
+          });
+          const rawTracks = (mopidyResult || []).flatMap((r) => r?.tracks || []);
+          tracks = rawTracks
+            .filter((t) => t?.uri?.startsWith("spotify:track:"))
+            .slice(0, 10)
+            .map((t) => ({
+              uri: t.uri,
+              name: t.name || "Unknown track",
+              album: t.album?.name || "",
+              artists: (t.artists || []).map((a) => a.name).filter(Boolean).join(", "),
+              durationMs: Number(t.length || 0),
+              explicit: false, // Mopidy doesn't expose explicit — hydrated below
+              imageUrl: ""
+            }));
+          // Fire-and-forget: hydrate explicit cache so queue-add has fresh data
+          if (tracks.length) {
+            const ids = tracks.map((t) => getSpotifyTrackIdFromUri(t.uri)).filter(Boolean);
+            hydrateSpotifyExplicitCacheForTrackIds(ids).catch(() => {});
+          }
+        } catch (mopidyErr) {
+          console.warn(`Mopidy search fallback failed: ${mopidyErr.message}`);
+        }
+      }
+
+      if (!tracks.length) {
+        res.json({
+          tracks: [],
+          warning: isRateLimited
+            ? "Spotify search is rate-limited right now. Please try again in a few seconds."
+            : "Spotify search is temporarily unavailable.",
+          suggestion: detail || undefined
+        });
+        return;
+      }
     }
 
     const filtered = state.explicitFilter ? tracks.filter((t) => !t.explicit) : tracks;

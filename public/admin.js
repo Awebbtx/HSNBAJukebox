@@ -951,8 +951,12 @@ async function loadModes() {
 // ── Queue ─────────────────────────────────────────────────────────────────────
 
 async function loadQueue() {
-  const data = await api("/api/admin/queue");
+  const [data, explicitData] = await Promise.all([
+    api("/api/admin/queue"),
+    api("/api/admin/explicit").catch(() => ({ explicitFilter: false }))
+  ]);
   const items = data.queue || [];
+  const explicitFilterOn = Boolean(explicitData.explicitFilter);
 
   els.queueCount.textContent = `${items.length} track${items.length !== 1 ? "s" : ""}`;
   els.queueList.innerHTML = "";
@@ -970,17 +974,24 @@ async function loadQueue() {
     const li = document.createElement("li");
     li.className = "q-item";
     const byline = [item.artists, item.album].filter(Boolean).join(" • ");
-    const explicitTag = item.explicit ? '<span class="req-tag">[E]</span>' : "";
+    const isHeld = item.explicit && !item.explicitApproved && explicitFilterOn;
+    const explicitTag = item.explicit
+      ? `<span class="req-tag${isHeld ? " held" : ""}">[E]</span>`
+      : "";
     const reqTag = item.requestedBy
       ? `<span class="req-tag">• Added by ${escapeHtml(item.requestedBy)}</span>`
+      : "";
+    const allowBtn = isHeld
+      ? `<button class="q-btn allow-explicit" data-action="allow" title="Bypass explicit filter for this song" aria-label="Bypass explicit filter">&#x2713;</button>`
       : "";
     li.innerHTML = `
       <span class="q-num">${idx + 1}</span>
       <div class="q-info">
         <div class="q-title">${escapeHtml(item.name)} ${explicitTag}</div>
-        <div class="q-meta">${escapeHtml(byline)} ${reqTag}</div>
+        <div class="q-meta">${escapeHtml(byline)} ${reqTag}${isHeld ? '<span class="req-tag held">⏸ Held — explicit filter on</span>' : ""}</div>
       </div>
       <div class="q-btns">
+        ${allowBtn}
         <button class="q-btn" data-action="up" title="Move up" ${idx === 0 || item.isPlaying ? "disabled" : ""}>↑</button>
         <button class="q-btn" data-action="dn" title="Move down" ${idx === items.length - 1 || item.isPlaying ? "disabled" : ""}>↓</button>
         <button class="q-btn danger" data-action="rm" title="Remove">✕</button>
@@ -989,6 +1000,9 @@ async function loadQueue() {
     li.querySelector('[data-action="up"]').addEventListener("click", () => moveTrack(item.id, "up"));
     li.querySelector('[data-action="dn"]').addEventListener("click", () => moveTrack(item.id, "down"));
     li.querySelector('[data-action="rm"]').addEventListener("click", () => removeTrack(item.id));
+    if (isHeld) {
+      li.querySelector('[data-action="allow"]').addEventListener("click", () => approveExplicit(item.id));
+    }
     els.queueList.append(li);
   });
 
@@ -1025,6 +1039,17 @@ function renderRequesterStats(items) {
 async function removeTrack(id) {
   try {
     await api(`/api/admin/queue/${id}`, { method: "DELETE" });
+    await loadQueue();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function approveExplicit(id) {
+  try {
+    await api("/api/admin/queue/approve-explicit", {
+      method: "POST",
+      body: JSON.stringify({ id })
+    });
+    toast("Explicit bypass approved for this song.");
     await loadQueue();
   } catch (e) { toast(e.message, true); }
 }
