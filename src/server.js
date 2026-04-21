@@ -8573,8 +8573,20 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
       await mopidyRpc("core.tracklist.clear");
       state.requestMetaByTlid.clear();
     }
-    const added = await mopidyRpc("core.tracklist.add", { uris });
-    const addedCount = Array.isArray(added) ? added.length : 0;
+
+    // Add tracks in batches of 50 with a short pause between each batch so
+    // Mopidy's per-track Spotify metadata lookups don't flood the shared token.
+    const TRACKLIST_BATCH = 50;
+    let addedCount = 0;
+    for (let i = 0; i < uris.length; i += TRACKLIST_BATCH) {
+      if (i > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      const batch = uris.slice(i, i + TRACKLIST_BATCH);
+      const batchAdded = await mopidyRpc("core.tracklist.add", { uris: batch });
+      addedCount += Array.isArray(batchAdded) ? batchAdded.length : 0;
+    }
+
     if (addedCount === 0) {
       res.status(502).json({
         error: "No tracks from this playlist could be resolved by Mopidy. Check Spotify connection and retry.",
