@@ -7688,6 +7688,8 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
 
   try {
     let tracks = [];
+    let spotifySearchError = null;
+    let mopidySearchError = null;
 
     // Use Spotify Web API when a token is available — it reliably returns the
     // `explicit` field needed for the explicit filter.
@@ -7695,7 +7697,7 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
       try {
         const spotifyResult = await spotify({
           path: "/search",
-          query: { q, type: "track", limit: "40" }
+          query: { q, type: "track", limit: "40", market: SPOTIFY_MARKET }
         });
         for (const item of spotifyResult?.tracks?.items || []) {
           let imageUrl = item.album?.images?.[0]?.url || "";
@@ -7709,23 +7711,38 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
             imageUrl
           });
         }
-      } catch (_spotifyErr) {
-        // Spotify search failed — fall through to Mopidy
+      } catch (spotifyErr) {
+        spotifySearchError = spotifyErr;
+        console.warn(`Spotify search failed for query \"${q}\": ${spotifyErr.message}`);
       }
     }
 
     // Fallback: Mopidy search (explicit field will always be false here)
     if (tracks.length === 0) {
-      const result = await mopidyRpc("core.library.search", {
-        query: { any: [q] },
-        uris: ["spotify:"]
-      });
-      for (const bucket of result || []) {
-        for (const track of bucket.tracks || []) {
-          tracks.push(mapMopidyTrack(track));
+      try {
+        const result = await mopidyRpc("core.library.search", {
+          query: { any: [q] },
+          uris: ["spotify:"]
+        });
+        for (const bucket of result || []) {
+          for (const track of bucket.tracks || []) {
+            tracks.push(mapMopidyTrack(track));
+          }
         }
+      } catch (mopidyErr) {
+        mopidySearchError = mopidyErr;
+        console.warn(`Mopidy search failed for query \"${q}\": ${mopidyErr.message}`);
       }
     }
+
+    if (tracks.length === 0 && (spotifySearchError || mopidySearchError)) {
+      const suggestion = spotifySearchError?.message || mopidySearchError?.message || "Search providers unavailable";
+      res.status(502).json({
+        error: "Search is temporarily unavailable.",
+        suggestion
+      });
+      return;
+      }
 
     const filtered = state.explicitFilter ? tracks.filter((t) => !t.explicit) : tracks;
     const staffId = req.employeeSession.userId || "";
