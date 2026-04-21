@@ -184,7 +184,7 @@ async function loadQueue() {
   els.queueList.innerHTML = "";
 
   const queue = result.queue || [];
-  const [, ...upNext] = queue;
+  const upNext = queue;
 
   els.queueCount.textContent = `${upNext.length} songs waiting`;
 

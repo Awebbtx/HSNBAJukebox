@@ -319,6 +319,9 @@ const state = {
     activeDeviceId: `${process.env.SPOTIFY_DEVICE_ID || ""}`.trim() || null
   },
   localQueue: [],
+  nowPlaying: null,
+  playbackAdvancing: false,
+  playbackLoopRunning: false,
   asm: {
     serviceUrl: `${process.env.ASM_SERVICE_URL || ""}`.trim(),
     account: `${process.env.ASM_ACCOUNT || ""}`.trim(),
@@ -3503,43 +3506,6 @@ async function applySpotifyExplicitToTracks(tracks = []) {
   });
 }
 
-async function enforceExplicitAutoSkip() {
-  if (!state.explicitFilter || state.explicitAutoSkipInProgress) {
-    return;
-  }
-
-  state.explicitAutoSkipInProgress = true;
-  try {
-    const [playbackState, currentTrack] = await Promise.all([
-      mopidyRpc("core.playback.get_state"),
-      mopidyRpc("core.playback.get_current_track")
-    ]);
-
-    if (playbackState !== "playing" || !currentTrack?.uri) {
-      return;
-    }
-
-    const [enriched] = await applySpotifyExplicitToTracks([mapMopidyTrack(currentTrack)]);
-    if (!enriched?.explicit) {
-      return;
-    }
-
-    const now = Date.now();
-    if (state.lastExplicitAutoSkippedUri === enriched.uri && (now - state.lastExplicitAutoSkippedAt) < 3000) {
-      return;
-    }
-
-    await mopidyRpc("core.playback.next");
-    state.lastExplicitAutoSkippedUri = enriched.uri;
-    state.lastExplicitAutoSkippedAt = now;
-    console.log(`Auto-skipped explicit track: ${enriched.name || enriched.uri}`);
-  } catch {
-    // Ignore transient errors in background auto-skip checks.
-  } finally {
-    state.explicitAutoSkipInProgress = false;
-  }
-}
-
 function mapQueueTrack(entry = {}) {
   const mapped = mapMopidyTrack(entry.track || {});
   const meta = state.requestMetaByTlid.get(entry.tlid) || null;
@@ -3556,6 +3522,148 @@ function mapQueueTrack(entry = {}) {
   };
 }
 
+// ── Spotify track metadata helpers ────────────────────────────────────────────
+
+function spotifyTrackToQueueItem(track, meta = {}) {
+  const images = track?.album?.images || [];
+  const img = images.find((i) => (i.width || 0) >= 300) || images[0];
+  return {
+    id: crypto.randomUUID(),
+    uri: track.uri,
+    name: track.name || "Unknown track",
+    artists: (track.artists || []).map((a) => a.name).filter(Boolean).join(", "),
+    album: track.album?.name || "",
+    durationMs: Number(track.duration_ms || 0),
+    explicit: Boolean(track.explicit),
+    imageUrl: img?.url || "",
+    requestedBy: meta.requestedBy || "",
+    requestedByToken: meta.requestedByToken || "",
+    requestedAt: meta.requestedAt || new Date().toISOString(),
+    upvotes: 0,
+    downvotes: 0,
+    voteScore: 0,
+    tlid: null
+  };
+}
+
+async function fetchSpotifyTrackObjects(trackIds = []) {
+  const ids = [...new Set((trackIds || []).filter(Boolean))];
+  if (!ids.length || !state.tokens?.access_token) return [];
+  const accessToken = await getValidAccessToken();
+  const result = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 300));
+    const batch = ids.slice(i, i + 50);
+    try {
+      const data = await spotifyApiRequest({
+        accessToken,
+        method: "GET",
+        path: "/tracks",
+        query: { ids: batch.join(","), market: "from_token" }
+      });
+      for (const track of data?.tracks || []) {
+        if (track?.uri) {
+          result.push(track);
+          if (track.id) {
+            state.spotifyExplicitByTrackId.set(track.id, { explicit: Boolean(track.explicit), checkedAt: Date.now() });
+          }
+        }
+      }
+    } catch {
+      // skip failed batch
+    }
+  }
+  return result;
+}
+
+// ── Playback queue management ──────────────────────────────────────────────────
+
+async function playNextFromQueue() {
+  if (state.playbackAdvancing) return;
+  if (!state.localQueue.length) {
+    state.nowPlaying = null;
+    return;
+  }
+  state.playbackAdvancing = true;
+  try {
+    const next = { ...state.localQueue[0] };
+    await mopidyRpc("core.tracklist.clear");
+    const added = await mopidyRpc("core.tracklist.add", { uris: [next.uri] });
+    const tlid = added?.[0]?.tlid ?? null;
+    if (tlid != null) {
+      await mopidyRpc("core.playback.play", { tlid });
+    } else {
+      await mopidyRpc("core.playback.play");
+    }
+    state.localQueue.shift();
+    state.nowPlaying = { ...next, tlid };
+    if (tlid != null) {
+      state.requestMetaByTlid.set(tlid, {
+        requestedBy: next.requestedBy,
+        requestedByToken: next.requestedByToken,
+        requestedAt: next.requestedAt
+      });
+    }
+    recordTrackStat(next.uri, next.name, next.artists, next.album, "playCount");
+    state.lastKnownCurrentTrackUri = next.uri;
+    saveLocalQueue();
+    console.log(`Now playing: ${next.name} — ${next.artists}`);
+  } catch (err) {
+    console.error(`playNextFromQueue error: ${err.message}`);
+  } finally {
+    state.playbackAdvancing = false;
+  }
+}
+
+async function playbackLoop() {
+  if (state.playbackLoopRunning) return;
+  state.playbackLoopRunning = true;
+  try {
+    const [mopidyState, currentTrack] = await Promise.all([
+      mopidyRpc("core.playback.get_state"),
+      mopidyRpc("core.playback.get_current_track")
+    ]);
+    const currentUri = currentTrack?.uri || null;
+
+    if (mopidyState === "stopped") {
+      if (state.nowPlaying) state.nowPlaying = null;
+      if (state.localQueue.length > 0 && !state.playbackAdvancing) {
+        await playNextFromQueue();
+      }
+    } else if (mopidyState === "playing" && currentUri) {
+      // Sync nowPlaying if Mopidy was controlled externally.
+      if (!state.nowPlaying || state.nowPlaying.uri !== currentUri) {
+        const mapped = mapMopidyTrack(currentTrack);
+        state.nowPlaying = {
+          id: state.nowPlaying?.id || crypto.randomUUID(),
+          tlid: currentTrack?.tlid ?? state.nowPlaying?.tlid ?? null,
+          ...mapped,
+          requestedBy: state.nowPlaying?.requestedBy || "",
+          requestedByToken: state.nowPlaying?.requestedByToken || "",
+          requestedAt: state.nowPlaying?.requestedAt || new Date().toISOString(),
+          upvotes: 0, downvotes: 0, voteScore: 0
+        };
+      }
+      // Explicit auto-skip — use metadata already on nowPlaying (fetched from Spotify when enqueued).
+      if (state.explicitFilter && state.nowPlaying?.explicit) {
+        const now = Date.now();
+        if (state.lastExplicitAutoSkippedUri !== currentUri || now - state.lastExplicitAutoSkippedAt > 3000) {
+          state.lastExplicitAutoSkippedUri = currentUri;
+          state.lastExplicitAutoSkippedAt = now;
+          state.nowPlaying = null;
+          await mopidyRpc("core.playback.stop").catch(() => {});
+          await mopidyRpc("core.tracklist.clear").catch(() => {});
+          console.log(`Auto-skipped explicit track: ${currentUri}`);
+        }
+      }
+    }
+  } catch {
+    // Mopidy may be transiently unreachable.
+  } finally {
+    state.playbackLoopRunning = false;
+  }
+}
+
 function shuffleArray(items = []) {
   const list = [...items];
   for (let i = list.length - 1; i > 0; i -= 1) {
@@ -3565,49 +3673,6 @@ function shuffleArray(items = []) {
   return list;
 }
 
-async function randomizeQueuePreservingCurrent() {
-  const tlTracks = await mopidyRpc("core.tracklist.get_tl_tracks");
-  const queue = Array.isArray(tlTracks) ? [...tlTracks] : [];
-  if (queue.length < 2) {
-    return queue;
-  }
-
-  let currentTlTrack = null;
-  try {
-    currentTlTrack = await mopidyRpc("core.playback.get_current_tl_track");
-  } catch {
-    currentTlTrack = null;
-  }
-  const currentTlid = Number(currentTlTrack?.tlid || 0);
-
-  const movable = currentTlid
-    ? queue.filter((entry) => Number(entry.tlid) !== currentTlid)
-    : queue;
-  const shuffled = shuffleArray(movable);
-  const desiredOrder = currentTlid
-    ? [queue.find((entry) => Number(entry.tlid) === currentTlid), ...shuffled].filter(Boolean)
-    : shuffled;
-
-  const workingOrder = [...queue];
-  for (let targetIndex = 0; targetIndex < desiredOrder.length; targetIndex += 1) {
-    const desiredTlid = Number(desiredOrder[targetIndex]?.tlid || 0);
-    const currentIndex = workingOrder.findIndex((entry) => Number(entry.tlid) === desiredTlid);
-    if (currentIndex < 0 || currentIndex === targetIndex) {
-      continue;
-    }
-
-    await mopidyRpc("core.tracklist.move", {
-      start: currentIndex,
-      end: currentIndex + 1,
-      to_position: targetIndex
-    });
-
-    const [moved] = workingOrder.splice(currentIndex, 1);
-    workingOrder.splice(targetIndex, 0, moved);
-  }
-
-  return workingOrder;
-}
 
 async function getPendingCountForToken(token) {
   await cleanupRequestMetadata();
@@ -3649,13 +3714,11 @@ const cleanupTimer = setInterval(() => {
 
 cleanupTimer.unref();
 
-const explicitAutoSkipTimer = setInterval(() => {
-  enforceExplicitAutoSkip().catch(() => {
-    // Ignore auto-skip loop failures; next tick will retry.
-  });
-}, 5000);
+const playbackLoopTimer = setInterval(() => {
+  playbackLoop().catch(() => {});
+}, 3000);
 
-explicitAutoSkipTimer.unref();
+playbackLoopTimer.unref();
 
 const adminDbSnapshotTimer = setInterval(() => {
   try {
@@ -3700,7 +3763,13 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     spotifyConnected: Boolean(state.tokens?.access_token),
     activeDeviceId: state.spotify.activeDeviceId,
-    queueLength: state.localQueue.length
+    queueLength: state.localQueue.length,
+    // TEMP DEBUG: explicit field inspection
+    debugExplicit: [state.nowPlaying, ...state.localQueue.slice(0, 4)].filter(Boolean).map(x => ({
+      name: x.name,
+      explicit: x.explicit,
+      explicitType: typeof x.explicit
+    }))
   });
 });
 
@@ -7335,21 +7404,17 @@ app.get("/api/admin/settings/asm/inspect", requireAdmin, requireJukeboxSlidesAdm
 
 app.get("/api/admin/playback/state", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
-    const [playbackState, currentTrack, position, volume] = await Promise.all([
+    const [playbackState, position, volume] = await Promise.all([
       mopidyRpc("core.playback.get_state"),
-      mopidyRpc("core.playback.get_current_track"),
       mopidyRpc("core.playback.get_time_position"),
       mopidyRpc("core.mixer.get_volume")
     ]);
-    const mapped = currentTrack ? mapMopidyTrack(currentTrack) : null;
-    const [enrichedCurrent] = mapped ? await applySpotifyExplicitToTracks([mapped]) : [null];
-    if (mapped?.uri && mapped.uri !== state.lastKnownCurrentTrackUri) {
-      state.lastKnownCurrentTrackUri = mapped.uri;
-      recordTrackStat(mapped.uri, mapped.name, mapped.artists, mapped.album, "playCount");
-    }
+    const current = state.nowPlaying
+      ? { ...state.nowPlaying, ...getTrackVoteSummary(state.nowPlaying.uri) }
+      : null;
     res.json({
       state: playbackState || "stopped",
-      current: enrichedCurrent,
+      current,
       positionMs: position || 0,
       volume: volume ?? 80
     });
@@ -7375,12 +7440,15 @@ for (const action of ["play", "pause", "previous"]) {
 
 app.post("/api/admin/playback/next", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
-    const currentTrack = await mopidyRpc("core.playback.get_current_track").catch(() => null);
-    if (currentTrack) {
-      const mapped = mapMopidyTrack(currentTrack);
-      if (mapped?.uri) recordTrackStat(mapped.uri, mapped.name, mapped.artists, mapped.album, "skipCount");
+    if (state.nowPlaying?.uri) {
+      recordTrackStat(state.nowPlaying.uri, state.nowPlaying.name, state.nowPlaying.artists, state.nowPlaying.album, "skipCount");
     }
-    await mopidyRpc("core.playback.next");
+    state.nowPlaying = null;
+    await mopidyRpc("core.playback.stop").catch(() => {});
+    await mopidyRpc("core.tracklist.clear").catch(() => {});
+    if (state.localQueue.length > 0) {
+      await playNextFromQueue();
+    }
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -7416,23 +7484,41 @@ app.post("/api/admin/volume", requireAdmin, requireJukeboxPlaybackAdmin, async (
 
 app.get("/api/admin/queue", requireAdmin, requireJukeboxQueueAdmin, async (_req, res) => {
   try {
-    const tlTracks = await mopidyRpc("core.tracklist.get_tl_tracks");
-    const queue = await applySpotifyExplicitToTracks((tlTracks || []).map(mapQueueTrack));
+    const nowPlayingItem = state.nowPlaying
+      ? { ...state.nowPlaying, isPlaying: true, ...getTrackVoteSummary(state.nowPlaying.uri) }
+      : null;
+    const queueItems = state.localQueue.map((item) => ({ ...item, ...getTrackVoteSummary(item.uri) }));
+    const queue = nowPlayingItem ? [nowPlayingItem, ...queueItems] : queueItems;
     res.json({ queue });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.delete("/api/admin/queue/:tlid", requireAdmin, requireJukeboxQueueAdmin, async (req, res) => {
-  const tlid = Number(req.params.tlid);
-  if (!Number.isFinite(tlid)) {
-    res.status(400).json({ error: "Invalid tlid." });
+app.delete("/api/admin/queue/:id", requireAdmin, requireJukeboxQueueAdmin, async (req, res) => {
+  const id = `${req.params.id || ""}`.trim();
+  if (!id) {
+    res.status(400).json({ error: "Invalid id." });
     return;
   }
   try {
-    await mopidyRpc("core.tracklist.remove", { criteria: { tlid: [tlid] } });
-    state.requestMetaByTlid.delete(tlid);
+    if (state.nowPlaying?.id === id) {
+      state.nowPlaying = null;
+      await mopidyRpc("core.playback.stop").catch(() => {});
+      await mopidyRpc("core.tracklist.clear").catch(() => {});
+      if (state.localQueue.length > 0) {
+        setImmediate(() => playNextFromQueue().catch(() => {}));
+      }
+      res.json({ ok: true });
+      return;
+    }
+    const before = state.localQueue.length;
+    state.localQueue = state.localQueue.filter((item) => item.id !== id);
+    if (state.localQueue.length === before) {
+      res.status(404).json({ error: "Item not found in queue." });
+      return;
+    }
+    saveLocalQueue();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -7441,8 +7527,12 @@ app.delete("/api/admin/queue/:tlid", requireAdmin, requireJukeboxQueueAdmin, asy
 
 app.post("/api/admin/queue/clear", requireAdmin, requireJukeboxQueueAdmin, async (_req, res) => {
   try {
-    await mopidyRpc("core.tracklist.clear");
+    state.localQueue = [];
+    state.nowPlaying = null;
     state.requestMetaByTlid.clear();
+    saveLocalQueue();
+    await mopidyRpc("core.tracklist.clear");
+    await mopidyRpc("core.playback.stop").catch(() => {});
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -7468,36 +7558,32 @@ app.post("/api/admin/queue/randomize", requireAdmin, requireJukeboxQueueAdmin, a
 });
 
 app.post("/api/admin/queue/move", requireAdmin, requireJukeboxQueueAdmin, async (req, res) => {
-  const { tlid, direction } = req.body || {};
-  if (!tlid || !direction) {
-    res.status(400).json({ error: "tlid and direction are required." });
+  const { id, direction } = req.body || {};
+  if (!id || !direction) {
+    res.status(400).json({ error: "id and direction are required." });
     return;
   }
   try {
-    const tlTracks = await mopidyRpc("core.tracklist.get_tl_tracks");
-    const idx = (tlTracks || []).findIndex((t) => t.tlid === tlid);
+    const idx = state.localQueue.findIndex((item) => item.id === id);
     if (idx < 0) {
       res.status(404).json({ error: "Track not found in queue." });
       return;
     }
     if (direction === "up" && idx > 0) {
-      await mopidyRpc("core.tracklist.move", { start: idx, end: idx + 1, to_position: idx - 1 });
-    } else if (direction === "down" && idx < tlTracks.length - 1) {
-      await mopidyRpc("core.tracklist.move", { start: idx, end: idx + 1, to_position: idx + 1 });
+      [state.localQueue[idx], state.localQueue[idx - 1]] = [state.localQueue[idx - 1], state.localQueue[idx]];
+    } else if (direction === "down" && idx < state.localQueue.length - 1) {
+      [state.localQueue[idx], state.localQueue[idx + 1]] = [state.localQueue[idx + 1], state.localQueue[idx]];
     }
+    saveLocalQueue();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// ── Admin playback modes ──────────────────────────────────────────────────────
-
 app.get("/api/admin/modes", requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
   try {
-    const [repeat] = await Promise.all([
-      mopidyRpc("core.tracklist.get_repeat"),
-    ]);
+    const repeat = await mopidyRpc("core.tracklist.get_repeat");
     res.json({ repeat: Boolean(repeat), random: false });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -7637,29 +7723,18 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
 app.get("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, async (_req, res) => {
   try {
     const staffId = _req.employeeSession.userId || "";
-    const [currentTrack, tlTracks] = await Promise.all([
-      mopidyRpc("core.playback.get_current_track"),
-      mopidyRpc("core.tracklist.get_tl_tracks")
-    ]);
-
-    const queueBase = (tlTracks || []).map((entry) => {
-      const mapped = mapQueueTrack(entry);
-      return {
-        ...mapped,
-        userVote: staffId ? getUserVoteForTrack(staffId, mapped.uri || "") : 0
-      };
-    });
-    const queue = await applySpotifyExplicitToTracks(queueBase);
-    const currentUri = currentTrack?.uri || "";
-    const currentFallback = currentUri ? {
-      ...mapMopidyTrack(currentTrack),
-      ...getTrackVoteSummary(currentUri),
-      userVote: staffId ? getUserVoteForTrack(staffId, currentUri) : 0
-    } : null;
-    const [enrichedFallbackCurrent] = currentFallback
-      ? await applySpotifyExplicitToTracks([currentFallback])
-      : [null];
-    const current = currentUri ? queue.find((item) => item.uri === currentUri) || enrichedFallbackCurrent : null;
+    const current = state.nowPlaying
+      ? {
+        ...state.nowPlaying,
+        ...getTrackVoteSummary(state.nowPlaying.uri),
+        userVote: staffId ? getUserVoteForTrack(staffId, state.nowPlaying.uri || "") : 0
+      }
+      : null;
+    const queue = state.localQueue.map((item) => ({
+      ...item,
+      ...getTrackVoteSummary(item.uri),
+      userVote: staffId ? getUserVoteForTrack(staffId, item.uri || "") : 0
+    }));
 
     res.json({
       current,
@@ -7674,27 +7749,12 @@ app.get("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, async
 
 app.get("/api/display/queue", async (_req, res) => {
   try {
-    const [currentTrack, tlTracks] = await Promise.all([
-      mopidyRpc("core.playback.get_current_track"),
-      mopidyRpc("core.tracklist.get_tl_tracks")
-    ]);
-
-    const queue = await applySpotifyExplicitToTracks((tlTracks || []).map(mapQueueTrack));
-    const currentUri = currentTrack?.uri || "";
-    const fallbackCurrent = currentUri
-      ? {
-        ...mapMopidyTrack(currentTrack),
-        ...getTrackVoteSummary(currentUri)
-      }
+    const current = state.nowPlaying
+      ? { ...state.nowPlaying, ...getTrackVoteSummary(state.nowPlaying.uri) }
       : null;
-    const [enrichedFallbackCurrent] = fallbackCurrent
-      ? await applySpotifyExplicitToTracks([fallbackCurrent])
-      : [null];
-    const current = currentUri
-      ? queue.find((item) => item.uri === currentUri) || enrichedFallbackCurrent
-      : null;
-
-    const upNext = current?.uri ? queue.filter((item) => item.uri !== current.uri).slice(0, 8) : queue.slice(0, 8);
+    const upNext = state.localQueue
+      .slice(0, 8)
+      .map((item) => ({ ...item, ...getTrackVoteSummary(item.uri) }));
 
     res.json({
       current,
@@ -7803,8 +7863,7 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
       return;
     }
 
-    const tlTracks = await mopidyRpc("core.tracklist.get_tl_tracks");
-    const alreadyQueued = (tlTracks || []).some((entry) => (entry.track?.uri || "") === uri);
+    const alreadyQueued = state.nowPlaying?.uri === uri || state.localQueue.some((item) => item.uri === uri);
     if (alreadyQueued) {
       res.status(409).json({ error: "That song is already in the queue." });
       return;
@@ -7819,30 +7878,43 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
       }
     }
 
-    const added = await mopidyRpc("core.tracklist.add", { uris: [uri] });
-    const createdAt = new Date().toISOString();
-    const result = (added || []).map((entry) => {
-      const mappedTrack = mapMopidyTrack(entry.track || {});
-      state.requestMetaByTlid.set(entry.tlid, {
-        requestedBy: req.employeeSession.displayName,
-        requestedByToken: req.employeeToken,
-        requestedAt: createdAt
-      });
-      if (staff) {
-        recordSongRequest({ staff, track: mappedTrack });
-      }
-      return {
-        ...mapQueueTrack(entry),
-        userVote: staff ? getUserVoteForTrack(staff.id, mappedTrack.uri || "") : 0
-      };
+    const trackId = getSpotifyTrackIdFromUri(uri);
+    if (!trackId) {
+      res.status(400).json({ error: "Unsupported Spotify track URI." });
+      return;
+    }
+    const [spotifyTrack] = await fetchSpotifyTrackObjects([trackId]);
+    if (!spotifyTrack?.uri) {
+      res.status(502).json({ error: "Failed to load track metadata from Spotify." });
+      return;
+    }
+    console.log(`[queue-add] Spotify track: ${spotifyTrack.name} | explicit=${spotifyTrack.explicit} (type: ${typeof spotifyTrack.explicit})`);
+    const queueItem = spotifyTrackToQueueItem(spotifyTrack, {
+      requestedBy: req.employeeSession.displayName,
+      requestedByToken: req.employeeToken,
+      requestedAt: new Date().toISOString()
     });
-    const enrichedResult = await applySpotifyExplicitToTracks(result);
+    console.log(`[queue-add] queueItem.explicit=${queueItem.explicit}`);
+    state.localQueue.push(queueItem);
+    saveLocalQueue();
+    if (staff) {
+      recordSongRequest({ staff, track: queueItem });
+    }
 
     if (staff) {
       incrementDailyRequestsUsed(staff.id);
     }
 
-    res.status(201).json({ ok: true, items: enrichedResult });
+    try {
+      const playbackState = await mopidyRpc("core.playback.get_state");
+      if (playbackState === "stopped" && !state.playbackAdvancing) {
+        setImmediate(() => playNextFromQueue().catch(() => {}));
+      }
+    } catch {
+      // ignore transient Mopidy failures here; playbackLoop will recover later
+    }
+
+    res.status(201).json({ ok: true, items: [{ ...queueItem, userVote: staff ? getUserVoteForTrack(staff.id, queueItem.uri || "") : 0 }] });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -7888,10 +7960,14 @@ app.post("/api/requests/vote", requireEmployee, rateLimitEmployeeRequests, async
     if (activeListeners > 0) {
       const downvoteRatio = Number(result.downvotes || 0) / activeListeners;
       if (downvoteRatio > 0.5) {
-        const currentTrack = await mopidyRpc("core.playback.get_current_track");
-        const currentUri = `${currentTrack?.uri || ""}`;
+        const currentUri = `${state.nowPlaying?.uri || ""}`;
         if (currentUri && currentUri === uri) {
-          await mopidyRpc("core.playback.next");
+          state.nowPlaying = null;
+          await mopidyRpc("core.playback.stop").catch(() => {});
+          await mopidyRpc("core.tracklist.clear").catch(() => {});
+          if (state.localQueue.length > 0) {
+            setImmediate(() => playNextFromQueue().catch(() => {}));
+          }
           recordTrackStat(uri, name, artists, album, "skipCount");
           autoSkipped = true;
         }
@@ -8271,9 +8347,7 @@ app.post("/api/admin/explicit", requireAdmin, (req, res) => {
   state.explicitFilter = Boolean(enabled);
   persistEnvSetting("EXPLICIT_FILTER_ENABLED", state.explicitFilter ? "true" : "false");
   if (state.explicitFilter) {
-    enforceExplicitAutoSkip().catch(() => {
-      // Best-effort immediate check when enabling the filter.
-    });
+    playbackLoop().catch(() => {});
   }
   res.json({ ok: true, explicitFilter: state.explicitFilter });
 });
@@ -8570,33 +8644,45 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
     }
 
     if (replace) {
-      await mopidyRpc("core.tracklist.clear");
+      state.localQueue = [];
+      state.nowPlaying = null;
       state.requestMetaByTlid.clear();
+      saveLocalQueue();
+      await mopidyRpc("core.tracklist.clear").catch(() => {});
+      await mopidyRpc("core.playback.stop").catch(() => {});
     }
 
-    // Add tracks in batches of 50 with a short pause between each batch so
-    // Mopidy's per-track Spotify metadata lookups don't flood the shared token.
-    const TRACKLIST_BATCH = 50;
-    let addedCount = 0;
-    for (let i = 0; i < uris.length; i += TRACKLIST_BATCH) {
-      if (i > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      const batch = uris.slice(i, i + TRACKLIST_BATCH);
-      const batchAdded = await mopidyRpc("core.tracklist.add", { uris: batch });
-      addedCount += Array.isArray(batchAdded) ? batchAdded.length : 0;
-    }
+    const trackIds = uris.map(getSpotifyTrackIdFromUri).filter(Boolean);
+    const spotifyTracks = await fetchSpotifyTrackObjects(trackIds);
+    const byUri = new Map(spotifyTracks.map((track) => [track.uri, track]));
+    const existingUris = new Set([
+      state.nowPlaying?.uri || "",
+      ...state.localQueue.map((item) => item.uri || "")
+    ].filter(Boolean));
+    const queueItems = uris
+      .map((trackUri) => byUri.get(trackUri))
+      .filter(Boolean)
+      .filter((track) => !existingUris.has(track.uri))
+      .map((track) => spotifyTrackToQueueItem(track, { requestedAt: new Date().toISOString() }));
 
-    if (addedCount === 0) {
-      res.status(502).json({
-        error: "No tracks from this playlist could be resolved by Mopidy. Check Spotify connection and retry.",
-        playlistUri: uri,
-        requested: uris.length,
-        added: 0
-      });
+    state.localQueue.push(...queueItems);
+    saveLocalQueue();
+
+    if (queueItems.length === 0) {
+      res.status(502).json({ error: "No tracks from this playlist could be resolved from Spotify metadata.", playlistUri: uri, requested: uris.length, added: 0 });
       return;
     }
-    res.json({ ok: true, added: addedCount, blockedExplicit });
+
+    try {
+      const playbackState = await mopidyRpc("core.playback.get_state");
+      if (playbackState === "stopped" && !state.playbackAdvancing) {
+        setImmediate(() => playNextFromQueue().catch(() => {}));
+      }
+    } catch {
+      // ignore
+    }
+
+    res.json({ ok: true, added: queueItems.length, blockedExplicit });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

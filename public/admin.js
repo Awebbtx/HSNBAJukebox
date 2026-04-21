@@ -974,14 +974,14 @@ async function loadQueue() {
         <div class="q-meta">${escapeHtml(byline)} ${reqTag}</div>
       </div>
       <div class="q-btns">
-        <button class="q-btn" data-action="up" title="Move up" ${idx === 0 ? "disabled" : ""}>↑</button>
-        <button class="q-btn" data-action="dn" title="Move down" ${idx === items.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="q-btn" data-action="up" title="Move up" ${idx === 0 || item.isPlaying ? "disabled" : ""}>↑</button>
+        <button class="q-btn" data-action="dn" title="Move down" ${idx === items.length - 1 || item.isPlaying ? "disabled" : ""}>↓</button>
         <button class="q-btn danger" data-action="rm" title="Remove">✕</button>
       </div>
     `;
-    li.querySelector('[data-action="up"]').addEventListener("click", () => moveTrack(item.tlid, "up"));
-    li.querySelector('[data-action="dn"]').addEventListener("click", () => moveTrack(item.tlid, "down"));
-    li.querySelector('[data-action="rm"]').addEventListener("click", () => removeTrack(item.tlid));
+    li.querySelector('[data-action="up"]').addEventListener("click", () => moveTrack(item.id, "up"));
+    li.querySelector('[data-action="dn"]').addEventListener("click", () => moveTrack(item.id, "down"));
+    li.querySelector('[data-action="rm"]').addEventListener("click", () => removeTrack(item.id));
     els.queueList.append(li);
   });
 
@@ -1015,18 +1015,18 @@ function renderRequesterStats(items) {
   }
 }
 
-async function removeTrack(tlid) {
+async function removeTrack(id) {
   try {
-    await api(`/api/admin/queue/${tlid}`, { method: "DELETE" });
+    await api(`/api/admin/queue/${id}`, { method: "DELETE" });
     await loadQueue();
   } catch (e) { toast(e.message, true); }
 }
 
-async function moveTrack(tlid, direction) {
+async function moveTrack(id, direction) {
   try {
     await api("/api/admin/queue/move", {
       method: "POST",
-      body: JSON.stringify({ tlid, direction })
+      body: JSON.stringify({ id, direction })
     });
     await loadQueue();
   } catch (e) { toast(e.message, true); }
