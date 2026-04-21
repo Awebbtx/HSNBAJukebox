@@ -106,7 +106,7 @@ export async function spotifyApiRequest({ accessToken, method = "GET", path, que
     }
   }
 
-  const maxAttempts = 4;
+  const maxAttempts = 2;
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
