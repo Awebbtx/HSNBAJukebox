@@ -106,25 +106,42 @@ export async function spotifyApiRequest({ accessToken, method = "GET", path, que
     }
   }
 
-  const response = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
+  const maxAttempts = 4;
+  let lastError = null;
 
-  if (response.status === 204) {
-    return null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json") ? await response.json() : await response.text();
+
+    if (response.ok) {
+      return payload;
+    }
+
+    if (response.status === 429 && attempt < maxAttempts) {
+      const retryAfterSeconds = Number(response.headers.get("retry-after") || "0");
+      const backoffMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? Math.ceil(retryAfterSeconds * 1000)
+        : Math.min(8000, 500 * (2 ** (attempt - 1)));
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      continue;
+    }
+
+    lastError = new Error(`Spotify API failed: ${response.status} ${JSON.stringify(payload)}`);
+    break;
   }
 
-  const contentType = response.headers.get("content-type") || "";
-  const payload = contentType.includes("application/json") ? await response.json() : await response.text();
-
-  if (!response.ok) {
-    throw new Error(`Spotify API failed: ${response.status} ${JSON.stringify(payload)}`);
-  }
-
-  return payload;
+  throw lastError || new Error("Spotify API failed: unknown error");
 }
