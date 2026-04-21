@@ -247,6 +247,8 @@ const els = {
   spotifyAccountText: document.getElementById("spotifyAccountText"),
   spotifyRefreshBtn: document.getElementById("spotifyRefreshBtn"),
   spotifyAuthBtn: document.getElementById("spotifyAuthBtn"),
+  spotifyDisconnectBtn: document.getElementById("spotifyDisconnectBtn"),
+  spotifyCycleConnectBtn: document.getElementById("spotifyCycleConnectBtn"),
   spotifyDetails: document.getElementById("spotifyDetails"),
   spotifyMopidyClientIdInput: document.getElementById("spotifyMopidyClientIdInput"),
   spotifyMopidyClientSecretInput: document.getElementById("spotifyMopidyClientSecretInput"),
@@ -2819,6 +2821,31 @@ if (els.spotifyRefreshBtn) {
 if (els.spotifyAuthBtn) {
   els.spotifyAuthBtn.addEventListener("click", () => {
     window.open("https://mopidy.com/ext/spotify/", "_blank", "noopener,noreferrer");
+  });
+}
+
+if (els.spotifyDisconnectBtn) {
+  els.spotifyDisconnectBtn.addEventListener("click", async () => {
+    try {
+      await api("/api/admin/settings/spotify/disconnect", { method: "POST" });
+      toast("Spotify session disconnected");
+      await loadSpotifySettings();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
+}
+
+if (els.spotifyCycleConnectBtn) {
+  els.spotifyCycleConnectBtn.addEventListener("click", async () => {
+    try {
+      await api("/api/admin/settings/spotify/disconnect", { method: "POST" });
+      toast("Disconnected. Opening Spotify login...");
+      window.open("/auth/login?return=/admin-system.html", "_blank", "noopener,noreferrer");
+      await loadSpotifySettings();
+    } catch (e) {
+      toast(e.message, true);
+    }
   });
 }
 
