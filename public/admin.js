@@ -2973,20 +2973,49 @@ if (els.spotifyImportBtn) {
       statusEl.style.color = isError ? "var(--danger, #e55)" : "var(--muted)";
       statusEl.textContent = msg;
     }
-    setStatus("Fetching playlist from Spotify…");
+    const phaseTimers = [];
+    const clearPhaseTimers = () => {
+      for (const timer of phaseTimers) window.clearTimeout(timer);
+    };
+    const phase = (msg, isError = false) => {
+      setStatus(msg, isError);
+      toast(msg, isError);
+    };
+
+    phase("Import started. Fetching playlist from Spotify…");
+    phaseTimers.push(window.setTimeout(() => {
+      phase("Still fetching songs from Spotify…");
+    }, 1400));
+    phaseTimers.push(window.setTimeout(() => {
+      phase("Spotify is slow. Trying Mopidy fallback…");
+    }, 3600));
+
     els.spotifyImportBtn.disabled = true;
     try {
       const data = await api("/api/admin/playlists/import-spotify", {
         method: "POST",
         body: JSON.stringify({ url })
       });
+      clearPhaseTimers();
+
+      if (data.importSource === "mopidy-fallback") {
+        phase("Fetched songs via Mopidy fallback.");
+      } else {
+        phase("Fetched songs via Spotify API.");
+      }
+
       const saved = data.saved ?? data.tracks?.length ?? 0;
       const total = data.total || saved;
-      setStatus(`✓ Saved "${data.name}" as a playlist (${saved} track${saved !== 1 ? "s" : ""}${total > saved ? ` — first ${saved} of ${total}` : ""}).`);
+      const summary = `Saved "${data.name}" as a playlist (${saved} track${saved !== 1 ? "s" : ""}${total > saved ? ` — first ${saved} of ${total}` : ""}).`;
+      setStatus(`✓ ${summary}`);
+      toast(summary);
       if (els.spotifyImportUrlInput) els.spotifyImportUrlInput.value = "";
       await loadPlaylists();
     } catch (err) {
-      setStatus(err.message || "Import failed.", true);
+      clearPhaseTimers();
+      const msg = err.message || "Import failed.";
+      setStatus(msg, true);
+      toast(msg, true);
     } finally {
       els.spotifyImportBtn.disabled = false;
     }

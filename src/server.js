@@ -8484,6 +8484,8 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
     let total = 0;
     let tracks = [];
     let saveTracks = [];
+    let importSource = "spotify-api";
+    let spotifyPrimaryFailed = false;
 
     // Primary path: Spotify Web API
     try {
@@ -8526,6 +8528,7 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
           .filter((t) => t?.uri);
       }
     } catch {
+      spotifyPrimaryFailed = true;
       // Fallback path below handles environments where Spotify items API returns 403.
     }
 
@@ -8544,6 +8547,9 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
             artists: Array.isArray(t?.artists) ? t.artists.map((a) => a?.name).filter(Boolean) : []
           }));
         total = total || tracks.length;
+        if (tracks.length) {
+          importSource = "mopidy-fallback";
+        }
       } catch {
         // Final error handling below reports if both strategies fail.
       }
@@ -8552,7 +8558,8 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
     if (!tracks.length) {
       res.status(400).json({
         error: `Playlist "${name}" has no playable tracks, or Spotify blocked item reads for this app/user.`,
-        hint: "Try /auth/login again, then retry. If it still fails, verify the playlist has Spotify tracks (not local files) and Mopidy-Spotify can open spotify:playlist URIs."
+        hint: "Try /auth/login again, then retry. If it still fails, verify the playlist has Spotify tracks (not local files) and Mopidy-Spotify can open spotify:playlist URIs.",
+        spotifyPrimaryFailed
       });
       return;
     }
@@ -8574,7 +8581,7 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
       });
       return;
     }
-    res.json({ ok: true, playlistId, sourceUri: remotePlaylistUri, name, uri: saved?.uri || playlist.uri, total: total || tracks.length, saved: savedCount, tracks });
+    res.json({ ok: true, playlistId, sourceUri: remotePlaylistUri, name, uri: saved?.uri || playlist.uri, total: total || tracks.length, saved: savedCount, tracks, importSource, spotifyPrimaryFailed });
   } catch (err) {
     const msg = err?.message || "Unknown error";
     if (msg.includes("401") || msg.includes("403")) {
