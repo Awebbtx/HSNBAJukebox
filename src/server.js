@@ -3380,50 +3380,28 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
   }
 
   const accessToken = await getValidAccessToken();
-  for (let i = 0; i < staleIds.length; i += 50) {
-    // Pace requests to avoid piling onto Mopidy's Spotify token usage (shared rate limit).
+  // GET /tracks (bulk) was removed in the Feb 2026 Spotify API changes.
+  // Use GET /tracks/{id} (single) which is still available.
+  for (let i = 0; i < staleIds.length; i += 1) {
     if (i > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
-
-    const batch = staleIds.slice(i, i + 50);
+    const id = staleIds[i];
     try {
-      const data = await spotifyApiRequest({
+      const track = await spotifyApiRequest({
         accessToken,
         method: "GET",
-        path: "/tracks",
-        query: { ids: batch.join(","), market: SPOTIFY_MARKET }
+        path: `/tracks/${id}`,
+        query: { market: SPOTIFY_MARKET }
       });
-      for (const track of data?.tracks || []) {
-        if (!track?.id) continue;
+      if (track?.id) {
         state.spotifyExplicitByTrackId.set(track.id, {
           explicit: Boolean(track.explicit),
           checkedAt: Date.now()
         });
       }
     } catch {
-      // Some environments reject /tracks lookups; fall back to search below.
-    }
-
-    const unresolved = batch.filter((id) => !state.spotifyExplicitByTrackId.has(id));
-    for (const id of unresolved) {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        const searchData = await spotifyApiRequest({
-          accessToken,
-          method: "GET",
-          path: "/search",
-          query: { q: `track:${id}`, type: "track", limit: "5", market: SPOTIFY_MARKET }
-        });
-        const hit = (searchData?.tracks?.items || []).find((item) => `${item?.id || ""}` === id);
-        if (!hit) continue;
-        state.spotifyExplicitByTrackId.set(id, {
-          explicit: Boolean(hit.explicit),
-          checkedAt: Date.now()
-        });
-      } catch {
-        // Keep unresolved; caller can decide whether strict blocking is needed.
-      }
+      // Keep unresolved.
     }
   }
 }
@@ -3552,26 +3530,26 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
   if (!ids.length || !state.tokens?.access_token) return [];
   const accessToken = await getValidAccessToken();
   const result = [];
-  for (let i = 0; i < ids.length; i += 50) {
-    if (i > 0) await new Promise((r) => setTimeout(r, 300));
-    const batch = ids.slice(i, i + 50);
+  // GET /tracks (bulk) was removed in the Feb 2026 Spotify API changes.
+  // Use GET /tracks/{id} (single) which is still available.
+  for (let i = 0; i < ids.length; i += 1) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 200));
+    const id = ids[i];
     try {
-      const data = await spotifyApiRequest({
+      const track = await spotifyApiRequest({
         accessToken,
         method: "GET",
-        path: "/tracks",
-        query: { ids: batch.join(","), market: SPOTIFY_MARKET }
+        path: `/tracks/${id}`,
+        query: { market: SPOTIFY_MARKET }
       });
-      for (const track of data?.tracks || []) {
-        if (track?.uri) {
-          result.push(track);
-          if (track.id) {
-            state.spotifyExplicitByTrackId.set(track.id, { explicit: Boolean(track.explicit), checkedAt: Date.now() });
-          }
+      if (track?.uri) {
+        result.push(track);
+        if (track.id) {
+          state.spotifyExplicitByTrackId.set(track.id, { explicit: Boolean(track.explicit), checkedAt: Date.now() });
         }
       }
     } catch (err) {
-      console.warn(`[fetchSpotifyTrackObjects] /tracks batch failed: ${err.message}`);
+      console.warn(`[fetchSpotifyTrackObjects] /tracks/${id} failed: ${err.message}`);
     }
   }
   return result;
@@ -7684,7 +7662,7 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
     try {
       const spotifyResult = await spotify({
         path: "/search",
-        query: { q, type: "track", limit: "40", market: SPOTIFY_MARKET }
+        query: { q, type: "track", limit: "10", market: SPOTIFY_MARKET }
       });
       for (const item of spotifyResult?.tracks?.items || []) {
         let imageUrl = item.album?.images?.[0]?.url || "";
