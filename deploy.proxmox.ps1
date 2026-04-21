@@ -108,6 +108,10 @@ try {
       ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- systemctl restart hsnba-jukebox"
     }
 
+    Invoke-Step "Restart mopidy service" {
+      ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- systemctl restart mopidy"
+    }
+
     Invoke-Step "Check jukebox service status" {
       ssh -i $SshKeyPath "${SshUser}@${ProxmoxHost}" "pct exec $ContainerId -- systemctl is-active hsnba-jukebox"
     }
@@ -131,6 +135,10 @@ try {
 
     Invoke-Step "Restart jukebox service" {
       ssh -i $SshKeyPath "${SshUser}@${targetHost}" "systemctl restart hsnba-jukebox"
+    }
+
+    Invoke-Step "Restart mopidy service" {
+      ssh -i $SshKeyPath "${SshUser}@${targetHost}" "systemctl restart mopidy"
     }
 
     Invoke-Step "Check jukebox service status" {
