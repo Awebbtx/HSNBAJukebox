@@ -7689,60 +7689,46 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
   try {
     let tracks = [];
     let spotifySearchError = null;
-    let mopidySearchError = null;
 
     // Use Spotify Web API when a token is available — it reliably returns the
     // `explicit` field needed for the explicit filter.
-    if (state.tokens?.access_token) {
-      try {
-        const spotifyResult = await spotify({
-          path: "/search",
-          query: { q, type: "track", limit: "40", market: SPOTIFY_MARKET }
-        });
-        for (const item of spotifyResult?.tracks?.items || []) {
-          let imageUrl = item.album?.images?.[0]?.url || "";
-          tracks.push({
-            uri: item.uri,
-            name: item.name || "Unknown track",
-            album: item.album?.name || "",
-            artists: (item.artists || []).map((a) => a.name).join(", "),
-            durationMs: Number(item.duration_ms || 0),
-            explicit: Boolean(item.explicit),
-            imageUrl
-          });
-        }
-      } catch (spotifyErr) {
-        spotifySearchError = spotifyErr;
-        console.warn(`Spotify search failed for query \"${q}\": ${spotifyErr.message}`);
-      }
-    }
-
-    // Fallback: Mopidy search (explicit field will always be false here)
-    if (tracks.length === 0) {
-      try {
-        const result = await mopidyRpc("core.library.search", {
-          query: { any: [q] },
-          uris: ["spotify:"]
-        });
-        for (const bucket of result || []) {
-          for (const track of bucket.tracks || []) {
-            tracks.push(mapMopidyTrack(track));
-          }
-        }
-      } catch (mopidyErr) {
-        mopidySearchError = mopidyErr;
-        console.warn(`Mopidy search failed for query \"${q}\": ${mopidyErr.message}`);
-      }
-    }
-
-    if (tracks.length === 0 && (spotifySearchError || mopidySearchError)) {
-      const suggestion = spotifySearchError?.message || mopidySearchError?.message || "Search providers unavailable";
-      res.status(502).json({
-        error: "Search is temporarily unavailable.",
-        suggestion
+    if (!state.tokens?.access_token) {
+      res.status(503).json({
+        error: "Spotify search is unavailable.",
+        suggestion: "Reconnect Spotify in admin settings and try again."
       });
       return;
+    }
+
+    try {
+      const spotifyResult = await spotify({
+        path: "/search",
+        query: { q, type: "track", limit: "40", market: SPOTIFY_MARKET }
+      });
+      for (const item of spotifyResult?.tracks?.items || []) {
+        let imageUrl = item.album?.images?.[0]?.url || "";
+        tracks.push({
+          uri: item.uri,
+          name: item.name || "Unknown track",
+          album: item.album?.name || "",
+          artists: (item.artists || []).map((a) => a.name).join(", "),
+          durationMs: Number(item.duration_ms || 0),
+          explicit: Boolean(item.explicit),
+          imageUrl
+        });
       }
+    } catch (spotifyErr) {
+      spotifySearchError = spotifyErr;
+      console.warn(`Spotify search failed for query \"${q}\": ${spotifyErr.message}`);
+    }
+
+    if (tracks.length === 0 && spotifySearchError) {
+      res.status(502).json({
+        error: "Spotify search is temporarily unavailable.",
+        suggestion: spotifySearchError.message
+      });
+      return;
+    }
 
     const filtered = state.explicitFilter ? tracks.filter((t) => !t.explicit) : tracks;
     const staffId = req.employeeSession.userId || "";
