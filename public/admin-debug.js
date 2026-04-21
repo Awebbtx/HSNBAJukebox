@@ -11,6 +11,7 @@ const els = {
   loginForm: document.getElementById("loginForm"),
   usernameInput: document.getElementById("usernameInput"),
   passwordInput: document.getElementById("passwordInput"),
+  forgotPasswordBtn: document.getElementById("forgotPasswordBtn"),
   toast: document.getElementById("toast"),
   audioJackStatusText: document.getElementById("audioJackStatusText"),
   audioJackCardSelect: document.getElementById("audioJackCardSelect"),
@@ -273,6 +274,24 @@ async function initialize() {
   ]);
   startLogsPolling();
   startStreamHealthPolling();
+}
+
+if (els.forgotPasswordBtn) {
+  els.forgotPasswordBtn.addEventListener("click", async () => {
+    const email = `${els.usernameInput?.value || ""}`.trim();
+    const address = email || window.prompt("Enter your email address to receive a password reset link:");
+    if (!address) return;
+    try {
+      const payload = await fetch("/api/account/password-reset-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: address })
+      }).then((response) => response.json().catch(() => ({})));
+      toast(payload.message || "If that account exists, a reset email has been sent.");
+    } catch {
+      toast("Unable to send reset email. Check server connection.", true);
+    }
+  });
 }
 
 els.loginForm.addEventListener("submit", async (event) => {
