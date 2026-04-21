@@ -1586,6 +1586,22 @@ if (els.audioAutomationIdInput) {
 
 // ── Event listeners ───────────────────────────────────────────────────────────
 
+document.getElementById("forgotPasswordBtn")?.addEventListener("click", async () => {
+  const email = els.usernameInput?.value.trim();
+  const address = email || window.prompt("Enter your email address to receive a password reset link:");
+  if (!address) return;
+  try {
+    const result = await fetch("/api/account/password-reset-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: address })
+    }).then((r) => r.json());
+    toast(result.message || "If that account exists, a reset email has been sent.");
+  } catch {
+    toast("Unable to send reset email. Check server connection.", true);
+  }
+});
+
 els.loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
