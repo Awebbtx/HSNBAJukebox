@@ -233,7 +233,7 @@ async function runSearch() {
   if (!result.tracks?.length) {
     const li = document.createElement("li");
     li.className = "item";
-    li.innerHTML = '<div class="track-meta">No matches found.</div>';
+    li.innerHTML = `<div class="track-meta">${escapeHtml(result.warning || "No matches found.")}</div>`;
     els.searchResults.append(li);
     return;
   }

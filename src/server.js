@@ -7668,9 +7668,14 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
     }
 
     if (tracks.length === 0 && spotifySearchError) {
-      res.status(502).json({
-        error: "Spotify search is temporarily unavailable.",
-        suggestion: spotifySearchError.message
+      const detail = `${spotifySearchError.message || ""}`;
+      const isRateLimited = /\b429\b/.test(detail) || /too many requests/i.test(detail);
+      res.json({
+        tracks: [],
+        warning: isRateLimited
+          ? "Spotify search is rate-limited right now. Please try again in a few seconds."
+          : "Spotify search is temporarily unavailable.",
+        suggestion: detail || undefined
       });
       return;
     }
