@@ -3569,8 +3569,9 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
           }
         }
       }
-    } catch {
-      // skip failed batch
+    } catch (err) {
+      console.error(`[fetchSpotifyTrackObjects] batch failed: ${err.message}`);
+      throw err;
     }
   }
   return result;
