@@ -110,14 +110,25 @@ export async function spotifyApiRequest({ accessToken, method = "GET", path, que
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const response = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json"
-      },
-      body: body ? JSON.stringify(body) : undefined
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    let response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal
+      });
+    } catch (fetchErr) {
+      clearTimeout(timer);
+      if (fetchErr.name === "AbortError") throw new Error("Spotify API request timed out");
+      throw fetchErr;
+    }
+    clearTimeout(timer);
 
     if (response.status === 204) {
       return null;

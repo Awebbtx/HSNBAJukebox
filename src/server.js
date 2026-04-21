@@ -3329,30 +3329,42 @@ function requireEmployee(req, res, next) {
   next();
 }
 
-async function mopidyRpc(method, params = {}) {
-  const response = await fetch(MOPIDY_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: Date.now(),
-      method,
-      params
-    })
-  });
+async function mopidyRpc(method, params = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(MOPIDY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: Date.now(),
+        method,
+        params
+      }),
+      signal: controller.signal
+    });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(`Mopidy request failed: ${response.status}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(`Mopidy request failed: ${response.status}`);
+    }
+
+    if (payload.error) {
+      throw new Error(payload.error.message || "Mopidy RPC error");
+    }
+
+    return payload.result;
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(`Mopidy RPC timed out after ${timeoutMs}ms (${method})`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  if (payload.error) {
-    throw new Error(payload.error.message || "Mopidy RPC error");
-  }
-
-  return payload.result;
 }
 
 function mapMopidyTrack(track = {}) {
@@ -3550,25 +3562,31 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
   const accessToken = await getValidAccessToken();
   const result = [];
   // GET /tracks (bulk) was removed in the Feb 2026 Spotify API changes.
-  // Use GET /tracks/{id} (single) which is still available.
-  for (let i = 0; i < ids.length; i += 1) {
-    if (i > 0) await new Promise((r) => setTimeout(r, 200));
-    const id = ids[i];
-    try {
-      const track = await spotifyApiRequest({
-        accessToken,
-        method: "GET",
-        path: `/tracks/${id}`,
-        query: { market: SPOTIFY_MARKET }
-      });
-      if (track?.uri) {
+  // Fetch in parallel batches of 5 to stay within rate limits without serial delays.
+  const CONCURRENCY = 5;
+  for (let i = 0; i < ids.length; i += CONCURRENCY) {
+    const chunk = ids.slice(i, i + CONCURRENCY);
+    const settled = await Promise.allSettled(
+      chunk.map(async (id) => {
+        const track = await spotifyApiRequest({
+          accessToken,
+          method: "GET",
+          path: `/tracks/${id}`,
+          query: { market: SPOTIFY_MARKET }
+        });
+        return track;
+      })
+    );
+    for (const outcome of settled) {
+      if (outcome.status === "fulfilled" && outcome.value?.uri) {
+        const track = outcome.value;
         result.push(track);
         if (track.id) {
           state.spotifyExplicitByTrackId.set(track.id, { explicit: Boolean(track.explicit), checkedAt: Date.now() });
         }
+      } else if (outcome.status === "rejected") {
+        console.warn(`[fetchSpotifyTrackObjects] batch fetch failed: ${outcome.reason?.message}`);
       }
-    } catch (err) {
-      console.warn(`[fetchSpotifyTrackObjects] /tracks/${id} failed: ${err.message}`);
     }
   }
   return result;
@@ -8725,6 +8743,8 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
   try {
     const tracks = await mopidyRpc("core.playlists.get_items", { uri });
     let uris = (tracks || []).map((t) => t.uri).filter(Boolean);
+    // Keep Mopidy track objects for fallback metadata when Spotify is unavailable
+    const mopidyByUri = new Map((tracks || []).map((t) => [t.uri, t]));
     if (!uris.length) {
       res.status(400).json({ error: "Playlist is empty." });
       return;
@@ -8768,22 +8788,46 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
 
     const trackIds = uris.map(getSpotifyTrackIdFromUri).filter(Boolean);
     const spotifyTracks = await fetchSpotifyTrackObjects(trackIds);
-    const byUri = new Map(spotifyTracks.map((track) => [track.uri, track]));
+    const spotifyByUri = new Map(spotifyTracks.map((track) => [track.uri, track]));
     const existingUris = new Set([
       state.nowPlaying?.uri || "",
       ...state.localQueue.map((item) => item.uri || "")
     ].filter(Boolean));
+    const requestedAt = new Date().toISOString();
     const queueItems = uris
-      .map((trackUri) => byUri.get(trackUri))
-      .filter(Boolean)
-      .filter((track) => !existingUris.has(track.uri))
-      .map((track) => spotifyTrackToQueueItem(track, { requestedAt: new Date().toISOString() }));
+      .filter((trackUri) => !existingUris.has(trackUri))
+      .map((trackUri) => {
+        if (spotifyByUri.has(trackUri)) {
+          return spotifyTrackToQueueItem(spotifyByUri.get(trackUri), { requestedAt });
+        }
+        // Spotify metadata unavailable — fall back to Mopidy track data
+        const mt = mopidyByUri.get(trackUri);
+        if (!mt) return null;
+        return {
+          id: crypto.randomUUID(),
+          uri: mt.uri,
+          name: mt.name || "Unknown track",
+          artists: (mt.artists || []).map((a) => a.name).filter(Boolean).join(", "),
+          album: mt.album?.name || "",
+          durationMs: Number(mt.length || 0),
+          explicit: false,
+          imageUrl: "",
+          requestedBy: "",
+          requestedByToken: "",
+          requestedAt,
+          upvotes: 0,
+          downvotes: 0,
+          voteScore: 0,
+          tlid: null
+        };
+      })
+      .filter(Boolean);
 
     state.localQueue.push(...queueItems);
     saveLocalQueue();
 
     if (queueItems.length === 0) {
-      res.status(502).json({ error: "No tracks from this playlist could be resolved from Spotify metadata.", playlistUri: uri, requested: uris.length, added: 0 });
+      res.status(502).json({ error: "No tracks from this playlist could be resolved (Spotify and Mopidy metadata both unavailable).", playlistUri: uri, requested: uris.length, added: 0 });
       return;
     }
 
