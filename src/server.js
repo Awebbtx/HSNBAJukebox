@@ -3412,7 +3412,7 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
           accessToken,
           method: "GET",
           path: "/search",
-          query: { q: `track:${id}`, type: "track", limit: "5", market: "from_token" }
+          query: { q: `track:${id}`, type: "track", limit: "5" }
         });
         const hit = (searchData?.tracks?.items || []).find((item) => `${item?.id || ""}` === id);
         if (!hit) continue;
@@ -3559,7 +3559,7 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
         accessToken,
         method: "GET",
         path: "/tracks",
-        query: { ids: batch.join(","), market: "from_token" }
+        query: { ids: batch.join(",") }
       });
       for (const track of data?.tracks || []) {
         if (track?.uri) {
@@ -7676,7 +7676,7 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
       try {
         const spotifyResult = await spotify({
           path: "/search",
-          query: { q, type: "track", limit: "40", market: "from_token" }
+          query: { q, type: "track", limit: "40" }
         });
         for (const item of spotifyResult?.tracks?.items || []) {
           let imageUrl = item.album?.images?.[0]?.url || "";
