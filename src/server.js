@@ -7903,12 +7903,23 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
       return;
     }
     const [spotifyTrack] = await fetchSpotifyTrackObjects([trackId]);
+    const effectiveTrack = spotifyTrack?.uri
+      ? spotifyTrack
+      : {
+          id: trackId,
+          uri,
+          name: `Spotify track (${trackId})`,
+          artists: [],
+          album: { name: "", images: [] },
+          duration_ms: 0,
+          explicit: false
+        };
     if (!spotifyTrack?.uri) {
-      res.status(502).json({ error: "Failed to load track metadata from Spotify." });
-      return;
+      console.warn(`[queue-add] metadata unavailable for ${uri}; enqueuing with fallback metadata`);
+    } else {
+      console.log(`[queue-add] Spotify track: ${spotifyTrack.name} | explicit=${spotifyTrack.explicit} (type: ${typeof spotifyTrack.explicit})`);
     }
-    console.log(`[queue-add] Spotify track: ${spotifyTrack.name} | explicit=${spotifyTrack.explicit} (type: ${typeof spotifyTrack.explicit})`);
-    const queueItem = spotifyTrackToQueueItem(spotifyTrack, {
+    const queueItem = spotifyTrackToQueueItem(effectiveTrack, {
       requestedBy: req.employeeSession.displayName,
       requestedByToken: req.employeeToken,
       requestedAt: new Date().toISOString()
