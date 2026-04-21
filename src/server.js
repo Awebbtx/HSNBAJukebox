@@ -3570,8 +3570,26 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
         }
       }
     } catch (err) {
-      console.error(`[fetchSpotifyTrackObjects] batch failed: ${err.message}`);
-      throw err;
+      console.warn(`[fetchSpotifyTrackObjects] /tracks batch failed; falling back to /search: ${err.message}`);
+      for (const id of batch) {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          const searchData = await spotifyApiRequest({
+            accessToken,
+            method: "GET",
+            path: "/search",
+            query: { q: `track:${id}`, type: "track", limit: "5" }
+          });
+          const hit = (searchData?.tracks?.items || []).find((item) => `${item?.id || ""}` === id);
+          if (!hit?.uri) continue;
+          result.push(hit);
+          if (hit.id) {
+            state.spotifyExplicitByTrackId.set(hit.id, { explicit: Boolean(hit.explicit), checkedAt: Date.now() });
+          }
+        } catch (fallbackErr) {
+          console.warn(`[fetchSpotifyTrackObjects] /search fallback failed for ${id}: ${fallbackErr.message}`);
+        }
+      }
     }
   }
   return result;
