@@ -132,9 +132,10 @@ export async function spotifyApiRequest({ accessToken, method = "GET", path, que
 
     if (response.status === 429 && attempt < maxAttempts) {
       const retryAfterSeconds = Number(response.headers.get("retry-after") || "0");
-      const backoffMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      const rawBackoffMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
         ? Math.ceil(retryAfterSeconds * 1000)
         : Math.min(8000, 500 * (2 ** (attempt - 1)));
+      const backoffMs = Math.min(rawBackoffMs, 2000);
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       continue;
     }
