@@ -304,11 +304,10 @@
           <div class="setting-row stack">
             <div>
               <div class="setting-name">Update Mopidy-Spotify Credentials</div>
-              <div class="setting-desc">After completing the flow at mopidy.com/ext/spotify, paste the <code>client_id</code> and <code>client_secret</code> here and click <strong>Apply</strong>. This writes to <code>mopidy.conf</code> and restarts Mopidy.</div>
+              <div class="setting-desc">After completing the flow at mopidy.com/ext/spotify, paste the entire <code>[spotify]</code> block it gives you into the box below and click <strong>Apply</strong>. This writes to <code>mopidy.conf</code> and restarts Mopidy.</div>
             </div>
             <div class="setting-form-grid">
-              <input id="spotifyMopidyClientIdInput" type="text" placeholder="client_id (UUID from mopidy.com/ext/spotify)" autocomplete="off" />
-              <input id="spotifyMopidyClientSecretInput" type="password" placeholder="client_secret (base64 from mopidy.com/ext/spotify)" autocomplete="new-password" />
+              <textarea id="spotifyMopidyCredentialsPasteInput" rows="4" placeholder="Paste the [spotify] block from mopidy.com/ext/spotify here" autocomplete="off" style="font-family:monospace;font-size:0.85rem;resize:vertical"></textarea>
             </div>
             <div class="setting-form-actions">
               <button id="spotifyApplyCredentialsBtn" class="btn-sm" type="button">Apply Credentials</button>

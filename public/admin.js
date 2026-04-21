@@ -254,8 +254,7 @@ const els = {
   spotifyRefreshBtn: document.getElementById("spotifyRefreshBtn"),
   spotifyAuthBtn: document.getElementById("spotifyAuthBtn"),
   spotifyDetails: document.getElementById("spotifyDetails"),
-  spotifyMopidyClientIdInput: document.getElementById("spotifyMopidyClientIdInput"),
-  spotifyMopidyClientSecretInput: document.getElementById("spotifyMopidyClientSecretInput"),
+  spotifyMopidyCredentialsPasteInput: document.getElementById("spotifyMopidyCredentialsPasteInput"),
   spotifyApplyCredentialsBtn: document.getElementById("spotifyApplyCredentialsBtn"),
 
   asmStatusText: document.getElementById("asmStatusText"),
@@ -2877,10 +2876,13 @@ if (els.spotifyAuthBtn) {
 
 if (els.spotifyApplyCredentialsBtn) {
   els.spotifyApplyCredentialsBtn.addEventListener("click", async () => {
-    const clientId = (els.spotifyMopidyClientIdInput?.value || "").trim();
-    const clientSecret = (els.spotifyMopidyClientSecretInput?.value || "").trim();
+    const raw = els.spotifyMopidyCredentialsPasteInput?.value || "";
+    const clientIdMatch = raw.match(/client_id\s*=\s*([^\s]+)/);
+    const clientSecretMatch = raw.match(/client_secret\s*=\s*([^\s]+)/);
+    const clientId = (clientIdMatch?.[1] || "").trim();
+    const clientSecret = (clientSecretMatch?.[1] || "").trim();
     if (!clientId || !clientSecret) {
-      toast("Paste both Client ID and Client Secret from mopidy.com/ext/spotify first.", true);
+      toast("Could not find client_id and client_secret in pasted text. Paste the full [spotify] block from mopidy.com/ext/spotify.", true);
       return;
     }
     try {
@@ -2888,8 +2890,7 @@ if (els.spotifyApplyCredentialsBtn) {
         method: "POST",
         body: JSON.stringify({ clientId, clientSecret })
       });
-      if (els.spotifyMopidyClientIdInput) els.spotifyMopidyClientIdInput.value = "";
-      if (els.spotifyMopidyClientSecretInput) els.spotifyMopidyClientSecretInput.value = "";
+      if (els.spotifyMopidyCredentialsPasteInput) els.spotifyMopidyCredentialsPasteInput.value = "";
       toast(result.message || "Mopidy credentials applied and Mopidy restarted.");
       await loadSpotifySettings();
     } catch (e) {
