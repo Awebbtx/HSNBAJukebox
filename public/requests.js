@@ -10,6 +10,7 @@ const els = {
   staffPasswordInput: document.getElementById("staffPasswordInput"),
   searchForm: document.getElementById("searchForm"),
   searchInput: document.getElementById("searchInput"),
+  searchBtn: document.getElementById("searchBtn"),
   searchResults: document.getElementById("searchResults"),
   queueList: document.getElementById("queueList"),
 
@@ -218,6 +219,11 @@ async function loadQueue() {
 async function runSearch() {
   const q = els.searchInput.value.trim();
   if (!q) {
+    els.searchResults.innerHTML = "";
+    const li = document.createElement("li");
+    li.className = "item";
+    li.innerHTML = '<div class="track-meta">Type a song, artist, or album to search.</div>';
+    els.searchResults.append(li);
     return;
   }
 
@@ -234,6 +240,27 @@ async function runSearch() {
 
   for (const track of result.tracks) {
     els.searchResults.append(toQueueItem(track, true));
+  }
+}
+
+async function triggerSearch() {
+  if (!els.searchForm || !els.searchInput || !els.searchResults) {
+    return;
+  }
+  const previousLabel = els.searchBtn?.textContent || "Search";
+  if (els.searchBtn) {
+    els.searchBtn.disabled = true;
+    els.searchBtn.textContent = "Searching...";
+  }
+  try {
+    await runSearch();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (els.searchBtn) {
+      els.searchBtn.disabled = false;
+      els.searchBtn.textContent = previousLabel;
+    }
   }
 }
 
@@ -303,13 +330,18 @@ async function bootstrap() {
 }
 
 els.joinForm.addEventListener("submit", createSession);
-els.searchForm.addEventListener("submit", async (event) => {
+els.searchForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  try {
-    await runSearch();
-  } catch (error) {
-    toast(error.message);
-  }
+  await triggerSearch();
+});
+els.searchBtn?.addEventListener("click", async (event) => {
+  event.preventDefault();
+  await triggerSearch();
+});
+els.searchInput?.addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  await triggerSearch();
 });
 els.refreshBtn.addEventListener("click", async () => {
   try {
