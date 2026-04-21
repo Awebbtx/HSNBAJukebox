@@ -430,7 +430,6 @@ function getLocalDateKey(date = new Date()) {
 function normalizeUserDb(raw) {
   const db = raw && typeof raw === "object" ? raw : {};
   const defaults = db.defaults && typeof db.defaults === "object" ? db.defaults : {};
-  const staff = Array.isArray(db.staff) ? db.staff : [];
   const requests = Array.isArray(db.requests) ? db.requests : [];
   const votes = db.votes && typeof db.votes === "object" ? db.votes : {};
   const voteLedger = db.voteLedger && typeof db.voteLedger === "object" ? db.voteLedger : {};
@@ -445,19 +444,6 @@ function normalizeUserDb(raw) {
     defaults: {
       requestLimit: Math.max(1, Number(defaults.requestLimit || MAX_PENDING_PER_USER || 3))
     },
-    staff: staff
-      .filter((item) => item && typeof item === "object")
-      .map((item) => ({
-        id: `${item.id || crypto.randomUUID()}`,
-        firstName: `${item.firstName || ""}`.trim().slice(0, 40),
-        lastInitial: `${item.lastInitial || ""}`.trim().slice(0, 1).toUpperCase(),
-        legacyCode: `${item.code || ""}`.trim().slice(0, 4),
-        requestLimit: Math.max(1, Number(item.requestLimit || defaults.requestLimit || MAX_PENDING_PER_USER || 3)),
-        active: item.active !== false,
-        createdAt: item.createdAt || new Date().toISOString(),
-        updatedAt: item.updatedAt || new Date().toISOString()
-      }))
-      .filter((item) => item.firstName && item.lastInitial && /^\d{4}$/.test(item.legacyCode)),
     requests: requests
       .filter((item) => item && typeof item === "object")
       .map((item) => ({
@@ -8139,7 +8125,7 @@ app.get("/api/search", async (req, res) => {
   try {
     const payload = await spotify({
       path: "/search",
-      query: { q, type: "track", limit: 20, market: SPOTIFY_MARKET }
+      query: { q, type: "track", limit: 10, market: SPOTIFY_MARKET }
     });
 
     const tracks = (payload.tracks?.items || []).map((track) => ({
