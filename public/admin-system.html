@@ -16,7 +16,6 @@
   <body data-admin-page="system">
     <nav class="admin-page-nav" aria-label="Admin Sections">
       <a href="/admin-audio.html">Audio</a>
-      <a id="debugNavLink" href="/admin-debug.html">Debug</a>
       <a href="/admin-scheduler.html">Scheduler</a>
       <a href="/admin-stats.html">Stats</a>
       <a href="/admin-system.html" class="is-active">System</a>
@@ -90,7 +89,8 @@
       <section class="card settings-card">
         <div class="card-label">SETTINGS</div>
         <div class="settings-tabs">
-          <button id="tabAudioJack" class="settings-tab active" data-tab="audio-jack" type="button">Clock</button>
+          <button id="tabClock" class="settings-tab active" data-tab="clock" type="button">Clock</button>
+          <button id="tabAudioJack" class="settings-tab" data-tab="audio-jack" type="button">AUX Hardware</button>
           <button id="tabEmail" class="settings-tab" data-tab="email" type="button">Email</button>
           <button id="tabSpotify" class="settings-tab" data-tab="spotify" type="button">Spotify Enrollment</button>
           <button id="tabAsm" class="settings-tab" data-tab="asm" type="button">ASM</button>
@@ -186,7 +186,7 @@
           </div>
         </div>
 
-        <div id="panelAudioJack" class="settings-panel active">
+        <div id="panelClock" class="settings-panel active">
           <div class="setting-row stack">
             <div>
               <div class="setting-name">Server Clock &amp; Timezone</div>
@@ -197,6 +197,36 @@
               <input id="systemTimezoneInput" type="text" maxlength="80" placeholder="IANA timezone — e.g. America/Chicago" style="flex:1" />
               <button id="saveSystemTimezoneBtn" class="btn-sm" type="button">Save Timezone</button>
               <button id="refreshSystemClockBtn" class="btn-sm" type="button">Refresh</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="panelAudioJack" class="settings-panel">
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">AUX Hardware Routing</div>
+              <div id="audioJackStatusText" class="setting-desc">Loading ALSA cards and controls...</div>
+            </div>
+            <div class="setting-form-grid">
+              <select id="audioJackCardSelect"></select>
+              <select id="audioJackControlSelect"></select>
+            </div>
+            <div class="setting-form-actions">
+              <button id="audioJackRefreshBtn" class="btn-sm" type="button">Refresh Controls</button>
+              <button id="audioJackSaveBtn" class="btn-sm" type="button">Apply AUX Routing</button>
+            </div>
+          </div>
+
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">AUX Live Control</div>
+              <div class="setting-desc">Use this to verify mute and volume after selecting routing.</div>
+            </div>
+            <div class="volume-row">
+              <button id="audioJackMuteToggleBtn" class="mode-btn" data-active="false" type="button">MUTE</button>
+              <span class="vol-icon" title="AUX OUT">AUX OUT</span>
+              <input id="audioJackVolumeInput" type="range" min="0" max="100" step="1" value="0" />
+              <span id="audioJackVolumeValue" class="vol-val">0%</span>
             </div>
           </div>
         </div>

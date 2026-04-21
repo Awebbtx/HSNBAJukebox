@@ -79,7 +79,7 @@ if (pageMode === "audio") {
 } else if (pageMode === "scheduler") {
   settingsTab = "audio-jack";
 } else if (pageMode === "system") {
-  settingsTab = "audio-jack";
+  settingsTab = "clock";
 } else if (pageMode === "staff") {
   settingsTab = "request";
 } else if (pageMode === "stats") {
@@ -141,12 +141,14 @@ const els = {
 
   tabAccount: document.getElementById("tabAccount"),
   tabRequestAccess: document.getElementById("tabRequestAccess"),
+  tabClock: document.getElementById("tabClock"),
   tabAudioJack: document.getElementById("tabAudioJack"),
   tabEmail: document.getElementById("tabEmail"),
   tabSpotify: document.getElementById("tabSpotify"),
   tabAsm: document.getElementById("tabAsm"),
   panelAccount: document.getElementById("panelAccount"),
   panelRequestAccess: document.getElementById("panelRequestAccess"),
+  panelClock: document.getElementById("panelClock"),
   panelAudioJack: document.getElementById("panelAudioJack"),
   panelEmail: document.getElementById("panelEmail"),
   panelSpotify: document.getElementById("panelSpotify"),
@@ -1084,15 +1086,17 @@ async function initializeApp() {
 }
 
 function setSettingsTab(name) {
-  settingsTab = ["account", "request", "audio-jack", "email", "spotify", "asm"].includes(name) ? name : "request";
+  settingsTab = ["account", "request", "clock", "audio-jack", "email", "spotify", "asm"].includes(name) ? name : "request";
   els.tabAccount?.classList.toggle("active", settingsTab === "account");
   els.tabRequestAccess?.classList.toggle("active", settingsTab === "request");
+  els.tabClock?.classList.toggle("active", settingsTab === "clock");
   els.tabAudioJack?.classList.toggle("active", settingsTab === "audio-jack");
   els.tabEmail?.classList.toggle("active", settingsTab === "email");
   els.tabSpotify?.classList.toggle("active", settingsTab === "spotify");
   els.tabAsm?.classList.toggle("active", settingsTab === "asm");
   els.panelAccount?.classList.toggle("active", settingsTab === "account");
   els.panelRequestAccess?.classList.toggle("active", settingsTab === "request");
+  els.panelClock?.classList.toggle("active", settingsTab === "clock");
   els.panelAudioJack?.classList.toggle("active", settingsTab === "audio-jack");
   els.panelEmail?.classList.toggle("active", settingsTab === "email");
   els.panelSpotify?.classList.toggle("active", settingsTab === "spotify");

@@ -64,6 +64,7 @@ body[data-admin-page="system"] #panelRequestAccess {
 }
 
 /* Ensure system sub-panels always obey tab active state, including Email. */
+body[data-admin-page="system"] #panelClock,
 body[data-admin-page="system"] #panelAudioJack,
 body[data-admin-page="system"] #panelEmail,
 body[data-admin-page="system"] #panelSpotify,
@@ -71,6 +72,7 @@ body[data-admin-page="system"] #panelAsm {
   display: none !important;
 }
 
+body[data-admin-page="system"] #panelClock.active,
 body[data-admin-page="system"] #panelAudioJack.active,
 body[data-admin-page="system"] #panelEmail.active,
 body[data-admin-page="system"] #panelSpotify.active,
