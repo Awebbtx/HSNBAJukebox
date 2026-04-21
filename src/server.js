@@ -354,6 +354,8 @@ const state = {
   employeeSessions: new Map(),
   requestMetaByTlid: new Map(),
   requestRateByKey: new Map(),
+  spotifySearchCache: new Map(),
+  spotifySearchBlockedUntil: 0,
   revokedAdminTokens: new Map(),
   adminDbLoadedAt: 0,
   userDb: null,
@@ -7624,10 +7626,21 @@ app.get("/api/requests/me", requireEmployee, async (req, res) => {
   }
 });
 
+// In-memory Spotify search cache — keyed by query string, TTL 60 seconds.
+const _searchCache = new Map();
+const SEARCH_CACHE_TTL_MS = 60_000;
+
 app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, async (req, res) => {
   const q = `${req.query.q || ""}`.trim();
   if (!q) {
     res.json({ tracks: [] });
+    return;
+  }
+
+  // Return cached result if still fresh.
+  const cached = _searchCache.get(q);
+  if (cached && Date.now() - cached.ts < SEARCH_CACHE_TTL_MS) {
+    res.json(cached.payload);
     return;
   }
 
@@ -7687,7 +7700,9 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
       ...getTrackVoteSummary(track.uri || ""),
       userVote: staffId ? getUserVoteForTrack(staffId, track.uri || "") : 0
     }));
-    res.json({ tracks: enriched });
+    const payload = { tracks: enriched };
+    _searchCache.set(q, { ts: Date.now(), payload });
+    res.json(payload);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
