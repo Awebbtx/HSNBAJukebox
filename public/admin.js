@@ -243,12 +243,16 @@ const els = {
   runAudioAutomationNowBtn: document.getElementById("runAudioAutomationNowBtn"),
   deleteAudioAutomationBtn: document.getElementById("deleteAudioAutomationBtn"),
 
+  // Jukebox Spotify Web API (OAuth / search token)
+  jukeboxSpotifyStatusText: document.getElementById("jukeboxSpotifyStatusText"),
+  jukeboxSpotifyRefreshBtn: document.getElementById("jukeboxSpotifyRefreshBtn"),
+  spotifyDisconnectBtn: document.getElementById("spotifyDisconnectBtn"),
+  spotifyCycleConnectBtn: document.getElementById("spotifyCycleConnectBtn"),
+  // Mopidy-Spotify plugin
   spotifyStatusText: document.getElementById("spotifyStatusText"),
   spotifyAccountText: document.getElementById("spotifyAccountText"),
   spotifyRefreshBtn: document.getElementById("spotifyRefreshBtn"),
   spotifyAuthBtn: document.getElementById("spotifyAuthBtn"),
-  spotifyDisconnectBtn: document.getElementById("spotifyDisconnectBtn"),
-  spotifyCycleConnectBtn: document.getElementById("spotifyCycleConnectBtn"),
   spotifyDetails: document.getElementById("spotifyDetails"),
   spotifyMopidyClientIdInput: document.getElementById("spotifyMopidyClientIdInput"),
   spotifyMopidyClientSecretInput: document.getElementById("spotifyMopidyClientSecretInput"),
@@ -1058,7 +1062,7 @@ async function initializeApp() {
     ["playlists", loadPlaylists],
     ["staff", loadStaffSettings],
     ["request-stats", loadAdminRequestStats],
-    ["spotify", loadSpotifySettings],
+    ["spotify", async () => { await Promise.all([loadJukeboxSpotifyStatus(), loadSpotifySettings()]); }],
     ["asm", loadAsmSettings]
   ];
 
@@ -2062,7 +2066,20 @@ async function loadAdminRequestStats() {
   if (els.topDownvotedAdminList) renderTopList(els.topDownvotedAdminList, data.topDownvoted || [], "downvotes");
 }
 
-// ── Spotify backend settings ─────────────────────────────────────────────────
+// ── Jukebox Spotify Web API status ──────────────────────────────────────────
+async function loadJukeboxSpotifyStatus() {
+  if (!els.jukeboxSpotifyStatusText) return;
+  try {
+    const data = await api("/api/auth/status");
+    els.jukeboxSpotifyStatusText.textContent = data.connected
+      ? "Connected — OAuth token is active and will auto-refresh."
+      : "Not connected. Use Connect / Reconnect to complete OAuth login.";
+  } catch (e) {
+    els.jukeboxSpotifyStatusText.textContent = `Unable to read status: ${e.message}`;
+  }
+}
+
+// ── Mopidy-Spotify plugin settings ───────────────────────────────────────────
 function renderSpotifyDetails(items) {
   els.spotifyDetails.innerHTML = items
     .filter(Boolean)
@@ -2811,16 +2828,11 @@ if (els.refreshRequestStatsBtn) {
   });
 }
 
-if (els.spotifyRefreshBtn) {
-  els.spotifyRefreshBtn.addEventListener("click", async () => {
-    await loadSpotifySettings();
-    toast("Spotify settings refreshed");
-  });
-}
-
-if (els.spotifyAuthBtn) {
-  els.spotifyAuthBtn.addEventListener("click", () => {
-    window.open("https://mopidy.com/ext/spotify/", "_blank", "noopener,noreferrer");
+// Jukebox Web API buttons
+if (els.jukeboxSpotifyRefreshBtn) {
+  els.jukeboxSpotifyRefreshBtn.addEventListener("click", async () => {
+    await loadJukeboxSpotifyStatus();
+    toast("Jukebox Spotify status refreshed");
   });
 }
 
@@ -2828,8 +2840,8 @@ if (els.spotifyDisconnectBtn) {
   els.spotifyDisconnectBtn.addEventListener("click", async () => {
     try {
       await api("/api/admin/settings/spotify/disconnect", { method: "POST" });
-      toast("Spotify session disconnected");
-      await loadSpotifySettings();
+      toast("Jukebox Spotify session disconnected");
+      await loadJukeboxSpotifyStatus();
     } catch (e) {
       toast(e.message, true);
     }
@@ -2840,12 +2852,26 @@ if (els.spotifyCycleConnectBtn) {
   els.spotifyCycleConnectBtn.addEventListener("click", async () => {
     try {
       await api("/api/admin/settings/spotify/disconnect", { method: "POST" });
-      toast("Disconnected. Opening Spotify login...");
+      toast("Disconnected. Opening Spotify login…");
       window.open("/auth/login?return=/admin-system.html", "_blank", "noopener,noreferrer");
-      await loadSpotifySettings();
+      await loadJukeboxSpotifyStatus();
     } catch (e) {
       toast(e.message, true);
     }
+  });
+}
+
+// Mopidy-Spotify plugin buttons
+if (els.spotifyRefreshBtn) {
+  els.spotifyRefreshBtn.addEventListener("click", async () => {
+    await loadSpotifySettings();
+    toast("Mopidy-Spotify status refreshed");
+  });
+}
+
+if (els.spotifyAuthBtn) {
+  els.spotifyAuthBtn.addEventListener("click", () => {
+    window.open("https://mopidy.com/ext/spotify/", "_blank", "noopener,noreferrer");
   });
 }
 

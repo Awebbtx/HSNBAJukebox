@@ -261,39 +261,50 @@
         </div>
 
         <div id="panelSpotify" class="settings-panel">
+
+          <!-- ── Section 1: Jukebox Spotify Web API ──────────────────────── -->
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Mopidy-Spotify Backend</div>
-              <div id="spotifyStatusText" class="setting-desc">Reading Spotify backend status from Mopidy.</div>
+              <div class="setting-name">Jukebox Spotify Web API</div>
+              <div class="setting-desc">This OAuth session is used by the jukebox to search Spotify and fetch track metadata (including the explicit flag). It is separate from Mopidy playback. Token is saved to disk and auto-refreshed.</div>
             </div>
-            <div class="setting-desc">Jukebox Spotify Web API login: <a href="/auth/login" target="_blank" rel="noopener noreferrer">https://jukebox.hsnba.org/auth/login</a></div>
+            <div>
+              <div id="jukeboxSpotifyStatusText" class="setting-desc">Checking connection…</div>
+            </div>
             <div class="setting-form-actions">
-              <a class="btn-sm" href="/auth/login" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Jukebox Login</a>
-              <button id="spotifyAuthBtn" class="btn-sm" type="button">Auth / Re-auth</button>
+              <button id="spotifyCycleConnectBtn" class="btn-sm" type="button">Connect / Reconnect</button>
               <button id="spotifyDisconnectBtn" class="btn-sm danger" type="button">Disconnect</button>
-              <button id="spotifyCycleConnectBtn" class="btn-sm" type="button">Cycle Connect</button>
-              <button id="spotifyRefreshBtn" class="btn-sm">Refresh</button>
+              <button id="jukeboxSpotifyRefreshBtn" class="btn-sm" type="button">Refresh Status</button>
+            </div>
+          </div>
+
+          <!-- ── Section 2: Mopidy-Spotify Plugin ───────────────────────── -->
+          <div class="setting-row stack">
+            <div>
+              <div class="setting-name">Mopidy-Spotify Plugin</div>
+              <div id="spotifyStatusText" class="setting-desc">Reading Mopidy-Spotify plugin status…</div>
+            </div>
+            <div>
+              <div id="spotifyAccountText" class="setting-desc"></div>
+            </div>
+            <div class="setting-form-actions">
+              <button id="spotifyAuthBtn" class="btn-sm" type="button">Open mopidy.com/ext/spotify</button>
+              <button id="spotifyRefreshBtn" class="btn-sm" type="button">Refresh Status</button>
             </div>
           </div>
 
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Backend Summary</div>
-              <div id="spotifyAccountText" class="setting-desc">Checking status...</div>
-            </div>
-          </div>
-
-          <div class="setting-row stack">
-            <div>
-              <div class="setting-name">Detected Settings</div>
-              <div class="setting-desc">These values come from the Mopidy server configuration and runtime capabilities.</div>
+              <div class="setting-name">Detected Plugin Settings</div>
+              <div class="setting-desc">Read from the Mopidy server configuration and runtime.</div>
             </div>
             <div id="spotifyDetails" class="inline-list"></div>
           </div>
+
           <div class="setting-row stack">
             <div>
-              <div class="setting-name">Apply Mopidy-Spotify Credentials</div>
-              <div class="setting-desc">Click <strong>Auth / Re-auth</strong> above to open mopidy.com/ext/spotify. After the popup closes, paste the <code>client_id</code> and <code>client_secret</code> values shown on that page here, then click <strong>Apply</strong>. This writes them to <code>mopidy.conf</code> and restarts Mopidy.</div>
+              <div class="setting-name">Update Mopidy-Spotify Credentials</div>
+              <div class="setting-desc">After completing the flow at mopidy.com/ext/spotify, paste the <code>client_id</code> and <code>client_secret</code> here and click <strong>Apply</strong>. This writes to <code>mopidy.conf</code> and restarts Mopidy.</div>
             </div>
             <div class="setting-form-grid">
               <input id="spotifyMopidyClientIdInput" type="text" placeholder="client_id (UUID from mopidy.com/ext/spotify)" autocomplete="off" />
@@ -303,6 +314,7 @@
               <button id="spotifyApplyCredentialsBtn" class="btn-sm" type="button">Apply Credentials</button>
             </div>
           </div>
+
         </div>
 
         <div id="panelAsm" class="settings-panel">
@@ -428,6 +440,6 @@
 
     <div id="toast" class="toast"></div>
 
-    <script type="module" src="/admin.js?v=20260420a"></script>
+    <script type="module" src="/admin.js?v=20260420b"></script>
   </body>
 </html>
