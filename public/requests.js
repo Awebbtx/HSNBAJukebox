@@ -8,6 +8,7 @@ const els = {
   joinForm: document.getElementById("joinForm"),
   staffUsernameInput: document.getElementById("staffUsernameInput"),
   staffPasswordInput: document.getElementById("staffPasswordInput"),
+  forgotPasswordBtn: document.getElementById("forgotPasswordBtn"),
   searchForm: document.getElementById("searchForm"),
   searchInput: document.getElementById("searchInput"),
   searchBtn: document.getElementById("searchBtn"),
@@ -328,6 +329,25 @@ async function bootstrap() {
     els.joinDialog.showModal();
   }
 }
+
+els.forgotPasswordBtn?.addEventListener("click", async () => {
+  const email = `${els.staffUsernameInput?.value || ""}`.trim();
+  const address = email || window.prompt("Enter your email address to receive a password reset link:");
+  if (!address) return;
+  try {
+    const payload = await api(
+      "/api/account/password-reset-request",
+      {
+        method: "POST",
+        body: JSON.stringify({ username: address })
+      },
+      false
+    );
+    toast(payload.message || "If that account exists, a reset email has been sent.");
+  } catch (error) {
+    toast(error.message || "Unable to send reset email right now.");
+  }
+});
 
 els.joinForm.addEventListener("submit", createSession);
 els.searchForm?.addEventListener("submit", async (event) => {

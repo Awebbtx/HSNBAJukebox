@@ -346,6 +346,20 @@ input:focus {
   color: var(--muted);
 }
 
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: var(--accent-d);
+}
+
 .btn-primary {
   padding: 0.65rem;
   border-radius: 12px;
