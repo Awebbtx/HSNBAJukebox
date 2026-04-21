@@ -3377,6 +3377,11 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
 
   const accessToken = await getValidAccessToken();
   for (let i = 0; i < staleIds.length; i += 50) {
+    // Pace requests to avoid piling onto Mopidy's Spotify token usage (shared rate limit).
+    if (i > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+
     const batch = staleIds.slice(i, i + 50);
     try {
       const data = await spotifyApiRequest({
@@ -3399,6 +3404,7 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
     const unresolved = batch.filter((id) => !state.spotifyExplicitByTrackId.has(id));
     for (const id of unresolved) {
       try {
+        await new Promise((resolve) => setTimeout(resolve, 200));
         const searchData = await spotifyApiRequest({
           accessToken,
           method: "GET",
