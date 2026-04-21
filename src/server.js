@@ -45,6 +45,7 @@ const ADMIN_SESSION_TTL_HOURS = Math.max(1, Number(process.env.ADMIN_SESSION_TTL
 const ACCOUNT_INVITE_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_INVITE_TTL_HOURS || 72));
 const ACCOUNT_RESET_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_RESET_TTL_HOURS || 2));
 const SPOTIFY_EXPLICIT_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_EXPLICIT_CACHE_TTL_MS || 6 * 60 * 60 * 1000));
+const SPOTIFY_MARKET = `${process.env.SPOTIFY_MARKET || "US"}`.trim().toUpperCase();
 if (!SESSION_SECRET) {
   console.warn("WARNING: SESSION_SECRET is not set. Admin sessions will not be valid across process restarts or between jukebox/reporting processes.");
 }
@@ -3391,7 +3392,7 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
         accessToken,
         method: "GET",
         path: "/tracks",
-        query: { ids: batch.join(",") }
+        query: { ids: batch.join(","), market: SPOTIFY_MARKET }
       });
       for (const track of data?.tracks || []) {
         if (!track?.id) continue;
@@ -3412,7 +3413,7 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
           accessToken,
           method: "GET",
           path: "/search",
-          query: { q: `track:${id}`, type: "track", limit: "5" }
+          query: { q: `track:${id}`, type: "track", limit: "5", market: SPOTIFY_MARKET }
         });
         const hit = (searchData?.tracks?.items || []).find((item) => `${item?.id || ""}` === id);
         if (!hit) continue;
@@ -3559,7 +3560,7 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
         accessToken,
         method: "GET",
         path: "/tracks",
-        query: { ids: batch.join(",") }
+        query: { ids: batch.join(","), market: SPOTIFY_MARKET }
       });
       for (const track of data?.tracks || []) {
         if (track?.uri) {
@@ -3578,7 +3579,7 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
             accessToken,
             method: "GET",
             path: "/search",
-            query: { q: `track:${id}`, type: "track", limit: "5" }
+            query: { q: `track:${id}`, type: "track", limit: "5", market: SPOTIFY_MARKET }
           });
           const hit = (searchData?.tracks?.items || []).find((item) => `${item?.id || ""}` === id);
           if (!hit?.uri) continue;
@@ -8176,7 +8177,7 @@ app.get("/api/search", async (req, res) => {
   try {
     const payload = await spotify({
       path: "/search",
-      query: { q, type: "track", limit: 20, market: "US" }
+      query: { q, type: "track", limit: 20, market: SPOTIFY_MARKET }
     });
 
     const tracks = (payload.tracks?.items || []).map((track) => ({
@@ -8414,7 +8415,7 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
         accessToken,
         method: "GET",
         path: `/playlists/${playlistId}`,
-        query: { market: "US" }
+        query: { market: SPOTIFY_MARKET }
       });
       name = playlistData?.name || name;
       total = Number(playlistData?.tracks?.total) || total;
@@ -8423,7 +8424,7 @@ app.post("/api/admin/playlists/import-spotify", requireAdmin, async (req, res) =
         accessToken,
         method: "GET",
         path: `/playlists/${playlistId}/items`,
-        query: { market: "US", limit: 50 }
+        query: { market: SPOTIFY_MARKET, limit: 50 }
       });
 
       const rawItems = tracksData?.items || [];
