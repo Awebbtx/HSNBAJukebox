@@ -708,6 +708,13 @@ input[type="range"] {
   outline-offset: 1px;
 }
 
+/* Keep native dropdown menus readable on platforms that force light popup menus. */
+select option,
+select optgroup {
+  color: CanvasText !important;
+  background-color: Canvas !important;
+}
+
 .slideshow-display-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

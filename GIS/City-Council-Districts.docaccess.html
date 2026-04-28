@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Map of City of New Braunfels council districts with color-coded district boundaries and a legend listing council members by district.">
+    <meta name="keywords" content="New Braunfels, City Council Districts, map, district boundaries, council members, GIS">
+    <meta name="author" content="DocAccess">
+    <title>City Council Districts - Accessible Transcript</title>
+    <style>
+        /* Base styles for accessibility and readability */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            font-size: 16px;
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #fff;
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Skip link for screen readers */
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: #000;
+            color: #fff;
+            padding: 8px;
+            text-decoration: none;
+            z-index: 100;
+        }
+
+        .skip-link:focus {
+            top: 0;
+        }
+
+        /* Image placeholder styles */
+        .transcript-page-image {
+            background-color: #f0f0f0;
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: inline-block;
+            margin-right: 10px;
+            margin-bottom: 5px;
+        }
+
+        .transcript-page-image img {
+            opacity: 0.001; /* fully transparent ignored by some screen readers */
+            display: inline-block;
+            position: absolute;
+            width: 1em;
+            height: 1em;
+        }
+
+        .transcript-page-image-alt {
+            display: inline; /* display the alt text for instructors and visual interpreters in aria-hidden block */
+            font-size: 0.9em;
+            color: #333;
+            vertical-align: middle;
+            line-height: 1.5em;
+        }
+
+        .transcript-page-image-alt::before {
+            content: '';
+            display: inline-block;
+            width: 1em;
+            height: 1em;
+            margin-right: 10px;
+            vertical-align: middle;
+            background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZjNmNGY2IiBzdHJva2U9IiNhY2IzYmYiIHN0cm9rZS13aWR0aD0iMSIvPjxjaXJjbGUgY3g9IjIwIiBjeT0iMjIiIHI9IjYiIGZpbGw9IiNhY2IzYmYiLz48cG9seWxpbmUgcG9pbnRzPSI2LDU4IDIyLDQyIDMyLDUyIDQyLDQwIDU4LDU4IiBmaWxsPSJub25lIiBzdHJva2U9IiM5Y2EzYWYiIHN0cm9rZS13aWR0aD0iNCIvPjwvc3ZnPg==');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+
+        /* Header styles */
+        header {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+            text-align: center;
+        }
+
+        .document-title {
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin: 0 0 10px 0;
+        }
+
+        h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+            color: #1a1a1a;
+            font-weight: 600;
+            line-height: 1.3;
+        }
+
+        /* Main content styles */
+        main {
+            margin-bottom: 40px;
+        }
+
+        .transcript-page {
+            margin-bottom: 40px;
+            page-break-inside: avoid;
+        }
+
+        h2 {
+            font-size: 1.5em;
+            margin: 30px 0 15px;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        h3 {
+            font-size: 1.25em;
+            margin: 20px 0 10px;
+            color: #34495e;
+            font-weight: 600;
+        }
+
+        h4, h5, h6 {
+            font-size: 1.1em;
+            margin: 15px 0 10px;
+            color: #34495e;
+            font-weight: 600;
+        }
+
+        p {
+            margin: 15px 0;
+        }
+
+        /* Link styles with sufficient contrast */
+        a {
+            color: #0066cc;
+            text-decoration: underline;
+        }
+
+        a:hover {
+            color: #0052a3;
+        }
+
+        a:focus {
+            outline: 2px solid #0066cc;
+            outline-offset: 2px;
+        }
+
+        /* Table styles for accessibility */
+        table {
+            width: 100%;
+            margin: 20px 0;
+            border-collapse: collapse;
+            border: 1px solid #ddd;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+
+        .section-label {
+            background-color: #f5f5f5;
+            font-weight: normal;
+        }
+
+        th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        /* List styles */
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 40px;
+        }
+
+        li {
+            margin: 8px 0;
+        }
+
+        dl {
+            margin: 10px 0;
+        }
+
+        dt {
+            font-weight: 600;
+        }
+
+        dd {
+            padding-left: 40px;
+            margin-bottom: 10px;
+        }
+
+        /* Fillable form notice */
+        .fillable-form-notice {
+            font-size: 0.95em;
+            font-style: italic;
+            text-align: left;
+        }
+
+        .fillable-form-notice p {
+            margin: 0;
+        }
+
+        /* Footer styles */
+        footer {
+            margin-top: 40px;
+            padding: 20px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        footer p {
+            margin: 10px 0;
+        }
+
+        /* Print styles */
+        @media print {
+            body {
+                max-width: 100%;
+                padding: 0;
+            }
+
+            .skip-link {
+                display: none;
+            }
+
+            a {
+                color: #000;
+                text-decoration: underline;
+            }
+
+            footer {
+                page-break-inside: avoid;
+            }
+        }
+
+        /* High contrast mode support */
+        @media (prefers-contrast: high) {
+            body {
+                color: #000;
+                background: #fff;
+            }
+
+            a {
+                color: #0000ff;
+            }
+
+            th {
+                background-color: #e0e0e0;
+            }
+            }
+
+            .da-contrast-added-4025 {
+                position: absolute;
+                background: url(//docaccess.com/high-contrast-bg.png?colorhex=088f543f);
+            }
+
+        /* Reduced motion support */
+        @media (prefers-reduced-motion: reduce) {
+            html {
+                scroll-behavior: auto;
+            }
+        }
+
+
+    </style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
+    <header role="banner">
+        <p class="document-title">City Council Districts</p>
+        <p>Accessible Document Transcript from newbraunfels.gov</p>
+
+    </header>
+
+    <main id="main-content" role="main">
+<div class="transcript-page content" data-page-number="1"><h1 data-el-num="1" id="el-1">City Council Districts</h1>
+<p data-el-num="2" id="el-2">This page is a color-coded map of City Council districts with a legend, place labels, road labels, a scale bar, a north arrow, source information, and a disclaimer. Because the original page is a map, the visual content is transcribed below in text form for accessibility.</p>
+<figure data-el-num="3" id="el-3">
+  <span class="transcript-page-image"><img alt="Map titled City Council Districts. Six color-coded council districts are shown across New Braunfels. District 1 is red in the southwest and south-central area near Comal, Dittlinger, FM 1863, and the 35 highway shield. District 2 is blue in the southeast near New Braunfels Municipal Airport, the 46 route marker, and S State Highway 46. District 3 is green in the west and northwest near FM 1863, Loop 337, Landa St, the 337 route marker, and several 46 route markers. District 4 is purple in the north and northeast near Preiss Heights, FM 1101, and several 4 district labels. District 5 is orange in the center and east-central area near New Braunfels, Freiheit, the 35 highway shield, and a 46 route marker. District 6 is yellow in the south-central area near County Line Memorial Trail. A scale bar reads 0, 3,000, 6,000 Feet, and the map scale is 1:90,000. A north arrow marked N appears at the lower right."><span class="transcript-page-image-alt" aria-hidden="true">Map titled City Council Districts. Six color-coded council districts are shown across New Braunfels. District 1 is red in the southwest and south-central area near Comal, Dittlinger, FM 1863, and the 35 highway shield. District 2 is blue in the southeast near New Braunfels Municipal Airport, the 46 route marker, and S State Highway 46. District 3 is green in the west and northwest near FM 1863, Loop 337, Landa St, the 337 route marker, and several 46 route markers. District 4 is purple in the north and northeast near Preiss Heights, FM 1101, and several 4 district labels. District 5 is orange in the center and east-central area near New Braunfels, Freiheit, the 35 highway shield, and a 46 route marker. District 6 is yellow in the south-central area near County Line Memorial Trail. A scale bar reads 0, 3,000, 6,000 Feet, and the map scale is 1:90,000. A north arrow marked N appears at the lower right.</span></span>
+  <figcaption data-el-num="4" id="el-4">Text alternative for the map.</figcaption>
+</figure>
+<section aria-label="Legend" data-el-num="5" id="el-5">
+  <p data-el-num="6" id="el-6"><strong>Legend</strong></p>
+  <ul data-el-num="7" id="el-7">
+    <li data-el-num="8" id="el-8"><span aria-hidden="true" style="display:inline-block;width:1em;height:1em;background-color:#ff6b6b;border:1px solid #666;vertical-align:middle;margin-right:0.4em;"></span>1: Toni L. Carter</li>
+    <li data-el-num="9" id="el-9"><span aria-hidden="true" style="display:inline-block;width:1em;height:1em;background-color:#6ea8f7;border:1px solid #666;vertical-align:middle;margin-right:0.4em;"></span>2: Michael Capizzi</li>
+    <li data-el-num="10" id="el-10"><span aria-hidden="true" style="display:inline-block;width:1em;height:1em;background-color:#9bd67b;border:1px solid #666;vertical-align:middle;margin-right:0.4em;"></span>3: D. Lee Edwards</li>
+    <li data-el-num="11" id="el-11"><span aria-hidden="true" style="display:inline-block;width:1em;height:1em;background-color:#c7a0df;border:1px solid #666;vertical-align:middle;margin-right:0.4em;"></span>4: Lawrence Spradley</li>
+    <li data-el-num="12" id="el-12"><span aria-hidden="true" style="display:inline-block;width:1em;height:1em;background-color:#ffd37a;border:1px solid #666;vertical-align:middle;margin-right:0.4em;"></span>5: Mary Ann Labowski</li>
+    <li data-el-num="13" id="el-13"><span aria-hidden="true" style="display:inline-block;width:1em;height:1em;background-color:#fff56b;border:1px solid #666;vertical-align:middle;margin-right:0.4em;"></span>6: April Ryan</li>
+  </ul>
+</section>
+<section aria-label="District summary" data-el-num="14" id="el-14">
+  <p data-el-num="15" id="el-15"><strong>District summary</strong></p>
+  <table data-el-num="16" id="el-16">
+    <thead>
+      <tr style="background-color:#e6e6e6;" data-el-num="17" id="el-17">
+        <th scope="col" data-el-num="18" id="el-18">District</th>
+        <th scope="col" data-el-num="19" id="el-19">Council member</th>
+        <th scope="col" data-el-num="20" id="el-20">Color on map</th>
+        <th scope="col" data-el-num="21" id="el-21">Nearby labels shown on the map</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr data-el-num="22" id="el-22">
+        <td data-el-num="23" id="el-23">1</td>
+        <td data-el-num="24" id="el-24">Toni L. Carter</td>
+        <td data-el-num="25" id="el-25">Red</td>
+        <td data-el-num="26" id="el-26">Dittlinger, Comal, FM 1863, 35</td>
+      </tr>
+      <tr data-el-num="27" id="el-27">
+        <td data-el-num="28" id="el-28">2</td>
+        <td data-el-num="29" id="el-29">Michael Capizzi</td>
+        <td data-el-num="30" id="el-30">Blue</td>
+        <td data-el-num="31" id="el-31">New Braunfels Municipal Airport, 46, S State Highway 46, The Bandit Golf Club</td>
+      </tr>
+      <tr data-el-num="32" id="el-32">
+        <td data-el-num="33" id="el-33">3</td>
+        <td data-el-num="34" id="el-34">D. Lee Edwards</td>
+        <td data-el-num="35" id="el-35">Green</td>
+        <td data-el-num="36" id="el-36">FM 1863, Loop 337, Landa St, 337, 46, New Braunfels</td>
+      </tr>
+      <tr data-el-num="37" id="el-37">
+        <td data-el-num="38" id="el-38">4</td>
+        <td data-el-num="39" id="el-39">Lawrence Spradley</td>
+        <td data-el-num="40" id="el-40">Purple</td>
+        <td data-el-num="41" id="el-41">Preiss Heights, FM 1101, 46</td>
+      </tr>
+      <tr data-el-num="42" id="el-42">
+        <td data-el-num="43" id="el-43">5</td>
+        <td data-el-num="44" id="el-44">Mary Ann Labowski</td>
+        <td data-el-num="45" id="el-45">Orange</td>
+        <td data-el-num="46" id="el-46">New Braunfels, Freiheit, 35, 46</td>
+      </tr>
+      <tr data-el-num="47" id="el-47">
+        <td data-el-num="48" id="el-48">6</td>
+        <td data-el-num="49" id="el-49">April Ryan</td>
+        <td data-el-num="50" id="el-50">Yellow</td>
+        <td data-el-num="51" id="el-51">County Line Memorial Trail</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+<section aria-label="Map labels and repeated markers" data-el-num="52" id="el-52">
+  <p data-el-num="53" id="el-53"><strong>Map labels and repeated markers</strong></p>
+  <ul data-el-num="54" id="el-54">
+    <li data-el-num="55" id="el-55">Place labels: Preiss Heights; New Braunfels; Freiheit; Dittlinger; Comal; New Braunfels Municipal Airport; County Line Memorial Trail; The Bandit Golf Club.</li>
+    <li data-el-num="56" id="el-56">Road and route labels: FM 1863; Loop 337; Landa St; FM 1101; S State Highway 46.</li>
+    <li data-el-num="57" id="el-57">Route markers and shields visible: 46 appears multiple times; 337; 35.</li>
+    <li data-el-num="58" id="el-58">District numbers printed inside the colored areas: 1, 2, 3, 4, 5, 6. The numbers 3 and 4 appear multiple times within their districts.</li>
+  </ul>
+</section>
+<footer>
+  <p data-el-num="59" id="el-59"><span class="transcript-page-image"><img alt="City of New Braunfels logo with a stylized tree and wave."><span class="transcript-page-image-alt" aria-hidden="true">City of New Braunfels logo with a stylized tree and wave.</span></span> <strong>City of New Braunfels</strong></p>
+  <p data-el-num="60" id="el-60">Document Path:<br>\\app-gisdata\gisdata\MapPrint\ProProjects\ProMapPrints.aprx</p>
+  <p data-el-num="61" id="el-61">Source: City of New Braunfels GIS<br>Date: 4/11/2026</p>
+  <p data-el-num="62" id="el-62">Scale: 0 3,000 6,000 Feet</p>
+  <p data-el-num="63" id="el-63">1:90,000</p>
+  <p data-el-num="64" id="el-64"><span class="transcript-page-image"><img alt="North arrow marked N."><span class="transcript-page-image-alt" aria-hidden="true">North arrow marked N.</span></span></p>
+  <p data-el-num="65" id="el-65">Disclaimer: This map and information contained in it were developed exclusively for use by the City of New Braunfels. Any use or reliance on this map by anyone else is at that party's risk and without liability to the City of New Braunfels, its officials or employees for any discrepancies, errors, or variances which may exist.</p>
+</footer></div><span class="da-contrast-added-4025"></span>
+    </main>
+
+    <footer role="contentinfo">
+        <p><strong>License Information</strong></p>
+        <p>Licensed for personal use</p>
+        <p>Available at: <a href="https://docaccess.com/go">docaccess.com/go</a></p>
+        <p>Document ID: AC9-A86-53E</p>
+        <p>Reproduction and distribution prohibited</p>
+        <p style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #dee2e6;">
+            <small>This transcript was generated using AI technology and may contain errors. 
+            Live accessibility assistance is available at the link above. By using this app, you agree to the 
+            DocAccess <a href="https://docaccess.com/terms-of-use" target="_blank">Terms</a> and 
+            <a href="https://docaccess.com/privacy-policy" target="_blank">Privacy Policy</a>.</small>
+        </p>
+    </footer>
+</body>
+</html>

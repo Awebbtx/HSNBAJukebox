@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSNBA GIS Reports</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/admin-pages.css" />
+    <link rel="stylesheet" href="/admin-report-cards.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <style>
+      .page-shell { width: min(1180px, 96vw); margin: 1rem auto 2rem; display: grid; gap: 0.9rem; }
+      .head-row { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; }
+      .head-row h1 { margin: 0; font: 700 1.45rem/1.2 "Sora", sans-serif; }
+      .head-row p { margin: 0.25rem 0 0; color: var(--muted); }
+      .report-top-nav { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+      .report-nav-btn {
+        text-decoration: none;
+        border: 1px solid rgba(255,255,255,0.14);
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.82rem;
+      }
+      .report-nav-btn.is-active,
+      .report-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+      .btn-primary {
+        border: 0;
+        border-radius: 9px;
+        background: linear-gradient(140deg, var(--accent), var(--accent-d));
+        color: #fff;
+        padding: 0.55rem 0.9rem;
+        font: 600 0.9rem/1 "Outfit", sans-serif;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+      }
+      .filters { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: end; }
+      .filters label { font-size: 0.82rem; color: var(--muted); display: grid; gap: 0.2rem; }
+      .filters input, .filters select {
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #dceaf5;
+        padding: 0.35rem 0.5rem;
+        font: 500 0.9rem/1 "Outfit", sans-serif;
+      }
+      .filters select { min-width: 160px; }
+
+      /* Source config card */
+      .source-config {
+        display: grid;
+        gap: 0.65rem;
+      }
+      .source-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        align-items: end;
+      }
+      .source-row label {
+        font-size: 0.82rem;
+        color: var(--muted);
+        display: grid;
+        gap: 0.2rem;
+      }
+      .source-row input, .source-row select {
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #dceaf5;
+        padding: 0.35rem 0.5rem;
+        font: 500 0.9rem/1 "Outfit", sans-serif;
+      }
+      .source-row select { min-width: 180px; }
+      .source-row input[type="text"] { min-width: 220px; }
+      .field-map-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 0.5rem 0.75rem;
+        margin-top: 0.45rem;
+      }
+      .field-map-grid label {
+        display: grid;
+        gap: 0.2rem;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+      .field-map-grid select {
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #dceaf5;
+        padding: 0.3rem 0.5rem;
+        font: 500 0.9rem/1 "Outfit", sans-serif;
+      }
+      .gis-field-config-note {
+        margin: 0 0 0.5rem;
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+      .gis-field-row {
+        display: grid;
+        grid-template-columns: 20px minmax(120px, 1fr) minmax(160px, 1fr) auto auto auto auto auto;
+        gap: 0.4rem;
+        align-items: center;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 7px;
+        padding: 0.35rem 0.5rem;
+      }
+      .gis-field-row.drag-over { border-color: var(--accent); background: rgba(245,166,35,0.07); }
+      .gis-drag-handle { cursor: grab; user-select: none; color: var(--muted); font-size: 1rem; text-align:center; }
+      .gis-field-key { font-size: 0.78rem; color: var(--muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gis-field-label { font-size: 0.85rem; padding: 0.25rem 0.45rem; border-radius: 5px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: inherit; width: 100%; }
+      .gis-field-toggle { display: flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); white-space: nowrap; cursor: pointer; }
+      .gis-field-remove { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 0.3rem; font-size: 0.9rem; line-height: 1; }
+      .gis-field-remove:hover { color: #f08080; }
+      .gis-add-field-row {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.55rem;
+        flex-wrap: wrap;
+      }
+      .gis-add-field-row select {
+        min-width: 220px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #dceaf5;
+        padding: 0.35rem 0.5rem;
+        font: 500 0.9rem/1 "Outfit", sans-serif;
+      }
+      #probeStatus { color: var(--muted); font-size: 0.83rem; margin-top: 0.35rem; min-height: 1.3em; }
+
+      /* Display options */
+      .display-options-panel {
+        margin-top: 0.6rem;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 0.7rem;
+        background: rgba(255,255,255,0.03);
+      }
+      .display-options-panel[hidden] { display: none; }
+      .display-options-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.6rem 0.8rem;
+      }
+      .display-options-grid label {
+        display: grid;
+        gap: 0.25rem;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .display-options-grid input,
+      .display-options-grid select {
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #dceaf5;
+        padding: 0.35rem 0.5rem;
+        font: 500 0.9rem/1 "Outfit", sans-serif;
+      }
+      .display-options-grid input[type="color"] {
+        width: 100%;
+        min-height: 2.2rem;
+        padding: 0.2rem;
+      }
+      .display-options-grid label.inline-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+      .district-color-controls {
+        margin-top: 0.75rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 0.55rem 0.75rem;
+      }
+      .district-color-control {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px;
+        padding: 0.45rem;
+        background: rgba(255,255,255,0.02);
+        display: grid;
+        gap: 0.25rem;
+      }
+      .district-color-control span {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .display-options-actions {
+        margin-top: 0.7rem;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+      }
+
+      /* Map */
+      #gisMap { height: min(68vh, 700px); border-radius: 10px; overflow: hidden; }
+
+      /* Report filters */
+      .meta { color: var(--muted); font-size: 0.86rem; }
+      .report-filters {
+        display: grid;
+        gap: 0.65rem;
+        margin-bottom: 0.85rem;
+      }
+      .report-filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        align-items: end;
+      }
+      .report-filter-row label {
+        font-size: 0.82rem;
+        color: var(--muted);
+        display: grid;
+        gap: 0.2rem;
+      }
+      .report-filter-row input,
+      .report-filter-row select {
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #dceaf5;
+        padding: 0.35rem 0.5rem;
+        font: 500 0.9rem/1 "Outfit", sans-serif;
+      }
+      .report-filter-row input[type="search"] { min-width: 240px; }
+      .report-filter-row select { min-width: 180px; }
+      .report-filter-row label.inline-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding-bottom: 0.2rem;
+      }
+      .report-body-empty {
+        color: var(--muted);
+        font-size: 0.9rem;
+        padding: 0.35rem 0.15rem;
+      }
+      .gis-loading-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        background: rgba(9, 14, 23, 0.72);
+        backdrop-filter: blur(4px);
+      }
+      .gis-loading-overlay[hidden] {
+        display: none !important;
+      }
+      .gis-loading-card {
+        width: min(460px, 88vw);
+        padding: 1rem 1.1rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(14, 22, 34, 0.95);
+        box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+        display: grid;
+        gap: 0.65rem;
+      }
+      .gis-loading-head {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+      }
+      .gis-loading-spinner {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 3px solid rgba(245,166,35,0.25);
+        border-top-color: var(--accent);
+        animation: gisSpin 0.85s linear infinite;
+      }
+      .gis-loading-title {
+        margin: 0;
+        font: 700 1rem/1.2 "Sora", sans-serif;
+        color: #fff;
+      }
+      .gis-loading-text {
+        margin: 0;
+        color: #d6e2ed;
+        font: 500 0.92rem/1.35 "Outfit", sans-serif;
+      }
+      @keyframes gisSpin {
+        to { transform: rotate(360deg); }
+      }
+      @media (max-width: 760px) {
+        .head-row { flex-direction: column; align-items: flex-start; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="gisLoadingOverlay" class="gis-loading-overlay" hidden aria-live="polite" aria-atomic="true">
+      <div class="gis-loading-card" role="status" aria-label="GIS map loading status">
+        <div class="gis-loading-head">
+          <span class="gis-loading-spinner" aria-hidden="true"></span>
+          <h2 class="gis-loading-title">Building GIS Map</h2>
+        </div>
+        <p id="gisLoadingMessage" class="gis-loading-text">Preparing report data…</p>
+      </div>
+    </div>
+
+    <header class="top-bar">
+      <a class="top-brand" href="/admin-reporting.html">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span class="brand-name">HSNBA Reporting</span>
+      </a>
+      <nav class="report-top-nav" aria-label="Reporting navigation">
+        <a class="report-nav-btn" href="/admin-reporting.html">Dashboard</a>
+        <a class="report-nav-btn" href="/admin-shelter-reports.html">Shelter Reports</a>
+        <a class="report-nav-btn is-active" href="/admin-gis-reports.html">GIS Reports</a>
+        <a class="report-nav-btn" href="/admin-animal-control.html">Animal Control</a>
+        <a class="report-nav-btn" href="/admin-reporting-account.html">My Account</a>
+        <a class="report-nav-btn" href="/admin-reporting-users.html">User Accounts</a>
+      </nav>
+      <button id="logoutBtn" class="btn-ghost" type="button">Logout</button>
+    </header>
+
+    <main class="page-shell wrap">
+      <section class="card head-row">
+        <div>
+          <h1>GIS Reports</h1>
+          <p>Plot any ASM report on the map with City Council District overlay.</p>
+        </div>
+      </section>
+
+      <!-- Data source config -->
+      <section class="card">
+        <div class="card-label" style="margin-bottom:0.55rem">SAVED REPORTS</div>
+        <div class="source-config">
+          <div class="source-row">
+            <label>Saved Reports
+              <select id="reportTitle">
+                <option value="">— select report —</option>
+                <option value="Cats TNR'd for Map">Cats TNR'd for Map</option>
+                <option value="Microchipped Non-shelter Animals">Microchipped Non-shelter Animals</option>
+                <option value="Owner Requested End of Life Services">Owner Requested End of Life Services</option>
+              </select>
+            </label>
+            <label id="reportTitleCustomWrap">Report Name
+              <input id="reportTitleCustom" type="text" placeholder="Exact ASM report title" />
+            </label>
+            <button id="probeBtn" class="btn-ghost" type="button">Load Fields</button>
+            <button id="saveReportNameBtn" class="btn-ghost" type="button" disabled>Save Report Name</button>
+          </div>
+          <div id="probeStatus"></div>
+
+          <div id="fieldMapSection" hidden>
+            <div class="card-label" style="margin:0.5rem 0 0.3rem">FIELD MAPPING</div>
+            <p class="gis-field-config-note">Drag to reorder. The first remaining field becomes the report title. <strong>Expanded</strong> fields show in details, <strong>Group By</strong> creates section headings, <strong>Mapped Address</strong> drives geocoding, and <strong>Mapped Date</strong> controls the optional date filter.</p>
+            <div id="gisFieldList" style="display:grid;gap:0.3rem"></div>
+            <div class="gis-add-field-row">
+              <select id="gisFieldAddSelect">
+                <option value="">Add removed field…</option>
+              </select>
+              <button id="gisFieldAddBtn" class="btn-ghost" type="button">Add Field</button>
+            </div>
+            <div class="source-row" style="margin-top:0.55rem">
+              <label id="fromDateWrap" hidden>From Date
+                <input id="fromDate" type="date" />
+              </label>
+              <label id="toDateWrap" hidden>To Date
+                <input id="toDate" type="date" />
+              </label>
+              <button id="runBtn" class="btn-primary" type="button">Build Map</button>
+              <label style="display:flex;align-items:center;gap:0.45rem">
+                <input id="districtOverlayToggle" type="checkbox" checked />
+                <span>Show City Council Districts</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:0.45rem">
+                <input id="commissionerOverlayToggle" type="checkbox" />
+                <span>Show Commissioner Precincts</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:0.45rem">
+                <input id="votingOverlayToggle" type="checkbox" />
+                <span>Show Voting Precincts</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:0.45rem">
+                <input id="guadalupeOverlayToggle" type="checkbox" />
+                <span>Show Guadalupe Precincts</span>
+              </label>
+              <button id="displayOptionsToggle" class="btn-ghost" type="button" aria-expanded="false" aria-controls="displayOptionsPanel">Display Options</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Display Options panel -->
+        <div id="displayOptionsPanel" class="display-options-panel" hidden>
+          <div class="display-options-grid" aria-label="Display options">
+            <label>Marker Border Color
+              <input id="markerBorderColor" type="color" value="#f5a623" />
+            </label>
+            <label>Marker Fill Color
+              <input id="markerFillColor" type="color" value="#f06a6a" />
+            </label>
+            <label>District Title Field
+              <select id="districtTitleField">
+                <option value="auto">Auto</option>
+                <option value="District">District</option>
+                <option value="Rep_Name">Rep_Name</option>
+                <option value="TermExpiry">TermExpiry</option>
+                <option value="CouncilEmail">CouncilEmail</option>
+              </select>
+            </label>
+            <label class="inline-toggle">
+              <input id="districtTitleToggle" type="checkbox" checked />
+              <span>Show District Title</span>
+            </label>
+          </div>
+          <div id="commissionerOptionsSection" class="display-options-grid" style="margin-top:0.7rem" hidden>
+            <label>Commissioner Border Color
+              <input id="commissionerBorderColor" type="color" value="#4b8fd9" />
+            </label>
+            <label>Commissioner Fill Color
+              <input id="commissionerFillColor" type="color" value="#4b8fd9" />
+            </label>
+            <label>Commissioner Title Field
+              <input id="commissionerTitleField" type="text" placeholder="auto" value="auto" />
+            </label>
+            <label class="inline-toggle">
+              <input id="commissionerTitleToggle" type="checkbox" checked />
+              <span>Show Commissioner Title</span>
+            </label>
+          </div>
+          <div id="votingOptionsSection" class="display-options-grid" style="margin-top:0.7rem" hidden>
+            <label>Voting Border Color
+              <input id="votingBorderColor" type="color" value="#7f60d9" />
+            </label>
+            <label>Voting Fill Color
+              <input id="votingFillColor" type="color" value="#7f60d9" />
+            </label>
+            <label>Voting Title Field
+              <input id="votingTitleField" type="text" placeholder="auto" value="auto" />
+            </label>
+            <label class="inline-toggle">
+              <input id="votingTitleToggle" type="checkbox" checked />
+              <span>Show Voting Title</span>
+            </label>
+          </div>
+          <div id="guadalupeOptionsSection" class="display-options-grid" style="margin-top:0.7rem" hidden>
+            <label>Guadalupe Border Color
+              <input id="guadalupeBorderColor" type="color" value="#2ca58d" />
+            </label>
+            <label>Guadalupe Fill Color
+              <input id="guadalupeFillColor" type="color" value="#2ca58d" />
+            </label>
+            <label>Guadalupe Title Field
+              <input id="guadalupeTitleField" type="text" placeholder="auto" value="auto" />
+            </label>
+            <label class="inline-toggle">
+              <input id="guadalupeTitleToggle" type="checkbox" checked />
+              <span>Show Guadalupe Title</span>
+            </label>
+          </div>
+          <div id="districtColorControls" class="district-color-controls" aria-label="District color controls"></div>
+          <div class="display-options-grid" style="margin-top:0.7rem" aria-label="GIS upload options">
+            <label>Replace District GIS File (.geojson)
+              <input id="districtGeoJsonUpload" type="file" accept=".geojson,application/geo+json,application/json" />
+            </label>
+            <label style="justify-content:end">
+              <span>&nbsp;</span>
+              <button id="uploadDistrictGeoJsonBtn" class="btn-ghost" type="button">Upload GIS File</button>
+            </label>
+          </div>
+          <div class="display-options-grid" style="margin-top:0.7rem" aria-label="Commissioner GIS upload options" id="commissionerUploadSection" hidden>
+            <label>Replace Commissioner GIS File (.geojson)
+              <input id="commissionerGeoJsonUpload" type="file" accept=".geojson,application/geo+json,application/json" />
+            </label>
+            <label style="justify-content:end">
+              <span>&nbsp;</span>
+              <button id="uploadCommissionerGeoJsonBtn" class="btn-ghost" type="button">Upload Commissioner File</button>
+            </label>
+          </div>
+          <div class="display-options-grid" style="margin-top:0.7rem" aria-label="Voting GIS upload options" id="votingUploadSection" hidden>
+            <label>Replace Voting GIS File (.geojson)
+              <input id="votingGeoJsonUpload" type="file" accept=".geojson,application/geo+json,application/json" />
+            </label>
+            <label style="justify-content:end">
+              <span>&nbsp;</span>
+              <button id="uploadVotingGeoJsonBtn" class="btn-ghost" type="button">Upload Voting File</button>
+            </label>
+          </div>
+          <div class="display-options-grid" style="margin-top:0.7rem" aria-label="Guadalupe GIS upload options" id="guadalupeUploadSection" hidden>
+            <label>Replace Guadalupe GIS File (.geojson)
+              <input id="guadalupeGeoJsonUpload" type="file" accept=".geojson,application/geo+json,application/json" />
+            </label>
+            <label style="justify-content:end">
+              <span>&nbsp;</span>
+              <button id="uploadGuadalupeGeoJsonBtn" class="btn-ghost" type="button">Upload Guadalupe File</button>
+            </label>
+          </div>
+          <div id="districtUploadMeta" class="meta" style="margin-top:0.45rem"></div>
+          <div id="commissionerUploadMeta" class="meta" style="margin-top:0.2rem"></div>
+          <div id="votingUploadMeta" class="meta" style="margin-top:0.2rem"></div>
+          <div id="guadalupeUploadMeta" class="meta" style="margin-top:0.2rem"></div>
+          <div id="displayOptionsMeta" class="meta" style="margin-top:0.2rem"></div>
+          <div class="display-options-actions">
+            <button id="saveDisplayDefaultsBtn" class="btn-ghost" type="button">Save As Defaults</button>
+            <button id="resetDisplayOptionsBtn" class="btn-ghost" type="button">Reset Display Options</button>
+          </div>
+        </div>
+
+        <div id="metaText" class="meta" style="margin-top:0.55rem"></div>
+        <div id="districtOverlayMeta" class="meta" style="margin-top:0.2rem"></div>
+      </section>
+
+      <!-- Map -->
+      <section class="card" id="mapCard" hidden>
+        <div class="card-label" style="margin-bottom:0.55rem">MAP</div>
+        <div id="gisMap" role="img" aria-label="GIS report map"></div>
+      </section>
+
+      <!-- Report -->
+      <section class="card" id="reportCard" hidden>
+        <div class="card-label">REPORT</div>
+        <div id="reportFilters" class="report-filters" hidden>
+          <div class="report-filter-row">
+            <label>Search
+              <input id="filterSearch" type="search" placeholder="Search label, address, or report fields" />
+            </label>
+            <label>District
+              <select id="filterDistrict">
+                <option value="">All districts</option>
+              </select>
+            </label>
+            <label>Map Status
+              <select id="filterMapStatus">
+                <option value="all">All rows</option>
+                <option value="mapped">Mapped only</option>
+                <option value="unmapped">Unmapped only</option>
+              </select>
+            </label>
+            <label class="inline-toggle">
+              <input id="filterInViewOnly" type="checkbox" />
+              <span>Only current map view</span>
+            </label>
+            <button id="printReportBtn" class="btn-ghost" type="button">Print Report</button>
+            <button id="clearFiltersBtn" class="btn-ghost" type="button">Clear Filters</button>
+          </div>
+          <div id="filterMeta" class="meta"></div>
+        </div>
+        <div id="resultsReport">
+          <span style="color:var(--muted)">Loading...</span>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="/admin-report-cards.js"></script>
+    <script type="module" src="/admin-gis-reports.js"></script>
+  </body>
+</html>

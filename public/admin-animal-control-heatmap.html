@@ -48,6 +48,67 @@
         padding: 0.35rem 0.5rem;
         font: 500 0.9rem/1 "Outfit", sans-serif;
       }
+      .display-options-panel {
+        margin-top: 0.6rem;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 0.7rem;
+        background: rgba(255,255,255,0.03);
+      }
+      .display-options-panel[hidden] { display: none; }
+      .display-options-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.6rem 0.8rem;
+      }
+      .display-options-grid label {
+        display: grid;
+        gap: 0.25rem;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .display-options-grid input,
+      .display-options-grid select {
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: #dceaf5;
+        padding: 0.35rem 0.5rem;
+        font: 500 0.9rem/1 "Outfit", sans-serif;
+      }
+      .display-options-grid input[type="color"] {
+        width: 100%;
+        min-height: 2.2rem;
+        padding: 0.2rem;
+      }
+      .display-options-grid label.inline-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+      .district-color-controls {
+        margin-top: 0.75rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 0.55rem 0.75rem;
+      }
+      .district-color-control {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px;
+        padding: 0.45rem;
+        background: rgba(255,255,255,0.02);
+        display: grid;
+        gap: 0.25rem;
+      }
+      .district-color-control span {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .display-options-actions {
+        margin-top: 0.7rem;
+        display: flex;
+        justify-content: flex-end;
+      }
       #acHeatMap { height: min(68vh, 700px); border-radius: 10px; overflow: hidden; }
       .meta { color: var(--muted); font-size: 0.86rem; }
       .table-wrap { overflow-x: auto; }
@@ -70,6 +131,7 @@
       <nav class="report-top-nav" aria-label="Reporting navigation">
         <a class="report-nav-btn" href="/admin-reporting.html">Dashboard</a>
         <a class="report-nav-btn" href="/admin-shelter-reports.html">Shelter Reports</a>
+        <a class="report-nav-btn" href="/admin-gis-reports.html">GIS Reports</a>
         <a class="report-nav-btn is-active" href="/admin-animal-control.html">Animal Control</a>
         <a class="report-nav-btn" href="/admin-reporting-account.html">My Account</a>
         <a class="report-nav-btn" href="/admin-reporting-users.html">User Accounts</a>
@@ -95,8 +157,53 @@
             <input id="toDate" type="date" />
           </label>
           <button id="runBtn" class="btn-primary" type="button">Refresh Heat Map</button>
+          <label style="display:flex;align-items:center;gap:0.45rem">
+            <input id="districtOverlayToggle" type="checkbox" checked />
+            <span>Show City Council Districts</span>
+          </label>
+          <button id="displayOptionsToggle" class="btn-ghost" type="button" aria-expanded="false" aria-controls="displayOptionsPanel">Display Options</button>
+        </div>
+        <div id="displayOptionsPanel" class="display-options-panel" hidden>
+          <div class="display-options-grid" aria-label="Display options">
+            <label>Hotspot Border Color
+              <input id="hotspotBorderColor" type="color" value="#f5a623" />
+            </label>
+            <label>Hotspot Fill Color
+              <input id="hotspotFillColor" type="color" value="#f06a6a" />
+            </label>
+            <label>District Title Field
+              <select id="districtTitleField">
+                <option value="auto">Auto</option>
+                <option value="District">District</option>
+                <option value="Rep_Name">Rep_Name</option>
+                <option value="TermExpiry">TermExpiry</option>
+                <option value="CouncilEmail">CouncilEmail</option>
+              </select>
+            </label>
+            <label class="inline-toggle">
+              <input id="districtTitleToggle" type="checkbox" checked />
+              <span>Show District Title</span>
+            </label>
+          </div>
+          <div id="districtColorControls" class="district-color-controls" aria-label="District color controls"></div>
+          <div class="display-options-grid" style="margin-top:0.7rem" aria-label="GIS upload options">
+            <label>Replace District GIS File (.geojson)
+              <input id="districtGeoJsonUpload" type="file" accept=".geojson,application/geo+json,application/json" />
+            </label>
+            <label style="justify-content:end">
+              <span>&nbsp;</span>
+              <button id="uploadDistrictGeoJsonBtn" class="btn-ghost" type="button">Upload GIS File</button>
+            </label>
+          </div>
+          <div id="districtUploadMeta" class="meta" style="margin-top:0.45rem"></div>
+          <div id="displayOptionsMeta" class="meta" style="margin-top:0.2rem"></div>
+          <div class="display-options-actions">
+            <button id="saveDisplayDefaultsBtn" class="btn-ghost" type="button">Save As Defaults</button>
+            <button id="resetDisplayOptionsBtn" class="btn-ghost" type="button">Reset Display Options</button>
+          </div>
         </div>
         <div id="metaText" class="meta" style="margin-top:0.55rem">Loading...</div>
+        <div id="districtOverlayMeta" class="meta" style="margin-top:0.2rem"></div>
       </section>
 
       <section class="card">

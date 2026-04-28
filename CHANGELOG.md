@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## 2026-04-28
+
+### GIS Reporting Expansion and County Data Integration
+
+- Added a dedicated GIS report builder page and wiring for dynamic ASM report field probing, map build, and printable report output.
+- Added support for additional county GIS datasets, including Guadalupe address/precinct integration and map/report enrichment across overlays.
+- Added overlay controls, display options, and upload-replace support for multiple precinct layers in GIS reporting.
+- Improved GIS point enrichment so precinct metadata is backfilled from overlay geometry when source rows are missing mapped values.
+
+### GIS Load Experience and Reliability
+
+- Added a blocking loading screen with staged progress messaging during geocoding, overlay resolution, and report rendering.
+- Increased GIS geocoding processing window to improve completion rates on larger report runs.
+- Added frontend render-yield checkpoints to reduce browser lockups while building large map/report payloads.
+
+### ASM json_report Throttle Handling
+
+- Added backend handling for ASM json_report temporary lock windows by parsing throttle-until responses and retrying automatically.
+- Added clearer rate-limit messaging when ASM remains blocked after retries.
+
 ## 2026-04-20
 
 ### Reporting Host and Dashboard Reliability

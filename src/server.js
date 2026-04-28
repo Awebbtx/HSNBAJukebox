@@ -98,6 +98,12 @@ const SYSTEM_CONFIG_PATH = path.resolve(__dirname, "../data/system-config.json")
 const REPORTING_SNAPSHOT_PATH = path.resolve(__dirname, "../data/reporting-snapshot.json");
 const AC_GEOCODE_CACHE_PATH = path.resolve(__dirname, "../data/ac-geocode-cache.json");
 const LINKED_REPORTS_PATH = path.resolve(__dirname, "../data/linked-reports.json");
+const DISTRICT_GEOJSON_PATH = path.resolve(__dirname, "../GIS/City_Council_Districts.geojson");
+const GIS_ADDRESS_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Addresses_Open_Data.geojson");
+const GIS_ADDRESS_GUADALUPE_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Addresses_guadalupe.geojson");
+const GIS_COMMISSIONER_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Commissioner_Precincts_Open_Data.geojson");
+const GIS_VOTING_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Voting_Precincts_Open_Data.geojson");
+const GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Precincts_guadalupe.geojson");
 const SPECIAL_PAGE_UPLOAD_DIR = path.resolve(__dirname, "../public/uploads/special-pages");
 const SPECIAL_PAGE_UPLOAD_WEB_PATH = "/uploads/special-pages";
 const SPECIAL_PAGE_CATEGORIES = [
@@ -121,6 +127,7 @@ if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
 
 const app = express();
 app.use(express.json({ limit: "8mb" }));
+app.use("/GIS", express.static(path.resolve(__dirname, "../GIS")));
 
 function isReportingHostRequest(req) {
   const hostHeader = `${req.headers.host || ""}`.trim().toLowerCase();
@@ -271,6 +278,8 @@ app.use((req, res, next) => {
     || pathName === "/admin-animal-control-calls.js"
     || pathName === "/admin-animal-control-heatmap.html"
     || pathName === "/admin-animal-control-heatmap.js"
+    || pathName === "/admin-gis-reports.html"
+    || pathName === "/admin-gis-reports.js"
     || pathName === "/admin-shelter-reports.html"
     || pathName === "/admin-shelter-reports.js"
     || pathName === "/admin-linked-report.html"
@@ -299,7 +308,8 @@ app.use((req, res, next) => {
     || pathName === "/admin-reporting-account.js"
     || pathName === "/admin-reporting-users.html"
     || pathName === "/admin-reporting-users.js"
-    || publicPaths.has(pathName)) {
+    || publicPaths.has(pathName)
+    || pathName.startsWith("/GIS/")) {
     next();
     return;
   }
@@ -404,6 +414,13 @@ const state = {
   },
   reportingSnapshot: null,
   acGeocodeCache: {},
+  gisAddressIndex: new Map(),
+  gisSpatialLayers: {
+    cityCouncil: [],
+    commissioner: [],
+    voting: [],
+    guadalupePrecincts: []
+  },
   linkedReports: [],
   linkedReportProbeCache: new Map(),
   linkedReportDataCache: new Map()
@@ -1982,10 +1999,209 @@ loadLocalQueue();
 loadPlaylists();
 loadReportingSnapshot();
 loadAcGeocodeCache();
+loadGisAddressIndex();
+loadGisSpatialLayers();
 startAudioAutomationScheduler();
 startReportingScheduler();
 
-function buildAsmServiceUrl(method, extraParams = {}) {
+function normalizeAddressForGisLookup(rawAddr) {
+  return `${rawAddr || ""}`
+    .replace(/\r/g, "")
+    .split(/\n+/)[0]
+    .split(",")[0]
+    .replace(/^([0-9]+)\s+block\s+of\s+/i, "$1 ")
+    .replace(/\b(?:lot|unit|apt|apartment|suite|ste|trailer|space|#\s*\d+)\b.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function loadGisAddressIndex() {
+  const addAddressFeaturesToIndex = (index, filePath, label, defaultCounty = "") => {
+    if (!fs.existsSync(filePath)) {
+      console.warn(`${label} GIS address file not found:`, filePath);
+      return;
+    }
+
+    const text = fs.readFileSync(filePath, "utf8");
+    const geojson = JSON.parse(text);
+    const features = Array.isArray(geojson?.features) ? geojson.features : [];
+
+    for (const feature of features) {
+      const props = feature?.properties || {};
+      const canonicalAddress = `${props.bsfulladdr || ""}`.replace(/\s+/g, " ").trim();
+      const addr = canonicalAddress.toUpperCase();
+      if (!addr) continue;
+      const coords = feature?.geometry?.coordinates;
+      if (!Array.isArray(coords) || coords.length < 2) continue;
+      const lon = Number(coords[0]);
+      const lat = Number(coords[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+      const county = getFeaturePropertyText(props, ["County", "COUNTY", "county"]) || defaultCounty;
+      const nextValue = {
+        lat,
+        lon,
+        matchedAddress: canonicalAddress,
+        precinct: getFeaturePropertyText(props, ["Precinct", "PRECINCT", "PrecinctNumber", "PCT", "pct"]),
+        propertyId: getFeaturePropertyText(props, ["PROP_ID", "Prop_ID", "prop_id", "addrkey", "ADDRKEY"]),
+        legalDescription: getFeaturePropertyText(props, ["legal_desc", "LEGAL_DESC", "Legal_Desc"]),
+        county
+      };
+
+      const existing = index.get(addr);
+      if (!existing) {
+        index.set(addr, nextValue);
+        continue;
+      }
+
+      // Prefer a match with a useful precinct/county over an older sparse entry.
+      const existingScore = Number(Boolean(existing.precinct)) + Number(Boolean(existing.county));
+      const nextScore = Number(Boolean(nextValue.precinct)) + Number(Boolean(nextValue.county));
+      if (nextScore > existingScore) {
+        index.set(addr, nextValue);
+      }
+    }
+
+    console.log(`${label} GIS addresses loaded: ${features.length} features`);
+  };
+
+  try {
+    const index = new Map();
+
+    addAddressFeaturesToIndex(index, GIS_ADDRESS_GEOJSON_PATH, "Comal Address Index", "Comal");
+    addAddressFeaturesToIndex(index, GIS_ADDRESS_GUADALUPE_GEOJSON_PATH, "Guadalupe Address Index", "Guadalupe");
+
+    state.gisAddressIndex = index;
+    console.log(`GIS address index loaded: ${index.size} entries`);
+  } catch (error) {
+    console.warn(`Could not load GIS address index: ${error.message}`);
+  }
+}
+
+function loadGeoJsonFeatures(filePath, label) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      console.warn(`${label} GIS file not found: ${filePath}`);
+      return [];
+    }
+    const text = fs.readFileSync(filePath, "utf8");
+    const geojson = JSON.parse(text);
+    const features = Array.isArray(geojson?.features) ? geojson.features : [];
+    console.log(`${label} GIS loaded: ${features.length} features`);
+    return features;
+  } catch (error) {
+    console.warn(`Could not load ${label} GIS: ${error.message}`);
+    return [];
+  }
+}
+
+function loadGisSpatialLayers() {
+  state.gisSpatialLayers.cityCouncil = loadGeoJsonFeatures(DISTRICT_GEOJSON_PATH, "City Council Districts");
+  state.gisSpatialLayers.commissioner = loadGeoJsonFeatures(GIS_COMMISSIONER_GEOJSON_PATH, "Commissioner Precincts");
+  state.gisSpatialLayers.voting = loadGeoJsonFeatures(GIS_VOTING_GEOJSON_PATH, "Voting Precincts");
+  state.gisSpatialLayers.guadalupePrecincts = loadGeoJsonFeatures(GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH, "Guadalupe Precincts");
+}
+
+function getFeaturePropertyText(properties = {}, keys = []) {
+  for (const key of keys) {
+    const value = properties[key];
+    if (value != null && `${value}`.trim()) return `${value}`.trim();
+  }
+  return "";
+}
+
+function pointInRing(point, ring) {
+  const [x, y] = point;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const xi = Number(ring[i]?.[0]);
+    const yi = Number(ring[i]?.[1]);
+    const xj = Number(ring[j]?.[0]);
+    const yj = Number(ring[j]?.[1]);
+    const intersects = ((yi > y) !== (yj > y))
+      && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygon(point, polygon) {
+  if (!Array.isArray(polygon) || !polygon.length) return false;
+  if (!pointInRing(point, polygon[0])) return false;
+  for (let i = 1; i < polygon.length; i += 1) {
+    if (pointInRing(point, polygon[i])) return false;
+  }
+  return true;
+}
+
+function pointInGeometry(point, geometry) {
+  if (!geometry || !geometry.type) return false;
+  if (geometry.type === "Polygon") return pointInPolygon(point, geometry.coordinates);
+  if (geometry.type === "MultiPolygon") {
+    return geometry.coordinates.some((polygon) => pointInPolygon(point, polygon));
+  }
+  return false;
+}
+
+function findContainingFeature(features = [], lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Array.isArray(features) || !features.length) {
+    return null;
+  }
+  const point = [lon, lat];
+  for (const feature of features) {
+    if (pointInGeometry(point, feature?.geometry)) {
+      return feature;
+    }
+  }
+  return null;
+}
+
+function lookupGisLocationMetadata(lat, lon, fallback = {}) {
+  const cityCouncilFeature = findContainingFeature(state.gisSpatialLayers.cityCouncil, lat, lon);
+  const commissionerFeature = findContainingFeature(state.gisSpatialLayers.commissioner, lat, lon);
+  const votingFeature = findContainingFeature(state.gisSpatialLayers.voting, lat, lon);
+  const guadalupePrecinctFeature = findContainingFeature(state.gisSpatialLayers.guadalupePrecincts, lat, lon);
+
+  const cityCouncilProps = cityCouncilFeature?.properties || {};
+  const commissionerProps = commissionerFeature?.properties || {};
+  const votingProps = votingFeature?.properties || {};
+  const guadalupeProps = guadalupePrecinctFeature?.properties || {};
+
+  const cityCouncilDistrict = getFeaturePropertyText(cityCouncilProps, ["District", "DISTRICT", "district", "NAME", "Name", "name"]);
+  const cityCouncilLabel = getFeaturePropertyText(cityCouncilProps, ["Rep_Name", "District", "DISTRICT", "NAME", "Name"]);
+  const guadalupePrecinct = getFeaturePropertyText(guadalupeProps, ["PrecinctNumber", "Precinct", "PRECINCT", "PCT", "Name", "NAME", "label"]);
+  const commissionerPrecinct = getFeaturePropertyText(commissionerProps, ["Precinct", "PRECINCT", "PCT", "Name", "NAME", "label"]) || guadalupePrecinct;
+  const votingPrecinct = getFeaturePropertyText(votingProps, ["Precinct", "PRECINCT", "PCT", "Name", "NAME", "label"]) || guadalupePrecinct;
+  const county = `${fallback.county || ""}`.trim()
+    || getFeaturePropertyText(guadalupeProps, ["County", "COUNTY", "county"]) 
+    || (guadalupePrecinctFeature ? "Guadalupe" : "Comal");
+
+  return {
+    city: "New Braunfels",
+    county,
+    cityCouncilDistrict,
+    cityCouncilLabel,
+    cityCouncilRepresentative: getFeaturePropertyText(cityCouncilProps, ["Rep_Name", "REP_NAME"]),
+    cityCouncilPhone: getFeaturePropertyText(cityCouncilProps, ["CouncilPhone", "COUNCILPHONE"]),
+    cityCouncilEmail: getFeaturePropertyText(cityCouncilProps, ["CouncilEmail", "COUNCILEMAIL"]),
+    commissionerPrecinct,
+    votingPrecinct,
+    addressPrecinct: `${fallback.precinct || ""}`.trim() || guadalupePrecinct
+  };
+}
+
+// Normalize a raw/cleaned address and lookup in local GIS address index.
+function lookupGisAddress(rawAddr) {
+  if (!state.gisAddressIndex.size) return null;
+  const normalized = normalizeAddressForGisLookup(rawAddr);
+  if (!normalized) return null;
+  const found = state.gisAddressIndex.get(normalized);
+  if (!found) return null;
+  return { ...found, normalizedAddress: normalized };
+}
+
+  function buildAsmServiceUrl(method, extraParams = {}) {
   if (!state.asm.serviceUrl) {
     return "";
   }
@@ -2124,39 +2340,107 @@ function extractAsmRows(payload) {
   return [];
 }
 
+function extractAsmRowsForMethod(method, payload) {
+  const methodName = `${method || ""}`.trim().toLowerCase();
+  if (methodName === "json_report") {
+    if (Array.isArray(payload?.rows)) return payload.rows;
+    if (Array.isArray(payload?.result)) return payload.result;
+    if (Array.isArray(payload?.data)) return payload.data;
+  }
+  return extractAsmRows(payload);
+}
+
+let asmJsonReportBlockedUntilMs = 0;
+const ASM_JSON_REPORT_MAX_WAIT_MS = 45 * 1000;
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function parseAsmRateLimitUntilMs(text) {
+  const message = `${text || ""}`;
+  const match = message.match(/cannot\s+call\s+'json_report'\s+until\s+'([^']+)'/i);
+  if (!match) return 0;
+  const raw = `${match[1] || ""}`.trim();
+  if (!raw) return 0;
+
+  // ASM format example: 2026-04-28 21:16:46.394133
+  const normalized = raw.replace(" ", "T").replace(/\.(\d{3})\d+$/, ".$1");
+  let ts = Date.parse(normalized);
+  if (!Number.isFinite(ts)) {
+    ts = Date.parse(`${normalized}Z`);
+  }
+  return Number.isFinite(ts) ? ts : 0;
+}
+
 async function fetchAsmRowsForMethod(method, extraParams = {}) {
+  const methodName = `${method || ""}`.trim().toLowerCase();
+
+  if (methodName === "json_report" && asmJsonReportBlockedUntilMs > Date.now()) {
+    const preWaitMs = Math.min(asmJsonReportBlockedUntilMs - Date.now() + 250, ASM_JSON_REPORT_MAX_WAIT_MS);
+    if (preWaitMs > 0) {
+      await sleepMs(preWaitMs);
+    }
+  }
+
   const requestUrl = buildAsmServiceUrl(method, extraParams);
   if (!requestUrl) {
     throw new Error(`ASM service URL missing for ${method}`);
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ASM_FETCH_TIMEOUT_MS);
-  let response;
-  try {
-    response = await fetch(requestUrl, {
-      headers: { Accept: "application/json" },
-      signal: controller.signal
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`ASM ${method} request timed out after ${Math.round(ASM_FETCH_TIMEOUT_MS / 1000)}s`);
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ASM_FETCH_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(requestUrl, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error(`ASM ${method} request timed out after ${Math.round(ASM_FETCH_TIMEOUT_MS / 1000)}s`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
-    throw error;
-  } finally {
-    clearTimeout(timer);
+
+    const bodyText = await response.text();
+    if (!response.ok) {
+      const detail = bodyText.slice(0, 240).replace(/\s+/g, " ").trim();
+
+      if (methodName === "json_report") {
+        const blockedUntilMs = parseAsmRateLimitUntilMs(detail || bodyText);
+        if (blockedUntilMs > 0) {
+          asmJsonReportBlockedUntilMs = Math.max(asmJsonReportBlockedUntilMs, blockedUntilMs);
+          const waitMs = Math.min(Math.max(350, blockedUntilMs - Date.now() + 250), ASM_JSON_REPORT_MAX_WAIT_MS);
+          if (attempt < 3 && waitMs > 0) {
+            await sleepMs(waitMs);
+            continue;
+          }
+          const retrySecs = Math.max(1, Math.ceil((blockedUntilMs - Date.now()) / 1000));
+          throw new Error(`ASM ${method} is temporarily rate-limited. Retry in about ${retrySecs}s.`);
+        }
+      }
+
+      throw new Error(detail ? `ASM ${method} HTTP ${response.status}: ${detail}` : `ASM ${method} HTTP ${response.status}`);
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(bodyText);
+    } catch {
+      throw new Error(`ASM ${method} returned non-JSON response`);
+    }
+
+    if (methodName === "json_report") {
+      asmJsonReportBlockedUntilMs = 0;
+    }
+    return extractAsmRowsForMethod(method, parsed);
   }
-  const bodyText = await response.text();
-  if (!response.ok) {
-    const detail = bodyText.slice(0, 240).replace(/\s+/g, " ").trim();
-    throw new Error(detail ? `ASM ${method} HTTP ${response.status}: ${detail}` : `ASM ${method} HTTP ${response.status}`);
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(bodyText);
-  } catch {
-    throw new Error(`ASM ${method} returned non-JSON response`);
-  }
-  return extractAsmRows(parsed);
+
+  throw new Error(`ASM ${method} request failed after retries.`);
 }
 
 function normalizeAsmReportError(error, fallbackMessage) {
@@ -6377,6 +6661,427 @@ app.get("/api/admin/reporting/animal-control-heatmap", requireAdmin, requireRepo
     });
   } catch (error) {
     res.status(500).json({ error: error.message || "Failed to build animal control heatmap." });
+  }
+});
+
+function uploadReportingGeoJson(req, res, targetPath, label) {
+  try {
+    const payload = req.body || {};
+    const incoming = payload.geojson ?? payload;
+    const geojson = typeof incoming === "string" ? JSON.parse(incoming) : incoming;
+
+    if (!geojson || typeof geojson !== "object") {
+      return res.status(400).json({ error: "GeoJSON payload is required." });
+    }
+    if (geojson.type !== "FeatureCollection" || !Array.isArray(geojson.features)) {
+      return res.status(400).json({ error: "GeoJSON must be a FeatureCollection with a features array." });
+    }
+    if (!geojson.features.length) {
+      return res.status(400).json({ error: "GeoJSON features array cannot be empty." });
+    }
+
+    const dirPath = path.dirname(targetPath);
+    fs.mkdirSync(dirPath, { recursive: true });
+
+    const normalized = `${JSON.stringify(geojson, null, 2)}\n`;
+    const tempPath = `${targetPath}.tmp`;
+    const backupPath = `${targetPath}.bak`;
+
+    if (fs.existsSync(targetPath)) {
+      fs.copyFileSync(targetPath, backupPath);
+    }
+
+    fs.writeFileSync(tempPath, normalized, "utf8");
+    fs.renameSync(tempPath, targetPath);
+    loadGisSpatialLayers();
+
+    return res.json({
+      ok: true,
+      layer: label,
+      file: path.basename(targetPath),
+      featureCount: geojson.features.length,
+      bytes: Buffer.byteLength(normalized, "utf8")
+    });
+  } catch (error) {
+    try {
+      fs.unlinkSync(`${targetPath}.tmp`);
+    } catch {
+      // Ignore temp cleanup errors.
+    }
+    return res.status(400).json({ error: error.message || "Failed to upload GIS GeoJSON." });
+  }
+}
+
+app.post("/api/admin/reporting/gis-districts", requireAdmin, requireReporting, (req, res) => {
+  return uploadReportingGeoJson(req, res, DISTRICT_GEOJSON_PATH, "cityCouncil");
+});
+
+app.post("/api/admin/reporting/gis-commissioner-districts", requireAdmin, requireReporting, (req, res) => {
+  return uploadReportingGeoJson(req, res, GIS_COMMISSIONER_GEOJSON_PATH, "commissioner");
+});
+
+app.post("/api/admin/reporting/gis-voting-precincts", requireAdmin, requireReporting, (req, res) => {
+  return uploadReportingGeoJson(req, res, GIS_VOTING_GEOJSON_PATH, "voting");
+});
+
+app.post("/api/admin/reporting/gis-guadalupe-precincts", requireAdmin, requireReporting, (req, res) => {
+  return uploadReportingGeoJson(req, res, GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH, "guadalupePrecincts");
+});
+
+// ── GIS Reports: probe field names from any ASM report ─────────────────────
+app.get("/api/admin/reporting/gis-map-probe", requireAdmin, requireReporting, async (req, res) => {
+  try {
+    const sourceType = `${req.query.sourceType || "json_report"}`.trim();
+    const reportTitle = `${req.query.reportTitle || ""}`.trim();
+
+    const validSourceTypes = new Set(["json_report", "json_incidents", "json_shelter_animals"]);
+    if (!validSourceTypes.has(sourceType)) {
+      return res.status(400).json({ error: "Invalid sourceType." });
+    }
+    if (sourceType === "json_report" && !reportTitle) {
+      return res.status(400).json({ error: "reportTitle is required for json_report source type." });
+    }
+
+    const extraParams = {};
+    if (sourceType === "json_report") extraParams.title = reportTitle;
+
+    const rows = await fetchAsmRowsForMethod(sourceType, extraParams);
+    if (!rows || !rows.length) {
+      return res.json({ fields: [], rowCount: 0 });
+    }
+
+    // Build stable field list from sampled rows so atypical first rows don't hide columns.
+    const sampleRows = rows
+      .filter((row) => row && typeof row === "object")
+      .slice(0, 100);
+
+    const firstRow = sampleRows[0] || null;
+    const firstRowKeys = firstRow ? Object.keys(firstRow) : [];
+    const keyCounts = new Map();
+    const keyFirstSeenOrder = new Map();
+    let nextOrder = 0;
+
+    for (const row of sampleRows) {
+      for (const key of Object.keys(row || {})) {
+        keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
+        if (!keyFirstSeenOrder.has(key)) {
+          keyFirstSeenOrder.set(key, nextOrder);
+          nextOrder += 1;
+        }
+      }
+    }
+
+    // Keep keys that appear frequently enough in sampled rows.
+    const minCount = sampleRows.length <= 1
+      ? 1
+      : Math.max(2, Math.ceil(sampleRows.length * 0.2));
+
+    let fields = Array.from(keyCounts.entries())
+      .filter(([, count]) => count >= minCount)
+      .map(([key]) => key)
+      .sort((a, b) => (keyFirstSeenOrder.get(a) ?? 999999) - (keyFirstSeenOrder.get(b) ?? 999999));
+
+    // Guarantee first-row columns stay visible and in front.
+    if (firstRowKeys.length) {
+      const seen = new Set(fields);
+      fields = [...firstRowKeys, ...fields.filter((key) => !firstRowKeys.includes(key))]
+        .filter((key) => {
+          if (seen.has(key) || firstRowKeys.includes(key)) {
+            seen.delete(key);
+            return true;
+          }
+          return false;
+        });
+    }
+
+    // Final fallback for edge cases.
+    if (!fields.length) {
+      fields = firstRowKeys;
+    }
+
+    return res.json({ fields, rowCount: rows.length });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to probe report fields." });
+  }
+});
+
+// ── GIS Reports: geocode and map any ASM report ────────────────────────────
+app.get("/api/admin/reporting/gis-map", requireAdmin, requireReporting, async (req, res) => {
+  try {
+    const sourceType = `${req.query.sourceType || "json_report"}`.trim();
+    const reportTitle = `${req.query.reportTitle || ""}`.trim();
+    const addressField = `${req.query.addressField || ""}`.trim();
+    const labelField = `${req.query.labelField || ""}`.trim();
+    const dateField = `${req.query.dateField || ""}`.trim();
+    const fromDateRaw = `${req.query.fromDate || ""}`.trim();
+    const toDateRaw = `${req.query.toDate || ""}`.trim();
+
+    const validSourceTypes = new Set(["json_report", "json_incidents", "json_shelter_animals"]);
+    if (!validSourceTypes.has(sourceType)) {
+      return res.status(400).json({ error: "Invalid sourceType." });
+    }
+    if (!addressField) {
+      return res.status(400).json({ error: "addressField is required." });
+    }
+    if (sourceType === "json_report" && !reportTitle) {
+      return res.status(400).json({ error: "reportTitle is required for json_report source type." });
+    }
+
+    const extraParams = {};
+    if (sourceType === "json_report") extraParams.title = reportTitle;
+
+    const rows = await fetchAsmRowsForMethod(sourceType, extraParams);
+    if (!rows || !rows.length) {
+      return res.json({ rowCount: 0, pointCount: 0, points: [] });
+    }
+
+    const parseDate = (v) => {
+      const raw = `${v || ""}`.trim();
+      if (!raw) return null;
+      const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (ymd) return new Date(Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3])));
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    const fromDate = dateField ? parseDate(fromDateRaw) : null;
+    const toDate = dateField ? parseDate(toDateRaw) : null;
+    const toDateEnd = toDate
+      ? new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), toDate.getUTCDate(), 23, 59, 59, 999))
+      : null;
+
+    const normalizeAddr = (rawAddress) =>
+      `${rawAddress || ""}`
+        .replace(/\s+/g, " ")
+        .replace(/\s+,/g, ",")
+        .replace(/,+/g, ",")
+        .trim()
+        .replace(/^,|,$/g, "");
+
+    const geocodeAddressLocal = async (address) => {
+      const cacheKey = address.toLowerCase();
+      const cached = state.acGeocodeCache[cacheKey];
+      if (cached && typeof cached === "object") {
+        if (cached.lat !== undefined && cached.lon !== undefined) {
+          return { lat: Number(cached.lat), lon: Number(cached.lon) };
+        }
+        return null;
+      }
+
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&bounded=1&viewbox=-98.65,29.98,-97.80,29.35&q=${encodeURIComponent(address)}`;
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      let payload = [];
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        let response;
+        try {
+          response = await fetch(url, {
+            headers: { Accept: "application/json", "User-Agent": "HSNBA-Reporting/1.0" },
+            signal: controller.signal
+          });
+        } catch {
+          clearTimeout(timeoutId);
+          return null;
+        }
+        clearTimeout(timeoutId);
+
+        if (response.status === 429) {
+          const retryAfter = Number(response.headers.get("retry-after") || "0");
+          const delayMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500;
+          if (attempt < 2) { await wait(delayMs); continue; }
+          return null;
+        }
+        if (!response.ok) {
+          if (response.status >= 500) return null;
+          state.acGeocodeCache[cacheKey] = { miss: true, updatedAt: new Date().toISOString() };
+          return null;
+        }
+        payload = await response.json().catch(() => []);
+        break;
+      }
+
+      const first = Array.isArray(payload) ? payload[0] : null;
+      const lat = Number(first?.lat);
+      const lon = Number(first?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        state.acGeocodeCache[cacheKey] = { miss: true, updatedAt: new Date().toISOString() };
+        return null;
+      }
+      state.acGeocodeCache[cacheKey] = { lat, lon, updatedAt: new Date().toISOString() };
+      return { lat, lon };
+    };
+
+    // Filter by date and collect unique addresses while preserving row-level output
+    const addressMap = new Map(); // geocodeQuery -> entry
+    const records = [];
+    let rowCount = 0;
+    for (const row of rows) {
+      if (dateField && (fromDate || toDateEnd)) {
+        const raw = row[dateField];
+        if (!raw) continue;
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) continue;
+        if (fromDate && d < fromDate) continue;
+        if (toDateEnd && d > toDateEnd) continue;
+      }
+      rowCount += 1;
+
+      const rawAddr = `${row[addressField] || ""}`.trim();
+      const label = labelField ? `${row[labelField] || ""}`.trim() : "";
+      const record = {
+        asmAddress: rawAddr,
+        correctedAddress: "",
+        normalizedAddress: "",
+        label,
+        lat: null,
+        lon: null,
+        mapped: false,
+        mapSource: "",
+        location: {
+          city: "",
+          county: "",
+          cityCouncilDistrict: "",
+          cityCouncilLabel: "",
+          cityCouncilRepresentative: "",
+          cityCouncilPhone: "",
+          cityCouncilEmail: "",
+          commissionerPrecinct: "",
+          votingPrecinct: "",
+          addressPrecinct: ""
+        },
+        row
+      };
+      records.push(record);
+      if (!rawAddr) continue;
+
+      let cleanedAddress = normalizeAddr(rawAddr);
+      if (!cleanedAddress) continue;
+      let geocodeQuery = cleanedAddress;
+      if (!/new\s+braunfels/i.test(geocodeQuery)) geocodeQuery = `${geocodeQuery}, New Braunfels`;
+      if (!/\btx\b|texas/i.test(geocodeQuery)) geocodeQuery = `${geocodeQuery}, TX`;
+      geocodeQuery = normalizeAddr(geocodeQuery);
+
+      const key = geocodeQuery.toLowerCase();
+      if (!addressMap.has(key)) {
+        // Try local GIS index first (instant, no rate-limit, no network)
+        // using cleaned post-process address, then raw fallback.
+        const local = lookupGisAddress(cleanedAddress) || lookupGisAddress(rawAddr);
+        const localMeta = local
+          ? lookupGisLocationMetadata(local.lat, local.lon, { precinct: local.precinct, county: local.county })
+          : null;
+        addressMap.set(key, {
+          asmAddress: rawAddr,
+          correctedAddress: local?.matchedAddress || "",
+          normalizedAddress: local?.normalizedAddress || "",
+          cleanedAddress,
+          geocodeQuery,
+          label,
+          lat: local ? local.lat : null,
+          lon: local ? local.lon : null,
+          mapSource: local ? "gis-address-index" : "",
+          location: localMeta || {
+            city: "",
+            county: "",
+            cityCouncilDistrict: "",
+            cityCouncilLabel: "",
+            cityCouncilRepresentative: "",
+            cityCouncilPhone: "",
+            cityCouncilEmail: "",
+            commissionerPrecinct: "",
+            votingPrecinct: "",
+            addressPrecinct: ""
+          },
+          records: []
+        });
+      }
+      const entry = addressMap.get(key);
+      if (!entry.label && label) {
+        entry.label = label;
+      }
+      entry.records.push(record);
+    }
+
+    // Only send to Nominatim what wasn't resolved locally
+    const unresolved = Array.from(addressMap.values()).filter((e) => e.lat === null);
+    const geocodeDeadlineMs = Date.now() + 30000;
+    for (const entry of unresolved) {
+      if (Date.now() > geocodeDeadlineMs) break;
+      const result = await geocodeAddressLocal(entry.geocodeQuery);
+      if (result) {
+        entry.lat = result.lat;
+        entry.lon = result.lon;
+        entry.mapSource = "nominatim";
+        if (!entry.correctedAddress) {
+          entry.correctedAddress = entry.cleanedAddress || entry.asmAddress;
+        }
+        if (!entry.normalizedAddress) {
+          entry.normalizedAddress = normalizeAddressForGisLookup(entry.cleanedAddress || entry.asmAddress);
+        }
+        entry.location = lookupGisLocationMetadata(entry.lat, entry.lon, { precinct: entry.location?.addressPrecinct || "" });
+      }
+    }
+    saveAcGeocodeCache();
+
+    const points = [];
+    const pointMap = new Map();
+    for (const entry of addressMap.values()) {
+      const isMapped = entry.lat !== null && entry.lon !== null;
+      if (isMapped) {
+        const correctedAddress = entry.correctedAddress || entry.asmAddress;
+        const normalizedAddress = entry.normalizedAddress
+          || normalizeAddressForGisLookup(correctedAddress)
+          || `${correctedAddress || ""}`.toLowerCase();
+        const pointKey = `${Number(entry.lat).toFixed(6)}|${Number(entry.lon).toFixed(6)}|${normalizedAddress}`;
+
+        if (!pointMap.has(pointKey)) {
+          pointMap.set(pointKey, {
+            lat: entry.lat,
+            lon: entry.lon,
+            asmAddress: entry.asmAddress,
+            correctedAddress,
+            normalizedAddress,
+            address: correctedAddress,
+            mapSource: entry.mapSource,
+            location: entry.location,
+            ...(entry.label ? { label: entry.label } : {}),
+            recordCount: 0
+          });
+        }
+
+        const point = pointMap.get(pointKey);
+        point.recordCount += entry.records.length;
+        if (!point.label && entry.label) {
+          point.label = entry.label;
+        }
+      }
+      for (const record of entry.records) {
+        if (!isMapped) continue;
+        record.lat = entry.lat;
+        record.lon = entry.lon;
+        record.mapped = true;
+        record.correctedAddress = entry.correctedAddress || entry.asmAddress;
+        record.normalizedAddress = entry.normalizedAddress;
+        record.mapSource = entry.mapSource;
+        record.location = entry.location;
+      }
+    }
+
+    points.push(...pointMap.values());
+
+    const mappedRecordCount = records.filter((record) => record.mapped).length;
+    const unmappedRowCount = rowCount - mappedRecordCount;
+
+    return res.json({
+      rowCount,
+      pointCount: points.length,
+      mappedRecordCount,
+      unmappedRowCount,
+      points,
+      records
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to build GIS map data." });
   }
 });
 
