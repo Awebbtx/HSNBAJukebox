@@ -99,11 +99,18 @@ const REPORTING_SNAPSHOT_PATH = path.resolve(__dirname, "../data/reporting-snaps
 const AC_GEOCODE_CACHE_PATH = path.resolve(__dirname, "../data/ac-geocode-cache.json");
 const LINKED_REPORTS_PATH = path.resolve(__dirname, "../data/linked-reports.json");
 const DISTRICT_GEOJSON_PATH = path.resolve(__dirname, "../GIS/City_Council_Districts.geojson");
+const DISTRICT_PUBLIC_GEOJSON_PATH = path.resolve(__dirname, "../public/gis/city-council-districts.geojson");
 const GIS_ADDRESS_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Addresses_Open_Data.geojson");
+const GIS_ADDRESS_PUBLIC_GEOJSON_PATH = path.resolve(__dirname, "../public/gis/addresses-open-data.geojson");
 const GIS_ADDRESS_GUADALUPE_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Addresses_guadalupe.geojson");
+const GIS_ADDRESS_GUADALUPE_PUBLIC_GEOJSON_PATH = path.resolve(__dirname, "../public/gis/addresses-guadalupe.geojson");
 const GIS_COMMISSIONER_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Commissioner_Precincts_Open_Data.geojson");
+const GIS_COMMISSIONER_PUBLIC_GEOJSON_PATH = path.resolve(__dirname, "../public/gis/commissioner-precincts.geojson");
 const GIS_VOTING_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Voting_Precincts_Open_Data.geojson");
+const GIS_VOTING_PUBLIC_GEOJSON_PATH = path.resolve(__dirname, "../public/gis/voting-precincts.geojson");
 const GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH = path.resolve(__dirname, "../GIS/Precincts_guadalupe.geojson");
+const GIS_GUADALUPE_PRECINCTS_PUBLIC_GEOJSON_PATH = path.resolve(__dirname, "../public/gis/guadalupe-precincts.geojson");
+const GIS_AUTO_RELOAD_INTERVAL_MS = Math.max(60000, Number(process.env.GIS_AUTO_RELOAD_INTERVAL_MS || 300000));
 const SPECIAL_PAGE_UPLOAD_DIR = path.resolve(__dirname, "../public/uploads/special-pages");
 const SPECIAL_PAGE_UPLOAD_WEB_PATH = "/uploads/special-pages";
 const SPECIAL_PAGE_CATEGORIES = [
@@ -207,6 +214,37 @@ function clearAdminSessionCookie(req, res) {
   res.setHeader("Set-Cookie", attrs.join("; "));
 }
 
+// Tile proxy: must be registered early so express.static and other middleware
+// don't interfere. Proxies OSM tiles server-side → same-origin for html2canvas.
+app.use("/tile-proxy", async (req, res, next) => {
+  const parts = req.path.replace(/^\//, "").split("/");
+  if (parts.length !== 3) { next(); return; }
+  const [z, x, yraw] = parts;
+  const y = yraw.replace(/\.png$/i, "");
+  if (!/^\d{1,2}$/.test(z) || !/^\d{1,7}$/.test(x) || !/^\d{1,7}$/.test(y)) {
+    res.status(400).send("Invalid tile coordinates");
+    return;
+  }
+  const zn = parseInt(z, 10), xn = parseInt(x, 10), yn = parseInt(y, 10);
+  const maxTile = Math.pow(2, zn);
+  if (zn > 19 || xn >= maxTile || yn >= maxTile) {
+    res.status(400).send("Tile out of range");
+    return;
+  }
+  try {
+    const upstream = await fetch(`https://tile.openstreetmap.org/${zn}/${xn}/${yn}.png`, {
+      headers: { "User-Agent": "HSNBA-GIS-Reporter/1.0 (internal)" }
+    });
+    if (!upstream.ok) { res.status(upstream.status).send("Tile unavailable"); return; }
+    res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "public, max-age=86400");
+    res.set("Access-Control-Allow-Origin", "*");
+    upstream.body.pipe(res);
+  } catch {
+    res.status(502).send("Tile proxy error");
+  }
+});
+
 app.use((req, res, next) => {
   if (!isReportingHostRequest(req)) {
     next();
@@ -309,7 +347,9 @@ app.use((req, res, next) => {
     || pathName === "/admin-reporting-users.html"
     || pathName === "/admin-reporting-users.js"
     || publicPaths.has(pathName)
-    || pathName.startsWith("/GIS/")) {
+    || pathName.startsWith("/GIS/")
+    || pathName.startsWith("/gis/")
+    || pathName.startsWith("/tile-proxy/")) {
     next();
     return;
   }
@@ -415,6 +455,7 @@ const state = {
   reportingSnapshot: null,
   acGeocodeCache: {},
   gisAddressIndex: new Map(),
+  gisDataFileSignatures: new Map(),
   gisSpatialLayers: {
     cityCouncil: [],
     commissioner: [],
@@ -1999,8 +2040,8 @@ loadLocalQueue();
 loadPlaylists();
 loadReportingSnapshot();
 loadAcGeocodeCache();
-loadGisAddressIndex();
-loadGisSpatialLayers();
+refreshGisDataIfChanged(true);
+startGisDataAutoReload();
 startAudioAutomationScheduler();
 startReportingScheduler();
 
@@ -2069,14 +2110,127 @@ function loadGisAddressIndex() {
   try {
     const index = new Map();
 
-    addAddressFeaturesToIndex(index, GIS_ADDRESS_GEOJSON_PATH, "Comal Address Index", "Comal");
-    addAddressFeaturesToIndex(index, GIS_ADDRESS_GUADALUPE_GEOJSON_PATH, "Guadalupe Address Index", "Guadalupe");
+    const comalAddressPath = [
+      GIS_ADDRESS_GEOJSON_PATH,
+      GIS_ADDRESS_PUBLIC_GEOJSON_PATH
+    ].find((filePath) => fs.existsSync(filePath));
+
+    if (comalAddressPath) {
+      addAddressFeaturesToIndex(index, comalAddressPath, "Comal Address Index", "Comal");
+    } else {
+      console.warn("Comal GIS address file not found in GIS or public fallback paths.");
+    }
+
+    const guadalupeAddressPath = [
+      GIS_ADDRESS_GUADALUPE_GEOJSON_PATH,
+      GIS_ADDRESS_GUADALUPE_PUBLIC_GEOJSON_PATH
+    ].find((filePath) => fs.existsSync(filePath));
+
+    if (guadalupeAddressPath) {
+      addAddressFeaturesToIndex(index, guadalupeAddressPath, "Guadalupe Address Index", "Guadalupe");
+    } else {
+      console.warn("Guadalupe GIS address file not found in GIS or public fallback paths.");
+    }
 
     state.gisAddressIndex = index;
     console.log(`GIS address index loaded: ${index.size} entries`);
   } catch (error) {
     console.warn(`Could not load GIS address index: ${error.message}`);
   }
+}
+
+function selectExistingGeoJsonPath(paths = []) {
+  return (paths || []).find((filePath) => fs.existsSync(filePath)) || "";
+}
+
+function selectWritableGeoJsonPath(paths = []) {
+  const candidates = (paths || []).filter(Boolean);
+  for (const filePath of candidates) {
+    const dirPath = path.dirname(filePath);
+    try {
+      fs.mkdirSync(dirPath, { recursive: true });
+      fs.accessSync(dirPath, fs.constants.W_OK);
+      return filePath;
+    } catch {
+      // Try next candidate path.
+    }
+  }
+  return candidates[0] || "";
+}
+
+function getGisSourcePathByKey(key) {
+  const sourcePaths = {
+    cityCouncil: [DISTRICT_GEOJSON_PATH, DISTRICT_PUBLIC_GEOJSON_PATH],
+    addressComal: [GIS_ADDRESS_GEOJSON_PATH, GIS_ADDRESS_PUBLIC_GEOJSON_PATH],
+    addressGuadalupe: [GIS_ADDRESS_GUADALUPE_GEOJSON_PATH, GIS_ADDRESS_GUADALUPE_PUBLIC_GEOJSON_PATH],
+    commissioner: [GIS_COMMISSIONER_GEOJSON_PATH, GIS_COMMISSIONER_PUBLIC_GEOJSON_PATH],
+    voting: [GIS_VOTING_GEOJSON_PATH, GIS_VOTING_PUBLIC_GEOJSON_PATH],
+    guadalupePrecincts: [GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH, GIS_GUADALUPE_PRECINCTS_PUBLIC_GEOJSON_PATH]
+  };
+  return selectExistingGeoJsonPath(sourcePaths[key] || []);
+}
+
+function getFileSignature(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return "";
+  }
+  try {
+    const stat = fs.statSync(filePath);
+    return `${filePath}|${Number(stat.mtimeMs || 0)}|${Number(stat.size || 0)}`;
+  } catch {
+    return "";
+  }
+}
+
+function collectGisSourceSignatures() {
+  const keys = [
+    "cityCouncil",
+    "addressComal",
+    "addressGuadalupe",
+    "commissioner",
+    "voting",
+    "guadalupePrecincts"
+  ];
+  const signatures = new Map();
+  for (const key of keys) {
+    const selectedPath = getGisSourcePathByKey(key);
+    signatures.set(key, getFileSignature(selectedPath));
+  }
+  return signatures;
+}
+
+function hasGisSignatureChanges(nextSignatures = new Map()) {
+  const prev = state.gisDataFileSignatures || new Map();
+  const keys = new Set([...prev.keys(), ...nextSignatures.keys()]);
+  for (const key of keys) {
+    if ((prev.get(key) || "") !== (nextSignatures.get(key) || "")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function refreshGisDataIfChanged(force = false) {
+  const nextSignatures = collectGisSourceSignatures();
+  const shouldReload = force || hasGisSignatureChanges(nextSignatures);
+  if (!shouldReload) {
+    return false;
+  }
+
+  loadGisAddressIndex();
+  loadGisSpatialLayers();
+  state.gisDataFileSignatures = nextSignatures;
+  return true;
+}
+
+function startGisDataAutoReload() {
+  setInterval(() => {
+    try {
+      refreshGisDataIfChanged(false);
+    } catch (error) {
+      console.warn(`Could not auto-reload GIS data: ${error.message}`);
+    }
+  }, GIS_AUTO_RELOAD_INTERVAL_MS);
 }
 
 function loadGeoJsonFeatures(filePath, label) {
@@ -2097,10 +2251,35 @@ function loadGeoJsonFeatures(filePath, label) {
 }
 
 function loadGisSpatialLayers() {
-  state.gisSpatialLayers.cityCouncil = loadGeoJsonFeatures(DISTRICT_GEOJSON_PATH, "City Council Districts");
-  state.gisSpatialLayers.commissioner = loadGeoJsonFeatures(GIS_COMMISSIONER_GEOJSON_PATH, "Commissioner Precincts");
-  state.gisSpatialLayers.voting = loadGeoJsonFeatures(GIS_VOTING_GEOJSON_PATH, "Voting Precincts");
-  state.gisSpatialLayers.guadalupePrecincts = loadGeoJsonFeatures(GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH, "Guadalupe Precincts");
+  const cityCouncilPath = selectExistingGeoJsonPath([
+    DISTRICT_GEOJSON_PATH,
+    DISTRICT_PUBLIC_GEOJSON_PATH
+  ]);
+  const commissionerPath = selectExistingGeoJsonPath([
+    GIS_COMMISSIONER_GEOJSON_PATH,
+    GIS_COMMISSIONER_PUBLIC_GEOJSON_PATH
+  ]);
+  const votingPath = selectExistingGeoJsonPath([
+    GIS_VOTING_GEOJSON_PATH,
+    GIS_VOTING_PUBLIC_GEOJSON_PATH
+  ]);
+  const guadalupePrecinctPath = selectExistingGeoJsonPath([
+    GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH,
+    GIS_GUADALUPE_PRECINCTS_PUBLIC_GEOJSON_PATH
+  ]);
+
+  state.gisSpatialLayers.cityCouncil = cityCouncilPath
+    ? loadGeoJsonFeatures(cityCouncilPath, "City Council Districts")
+    : [];
+  state.gisSpatialLayers.commissioner = commissionerPath
+    ? loadGeoJsonFeatures(commissionerPath, "Commissioner Precincts")
+    : [];
+  state.gisSpatialLayers.voting = votingPath
+    ? loadGeoJsonFeatures(votingPath, "Voting Precincts")
+    : [];
+  state.gisSpatialLayers.guadalupePrecincts = guadalupePrecinctPath
+    ? loadGeoJsonFeatures(guadalupePrecinctPath, "Guadalupe Precincts")
+    : [];
 }
 
 function getFeaturePropertyText(properties = {}, keys = []) {
@@ -2187,6 +2366,7 @@ function lookupGisLocationMetadata(lat, lon, fallback = {}) {
     cityCouncilEmail: getFeaturePropertyText(cityCouncilProps, ["CouncilEmail", "COUNCILEMAIL"]),
     commissionerPrecinct,
     votingPrecinct,
+    guadalupePrecinct,
     addressPrecinct: `${fallback.precinct || ""}`.trim() || guadalupePrecinct
   };
 }
@@ -2449,6 +2629,83 @@ function normalizeAsmReportError(error, fallbackMessage) {
     return "ASM report is not a SQL SELECT report. Update the Shelter Manager report query to a SELECT statement, then retry.";
   }
   return message || fallbackMessage;
+}
+
+function isAsmJsonReportSelectValidationError(error) {
+  const message = `${error?.message || ""}`;
+  return /Reports must be based on a SELECT query/i.test(message);
+}
+
+function getGisJsonReportTitleCandidates(reportTitle) {
+  const raw = `${reportTitle || ""}`.trim();
+  if (!raw) return [];
+
+  const variants = [
+    raw,
+    raw.replace(/[\u2018\u2019]/g, "'"),
+    raw.replace(/'/g, "\u2019"),
+    raw.replace(/'/g, "''"),
+    raw.replace(/\s+/g, " ")
+  ];
+
+  const seen = new Set();
+  const unique = [];
+  for (const title of variants) {
+    const normalized = `${title || ""}`.trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+async function fetchGisRowsWithFallback(sourceType, reportTitle) {
+  const normalizedType = `${sourceType || "json_report"}`.trim();
+  const requestedTitle = `${reportTitle || ""}`.trim();
+
+  if (normalizedType !== "json_report") {
+    const rows = await fetchAsmRowsForMethod(normalizedType, {});
+    return {
+      rows,
+      sourceType: normalizedType,
+      sourceMethod: normalizedType,
+      warning: ""
+    };
+  }
+
+  const titleCandidates = getGisJsonReportTitleCandidates(requestedTitle);
+  let lastError = null;
+
+  for (const title of titleCandidates) {
+    try {
+      const rows = await fetchAsmRowsForMethod("json_report", { title });
+      const warning = title === requestedTitle
+        ? ""
+        : `ASM report title normalized from '${requestedTitle}' to '${title}'.`;
+      return {
+        rows,
+        sourceType: normalizedType,
+        sourceMethod: `json_report:${title}`,
+        warning
+      };
+    } catch (error) {
+      lastError = error;
+      if (!isAsmJsonReportSelectValidationError(error)) {
+        continue;
+      }
+    }
+  }
+
+  if (isAsmJsonReportSelectValidationError(lastError)) {
+    throw new Error(
+      `ASM json_report '${requestedTitle}' was rejected as non-SELECT. `
+      + "GIS map builder only uses report-scoped json_report data, so no system-wide fallback was applied."
+    );
+  }
+
+  throw lastError || new Error("Failed to fetch GIS report rows.");
 }
 
 function formatAsmReportDateInput(value) {
@@ -4071,6 +4328,7 @@ async function spotify({ method = "GET", path, query, body }) {
   return spotifyApiRequest({ accessToken, method, path, query, body });
 }
 
+// Tile proxy moved to early middleware above.
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
@@ -6664,7 +6922,7 @@ app.get("/api/admin/reporting/animal-control-heatmap", requireAdmin, requireRepo
   }
 });
 
-function uploadReportingGeoJson(req, res, targetPath, label) {
+function uploadReportingGeoJson(req, res, targetPaths, label) {
   try {
     const payload = req.body || {};
     const incoming = payload.geojson ?? payload;
@@ -6680,8 +6938,11 @@ function uploadReportingGeoJson(req, res, targetPath, label) {
       return res.status(400).json({ error: "GeoJSON features array cannot be empty." });
     }
 
-    const dirPath = path.dirname(targetPath);
-    fs.mkdirSync(dirPath, { recursive: true });
+    const candidatePaths = Array.isArray(targetPaths) ? targetPaths : [targetPaths];
+    const targetPath = selectWritableGeoJsonPath(candidatePaths);
+    if (!targetPath) {
+      return res.status(500).json({ error: "No writable GIS destination path is configured." });
+    }
 
     const normalized = `${JSON.stringify(geojson, null, 2)}\n`;
     const tempPath = `${targetPath}.tmp`;
@@ -6699,6 +6960,7 @@ function uploadReportingGeoJson(req, res, targetPath, label) {
       ok: true,
       layer: label,
       file: path.basename(targetPath),
+      path: targetPath,
       featureCount: geojson.features.length,
       bytes: Buffer.byteLength(normalized, "utf8")
     });
@@ -6713,19 +6975,19 @@ function uploadReportingGeoJson(req, res, targetPath, label) {
 }
 
 app.post("/api/admin/reporting/gis-districts", requireAdmin, requireReporting, (req, res) => {
-  return uploadReportingGeoJson(req, res, DISTRICT_GEOJSON_PATH, "cityCouncil");
+  return uploadReportingGeoJson(req, res, [DISTRICT_GEOJSON_PATH, DISTRICT_PUBLIC_GEOJSON_PATH], "cityCouncil");
 });
 
 app.post("/api/admin/reporting/gis-commissioner-districts", requireAdmin, requireReporting, (req, res) => {
-  return uploadReportingGeoJson(req, res, GIS_COMMISSIONER_GEOJSON_PATH, "commissioner");
+  return uploadReportingGeoJson(req, res, [GIS_COMMISSIONER_GEOJSON_PATH, GIS_COMMISSIONER_PUBLIC_GEOJSON_PATH], "commissioner");
 });
 
 app.post("/api/admin/reporting/gis-voting-precincts", requireAdmin, requireReporting, (req, res) => {
-  return uploadReportingGeoJson(req, res, GIS_VOTING_GEOJSON_PATH, "voting");
+  return uploadReportingGeoJson(req, res, [GIS_VOTING_GEOJSON_PATH, GIS_VOTING_PUBLIC_GEOJSON_PATH], "voting");
 });
 
 app.post("/api/admin/reporting/gis-guadalupe-precincts", requireAdmin, requireReporting, (req, res) => {
-  return uploadReportingGeoJson(req, res, GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH, "guadalupePrecincts");
+  return uploadReportingGeoJson(req, res, [GIS_GUADALUPE_PRECINCTS_GEOJSON_PATH, GIS_GUADALUPE_PRECINCTS_PUBLIC_GEOJSON_PATH], "guadalupePrecincts");
 });
 
 // ── GIS Reports: probe field names from any ASM report ─────────────────────
@@ -6742,12 +7004,10 @@ app.get("/api/admin/reporting/gis-map-probe", requireAdmin, requireReporting, as
       return res.status(400).json({ error: "reportTitle is required for json_report source type." });
     }
 
-    const extraParams = {};
-    if (sourceType === "json_report") extraParams.title = reportTitle;
-
-    const rows = await fetchAsmRowsForMethod(sourceType, extraParams);
+    const fetched = await fetchGisRowsWithFallback(sourceType, reportTitle);
+    const rows = fetched.rows;
     if (!rows || !rows.length) {
-      return res.json({ fields: [], rowCount: 0 });
+      return res.json({ fields: [], rowCount: 0, sourceMethod: fetched.sourceMethod, warning: fetched.warning || "" });
     }
 
     // Build stable field list from sampled rows so atypical first rows don't hide columns.
@@ -6799,7 +7059,7 @@ app.get("/api/admin/reporting/gis-map-probe", requireAdmin, requireReporting, as
       fields = firstRowKeys;
     }
 
-    return res.json({ fields, rowCount: rows.length });
+    return res.json({ fields, rowCount: rows.length, sourceMethod: fetched.sourceMethod, warning: fetched.warning || "" });
   } catch (error) {
     return res.status(500).json({ error: error.message || "Failed to probe report fields." });
   }
@@ -6827,12 +7087,10 @@ app.get("/api/admin/reporting/gis-map", requireAdmin, requireReporting, async (r
       return res.status(400).json({ error: "reportTitle is required for json_report source type." });
     }
 
-    const extraParams = {};
-    if (sourceType === "json_report") extraParams.title = reportTitle;
-
-    const rows = await fetchAsmRowsForMethod(sourceType, extraParams);
+    const fetched = await fetchGisRowsWithFallback(sourceType, reportTitle);
+    const rows = fetched.rows;
     if (!rows || !rows.length) {
-      return res.json({ rowCount: 0, pointCount: 0, points: [] });
+      return res.json({ rowCount: 0, pointCount: 0, points: [], sourceMethod: fetched.sourceMethod, warning: fetched.warning || "" });
     }
 
     const parseDate = (v) => {
@@ -6856,6 +7114,32 @@ app.get("/api/admin/reporting/gis-map", requireAdmin, requireReporting, async (r
         .replace(/,+/g, ",")
         .trim()
         .replace(/^,|,$/g, "");
+
+    const buildRowFieldReader = (row) => {
+      const lowerKeyMap = new Map();
+      const normalizedKeyMap = new Map();
+      for (const [key, value] of Object.entries(row || {})) {
+        const keyText = `${key || ""}`;
+        lowerKeyMap.set(keyText.toLowerCase(), value);
+        normalizedKeyMap.set(keyText.toLowerCase().replace(/[^a-z0-9]/g, ""), value);
+      }
+
+      return (key) => {
+        const rawKey = `${key || ""}`.trim();
+        if (!rawKey) return "";
+
+        const direct = row?.[rawKey];
+        if (direct !== undefined && direct !== null) return direct;
+
+        const lower = lowerKeyMap.get(rawKey.toLowerCase());
+        if (lower !== undefined && lower !== null) return lower;
+
+        const normalized = normalizedKeyMap.get(rawKey.toLowerCase().replace(/[^a-z0-9]/g, ""));
+        if (normalized !== undefined && normalized !== null) return normalized;
+
+        return "";
+      };
+    };
 
     const geocodeAddressLocal = async (address) => {
       const cacheKey = address.toLowerCase();
@@ -6917,8 +7201,9 @@ app.get("/api/admin/reporting/gis-map", requireAdmin, requireReporting, async (r
     const records = [];
     let rowCount = 0;
     for (const row of rows) {
+      const getField = buildRowFieldReader(row);
       if (dateField && (fromDate || toDateEnd)) {
-        const raw = row[dateField];
+        const raw = getField(dateField);
         if (!raw) continue;
         const d = new Date(raw);
         if (Number.isNaN(d.getTime())) continue;
@@ -6927,8 +7212,8 @@ app.get("/api/admin/reporting/gis-map", requireAdmin, requireReporting, async (r
       }
       rowCount += 1;
 
-      const rawAddr = `${row[addressField] || ""}`.trim();
-      const label = labelField ? `${row[labelField] || ""}`.trim() : "";
+      const rawAddr = `${getField(addressField) || ""}`.trim();
+      const label = labelField ? `${getField(labelField) || ""}`.trim() : "";
       const record = {
         asmAddress: rawAddr,
         correctedAddress: "",
@@ -6948,6 +7233,7 @@ app.get("/api/admin/reporting/gis-map", requireAdmin, requireReporting, async (r
           cityCouncilEmail: "",
           commissionerPrecinct: "",
           votingPrecinct: "",
+          guadalupePrecinct: "",
           addressPrecinct: ""
         },
         row
@@ -6990,6 +7276,7 @@ app.get("/api/admin/reporting/gis-map", requireAdmin, requireReporting, async (r
             cityCouncilEmail: "",
             commissionerPrecinct: "",
             votingPrecinct: "",
+            guadalupePrecinct: "",
             addressPrecinct: ""
           },
           records: []
@@ -7077,6 +7364,8 @@ app.get("/api/admin/reporting/gis-map", requireAdmin, requireReporting, async (r
       pointCount: points.length,
       mappedRecordCount,
       unmappedRowCount,
+      sourceMethod: fetched.sourceMethod,
+      warning: fetched.warning || "",
       points,
       records
     });

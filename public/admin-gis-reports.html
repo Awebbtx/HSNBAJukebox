@@ -385,7 +385,7 @@
                 <span>Show Voting Precincts</span>
               </label>
               <label style="display:flex;align-items:center;gap:0.45rem">
-                <input id="guadalupeOverlayToggle" type="checkbox" />
+                <input id="guadalupeOverlayToggle" type="checkbox" checked />
                 <span>Show Guadalupe Precincts</span>
               </label>
               <button id="displayOptionsToggle" class="btn-ghost" type="button" aria-expanded="false" aria-controls="displayOptionsPanel">Display Options</button>
@@ -424,7 +424,9 @@
               <input id="commissionerFillColor" type="color" value="#4b8fd9" />
             </label>
             <label>Commissioner Title Field
-              <input id="commissionerTitleField" type="text" placeholder="auto" value="auto" />
+              <select id="commissionerTitleField">
+                <option value="auto">Auto (recommended)</option>
+              </select>
             </label>
             <label class="inline-toggle">
               <input id="commissionerTitleToggle" type="checkbox" checked />
@@ -439,7 +441,9 @@
               <input id="votingFillColor" type="color" value="#7f60d9" />
             </label>
             <label>Voting Title Field
-              <input id="votingTitleField" type="text" placeholder="auto" value="auto" />
+              <select id="votingTitleField">
+                <option value="auto">Auto (recommended)</option>
+              </select>
             </label>
             <label class="inline-toggle">
               <input id="votingTitleToggle" type="checkbox" checked />
@@ -454,7 +458,9 @@
               <input id="guadalupeFillColor" type="color" value="#2ca58d" />
             </label>
             <label>Guadalupe Title Field
-              <input id="guadalupeTitleField" type="text" placeholder="auto" value="auto" />
+              <select id="guadalupeTitleField">
+                <option value="auto">Auto (recommended)</option>
+              </select>
             </label>
             <label class="inline-toggle">
               <input id="guadalupeTitleToggle" type="checkbox" checked />
@@ -527,9 +533,9 @@
             <label>Search
               <input id="filterSearch" type="search" placeholder="Search label, address, or report fields" />
             </label>
-            <label>District
+            <label>Overlay Area
               <select id="filterDistrict">
-                <option value="">All districts</option>
+                <option value="">All overlay areas</option>
               </select>
             </label>
             <label>Map Status
@@ -544,6 +550,7 @@
               <span>Only current map view</span>
             </label>
             <button id="printReportBtn" class="btn-ghost" type="button">Print Report</button>
+            <button id="exportCsvBtn" class="btn-ghost" type="button">Export CSV</button>
             <button id="clearFiltersBtn" class="btn-ghost" type="button">Clear Filters</button>
           </div>
           <div id="filterMeta" class="meta"></div>
@@ -555,6 +562,7 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="/admin-report-cards.js"></script>
     <script type="module" src="/admin-gis-reports.js"></script>
   </body>

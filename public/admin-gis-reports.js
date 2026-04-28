@@ -2,6 +2,7 @@
 // Shares GIS overlay logic with admin-animal-control-heatmap.js
 
 const FILTER_DISTRICT_OUTSIDE = "__outside__";
+const FILTER_OVERLAY_OUTSIDE_PREFIX = "__outside__:";
 
 const els = {
   logoutBtn: document.getElementById("logoutBtn"),
@@ -34,6 +35,7 @@ const els = {
   filterMeta: document.getElementById("filterMeta"),
   resultsReport: document.getElementById("resultsReport"),
   printReportBtn: document.getElementById("printReportBtn"),
+  exportCsvBtn: document.getElementById("exportCsvBtn"),
   districtOverlayToggle: document.getElementById("districtOverlayToggle"),
   commissionerOverlayToggle: document.getElementById("commissionerOverlayToggle"),
   votingOverlayToggle: document.getElementById("votingOverlayToggle"),
@@ -82,6 +84,7 @@ const els = {
 };
 
 let map;
+let baseTileLayer;
 let markerLayer;
 let districtLayer;
 let districtLayerLoadPromise;
@@ -158,8 +161,8 @@ const VOTING_OVERLAY = {
 };
 
 const GUADALUPE_OVERLAY = {
-  fileUrl: "/GIS/Precincts_guadalupe.geojson",
-  fallbackFileUrl: "/gis/guadalupe-precincts.geojson",
+  fileUrl: "/gis/guadalupe-precincts.geojson",
+  fallbackFileUrl: "/GIS/Precincts_guadalupe.geojson",
   fallbackNameKeys: ["PrecinctNumber", "Precinct", "PRECINCT", "PCT", "CommissionerName", "Name", "NAME", "label"],
   districtKeyKeys: ["PrecinctNumber", "Precinct", "PRECINCT", "PCT", "Name", "NAME", "label"],
   showTitle: true,
@@ -231,6 +234,27 @@ function normalizeText(value) {
     .trim();
 }
 
+function buildRowFieldReader(row) {
+  const normalizedKeyMap = new Map();
+  const lowerKeyMap = new Map();
+  for (const [key, value] of Object.entries(row || {})) {
+    const keyText = `${key || ""}`;
+    lowerKeyMap.set(keyText.toLowerCase(), value);
+    normalizedKeyMap.set(keyText.toLowerCase().replace(/[^a-z0-9]/g, ""), value);
+  }
+
+  const getRawField = (key) => {
+    const direct = (row || {})[key];
+    if (direct !== undefined && direct !== null) return direct;
+    const normalizedKey = `${key}`.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (normalizedKeyMap.has(normalizedKey)) return normalizedKeyMap.get(normalizedKey);
+    return lowerKeyMap.get(`${key}`.toLowerCase());
+  };
+
+  const getField = (key) => normalizeText(getRawField(key));
+  return { getRawField, getField };
+}
+
 function toFriendlyFieldLabel(key) {
   return `${key || ""}`
     .replace(/_/g, " ")
@@ -275,7 +299,7 @@ function persistSavedReportNames(reportNames) {
 function populateSavedReportDropdown({ selected = "" } = {}) {
   if (!els.reportTitle) return;
   const reportNames = loadSavedReportNames();
-  const options = ['<option value="">— select report —</option>', ...reportNames.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`)];
+  const options = ['<option value=""> Add a report Here --> </option>', ...reportNames.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`)];
   els.reportTitle.innerHTML = options.join("");
   if (selected && reportNames.some((name) => name.toLowerCase() === selected.toLowerCase())) {
     els.reportTitle.value = reportNames.find((name) => name.toLowerCase() === selected.toLowerCase()) || "";
@@ -343,9 +367,10 @@ function initMap() {
     zoomControl: true
   });
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  baseTileLayer = L.tileLayer("/tile-proxy/{z}/{x}/{y}.png", {
     maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors"
+    attribution: "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+    crossOrigin: "anonymous"
   }).addTo(map);
 
   markerLayer = L.layerGroup().addTo(map);
@@ -488,6 +513,10 @@ function applyDisplayDefaults(defaults, { rerenderMap = true } = {}) {
   if (els.guadalupeFillColor) els.guadalupeFillColor.value = normalized.guadalupeFillColor;
   if (els.guadalupeTitleField) els.guadalupeTitleField.value = normalized.guadalupeTitleField;
   if (els.guadalupeTitleToggle) els.guadalupeTitleToggle.checked = normalized.guadalupeTitleToggle;
+
+  populateCountyTitleFieldOptions("commissioner", { preferredValue: normalized.commissionerTitleField });
+  populateCountyTitleFieldOptions("voting", { preferredValue: normalized.votingTitleField });
+  populateCountyTitleFieldOptions("guadalupe", { preferredValue: normalized.guadalupeTitleField });
 
   renderDistrictColorControls();
   updateCountyOverlayOptionsVisibility();
@@ -642,6 +671,54 @@ function getFeaturePropertyText(properties = {}, keys = []) {
   return "";
 }
 
+function collectOverlayPropertyKeys(geojson) {
+  const keySet = new Set();
+  for (const feature of geojson?.features || []) {
+    const properties = feature?.properties;
+    if (!properties || typeof properties !== "object") continue;
+    for (const key of Object.keys(properties)) {
+      const text = `${key || ""}`.trim();
+      if (text) keySet.add(text);
+    }
+  }
+  return [...keySet].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function populateCountyTitleFieldOptions(type, { preferredValue } = {}) {
+  const runtime = getCountyOverlayRuntime(type);
+  const selectEl = runtime.titleFieldSelect;
+  if (!selectEl) return;
+
+  const keys = collectOverlayPropertyKeys(runtime.getGeoJson());
+  const selected = `${preferredValue ?? runtime.overlay.titleField ?? selectEl.value ?? "auto"}`.trim() || "auto";
+  const normalizedSelected = selected.toLowerCase() === "auto" ? "auto" : selected;
+
+  selectEl.innerHTML = "";
+  const autoOption = document.createElement("option");
+  autoOption.value = "auto";
+  autoOption.textContent = "Auto (recommended)";
+  selectEl.appendChild(autoOption);
+
+  const known = new Set(["auto"]);
+  for (const key of keys) {
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = key;
+    selectEl.appendChild(option);
+    known.add(key);
+  }
+
+  if (normalizedSelected !== "auto" && !known.has(normalizedSelected)) {
+    const savedOption = document.createElement("option");
+    savedOption.value = normalizedSelected;
+    savedOption.textContent = `${normalizedSelected} (saved)`;
+    selectEl.appendChild(savedOption);
+  }
+
+  selectEl.value = normalizedSelected;
+  runtime.overlay.titleField = normalizedSelected;
+}
+
 function getCountyOverlayRuntime(type) {
   if (type === "commissioner") {
     return {
@@ -655,6 +732,7 @@ function getCountyOverlayRuntime(type) {
       toggle: els.commissionerOverlayToggle,
       uploadMeta: els.commissionerUploadMeta,
       uploadInput: els.commissionerGeoJsonUpload,
+      titleFieldSelect: els.commissionerTitleField,
       uploadButton: els.uploadCommissionerGeoJsonBtn,
       uploadUrl: "/api/admin/reporting/gis-commissioner-districts",
       typeLabel: "Commissioner precinct"
@@ -672,6 +750,7 @@ function getCountyOverlayRuntime(type) {
       toggle: els.guadalupeOverlayToggle,
       uploadMeta: els.guadalupeUploadMeta,
       uploadInput: els.guadalupeGeoJsonUpload,
+      titleFieldSelect: els.guadalupeTitleField,
       uploadButton: els.uploadGuadalupeGeoJsonBtn,
       uploadUrl: "/api/admin/reporting/gis-guadalupe-precincts",
       typeLabel: "Guadalupe precinct"
@@ -688,6 +767,7 @@ function getCountyOverlayRuntime(type) {
     toggle: els.votingOverlayToggle,
     uploadMeta: els.votingUploadMeta,
     uploadInput: els.votingGeoJsonUpload,
+    titleFieldSelect: els.votingTitleField,
     uploadButton: els.uploadVotingGeoJsonBtn,
     uploadUrl: "/api/admin/reporting/gis-voting-precincts",
     typeLabel: "Voting precinct"
@@ -761,6 +841,7 @@ async function ensureCountyOverlayLayer(type) {
 
       const geojson = await response.json();
       runtime.setGeoJson(geojson);
+  populateCountyTitleFieldOptions(type);
       const layer = L.geoJSON(geojson, {
         style: {
           color: overlay.borderColor,
@@ -786,7 +867,9 @@ async function ensureCountyOverlayLayer(type) {
         renderReportFromLatestData();
       }
       if (runtime.uploadMeta) {
-        runtime.uploadMeta.textContent = `${runtime.typeLabel} overlay loaded from ${sourceUrl}`;
+        const featureCount = Array.isArray(geojson?.features) ? geojson.features.length : 0;
+        const isVisible = !!(runtime.getLayer() && map && map.hasLayer(runtime.getLayer()));
+        runtime.uploadMeta.textContent = `${runtime.typeLabel} overlay loaded from ${sourceUrl} (${featureCount} features, visible: ${isVisible ? "yes" : "no"})`;
       }
     } catch (error) {
       runtime.setGeoJson(null);
@@ -812,9 +895,21 @@ async function handleCountyOverlayToggle(type) {
     if (layer && map.hasLayer(layer)) {
       map.removeLayer(layer);
     }
+    if (runtime.uploadMeta) {
+      runtime.uploadMeta.textContent = `${runtime.typeLabel} overlay hidden (toggle off)`;
+    }
     return;
   }
   await ensureCountyOverlayLayer(type);
+  const layer = runtime.getLayer();
+  if (layer && !map.hasLayer(layer)) {
+    layer.addTo(map);
+  }
+  applyCountyOverlayStyle(type);
+  if (runtime.uploadMeta && layer) {
+    const featureCount = Array.isArray(runtime.getGeoJson()?.features) ? runtime.getGeoJson().features.length : 0;
+    runtime.uploadMeta.textContent = `${runtime.typeLabel} overlay visible (${featureCount} features)`;
+  }
 }
 
 async function uploadCountyOverlayFile(type) {
@@ -891,6 +986,35 @@ function applyDisplayOptions() {
 
 async function yieldToBrowser(delay = MAP_RENDER_YIELD_MS) {
   await new Promise((resolve) => window.setTimeout(resolve, delay));
+}
+
+async function waitForMapVisualReady(timeoutMs = 5000) {
+  if (!map || !baseTileLayer) return;
+
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      baseTileLayer.off("load", finish);
+      clearTimeout(timer);
+      resolve();
+    };
+
+    const timer = window.setTimeout(finish, timeoutMs);
+    baseTileLayer.once("load", finish);
+
+    // Force a relayout pass for Leaflet when map container visibility changes.
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        map.invalidateSize(true);
+        const isLoading = typeof baseTileLayer.isLoading === "function" && baseTileLayer.isLoading();
+        if (!isLoading) finish();
+      });
+    });
+  });
+
+  map.invalidateSize(true);
 }
 
 function setLoadingState(busy, message = "") {
@@ -980,6 +1104,15 @@ function getCountyOverlayInfoForLatLon(type, lat, lon) {
 function annotateMapDataWithSpatialOverlays(data) {
   if (!data || typeof data !== "object") return;
 
+  const chooseOverlayValue = (serverValue, overlayValue, fallbackValue = "") => {
+    const serverText = `${serverValue || ""}`.trim();
+    const overlayText = `${overlayValue || ""}`.trim();
+    const serverIsWeak = !serverText || /^outside\b|^unmapped\b/i.test(serverText);
+    if (!serverIsWeak) return serverText;
+    if (overlayText) return overlayText;
+    return serverText || `${fallbackValue || ""}`.trim();
+  };
+
   const districtPointCache = new Map();
   const commissionerPointCache = new Map();
   const votingPointCache = new Map();
@@ -1025,9 +1158,9 @@ function annotateMapDataWithSpatialOverlays(data) {
     point.location = point.location || {};
     point.districtKey = serverDistrictKey || district?.districtKey || "";
     point.districtLabel = serverDistrictLabel || district?.districtLabel || "Outside district overlay";
-    point.location.commissionerPrecinct = serverCommissioner || commissioner?.key || commissioner?.label || "";
-    point.location.votingPrecinct = serverVoting || voting?.key || voting?.label || "";
-    point.location.guadalupePrecinct = serverGuadalupe || guadalupe?.key || guadalupe?.label || "";
+    point.location.commissionerPrecinct = chooseOverlayValue(serverCommissioner, commissioner?.key || commissioner?.label || "", "Outside commissioner overlay");
+    point.location.votingPrecinct = chooseOverlayValue(serverVoting, voting?.key || voting?.label || "", "Outside voting overlay");
+    point.location.guadalupePrecinct = chooseOverlayValue(serverGuadalupe, guadalupe?.key || guadalupe?.label || "", "Outside guadalupe overlay");
   }
 
   for (const record of data.records || []) {
@@ -1061,9 +1194,9 @@ function annotateMapDataWithSpatialOverlays(data) {
 
     record.districtKey = serverDistrictKey || district?.districtKey || "";
     record.districtLabel = serverDistrictLabel || district?.districtLabel || "Outside district overlay";
-    record.location.commissionerPrecinct = serverCommissioner || commissioner?.key || commissioner?.label || "Outside commissioner overlay";
-    record.location.votingPrecinct = serverVoting || voting?.key || voting?.label || "Outside voting overlay";
-    record.location.guadalupePrecinct = serverGuadalupe || guadalupe?.key || guadalupe?.label || "Outside guadalupe overlay";
+    record.location.commissionerPrecinct = chooseOverlayValue(serverCommissioner, commissioner?.key || commissioner?.label || "", "Outside commissioner overlay");
+    record.location.votingPrecinct = chooseOverlayValue(serverVoting, voting?.key || voting?.label || "", "Outside voting overlay");
+    record.location.guadalupePrecinct = chooseOverlayValue(serverGuadalupe, guadalupe?.key || guadalupe?.label || "", "Outside guadalupe overlay");
   }
 }
 
@@ -1371,7 +1504,10 @@ async function probeReportFields() {
     populateGisFieldList(mergedFields);
 
     els.fieldMapSection.removeAttribute("hidden");
-    els.probeStatus.textContent = `${fields.length} fields loaded. Configure report fields and click Build Map.`;
+    const probeWarning = `${data.warning || ""}`.trim();
+    els.probeStatus.textContent = probeWarning
+      ? `${fields.length} fields loaded (${data.sourceMethod || "fallback source"}). ${probeWarning}`
+      : `${fields.length} fields loaded. Configure report fields and click Build Map.`;
     setCanSaveReportName(true);
   } catch (error) {
     setCanSaveReportName(false);
@@ -1411,31 +1547,62 @@ function getUniquePointsFromRecords(records) {
 function populateDistrictFilter(records) {
   if (!els.filterDistrict) return;
   const currentValue = els.filterDistrict.value;
-  const options = [{ value: "", label: "All districts" }];
-  const seen = new Set();
-  let hasOutside = false;
+  const options = [{ value: "", label: "All overlay areas" }];
+  const seenDistrict = new Set();
+  const seenCommissioner = new Set();
+  const seenVoting = new Set();
+  const seenGuadalupe = new Set();
+  let hasDistrictOutside = false;
+  let hasCommissionerOutside = false;
+  let hasVotingOutside = false;
+  let hasGuadalupeOutside = false;
 
   for (const districtKey of DISTRICT_OVERLAY.districtOrder) {
     const matching = records.find((record) => record.mapped && record.districtKey === districtKey);
     if (!matching) continue;
-    seen.add(districtKey);
-    options.push({ value: districtKey, label: matching.districtLabel || districtKey });
+    seenDistrict.add(districtKey);
+    options.push({ value: `district:${districtKey}`, label: `City Council: ${matching.districtLabel || districtKey}` });
   }
 
   for (const record of records) {
     if (!record.mapped) continue;
+    const commissioner = `${record.location?.commissionerPrecinct || ""}`.trim();
+    const voting = `${record.location?.votingPrecinct || ""}`.trim();
+    const guadalupe = `${record.location?.guadalupePrecinct || ""}`.trim();
+
     if (!record.districtKey) {
-      hasOutside = true;
-      continue;
+      hasDistrictOutside = true;
+    } else if (!seenDistrict.has(record.districtKey)) {
+      seenDistrict.add(record.districtKey);
+      options.push({ value: `district:${record.districtKey}`, label: `City Council: ${record.districtLabel || record.districtKey}` });
     }
-    if (seen.has(record.districtKey)) continue;
-    seen.add(record.districtKey);
-    options.push({ value: record.districtKey, label: record.districtLabel || record.districtKey });
+
+    if (!commissioner || /^outside\b/i.test(commissioner)) {
+      hasCommissionerOutside = true;
+    } else if (!seenCommissioner.has(commissioner)) {
+      seenCommissioner.add(commissioner);
+      options.push({ value: `commissioner:${commissioner}`, label: `Commissioner: ${commissioner}` });
+    }
+
+    if (!voting || /^outside\b/i.test(voting)) {
+      hasVotingOutside = true;
+    } else if (!seenVoting.has(voting)) {
+      seenVoting.add(voting);
+      options.push({ value: `voting:${voting}`, label: `Voting: ${voting}` });
+    }
+
+    if (!guadalupe || /^outside\b/i.test(guadalupe)) {
+      hasGuadalupeOutside = true;
+    } else if (!seenGuadalupe.has(guadalupe)) {
+      seenGuadalupe.add(guadalupe);
+      options.push({ value: `guadalupe:${guadalupe}`, label: `Guadalupe: ${guadalupe}` });
+    }
   }
 
-  if (hasOutside) {
-    options.push({ value: FILTER_DISTRICT_OUTSIDE, label: "Outside district overlay" });
-  }
+  if (hasDistrictOutside) options.push({ value: `${FILTER_OVERLAY_OUTSIDE_PREFIX}district`, label: "Outside City Council overlay" });
+  if (hasCommissionerOutside) options.push({ value: `${FILTER_OVERLAY_OUTSIDE_PREFIX}commissioner`, label: "Outside Commissioner overlay" });
+  if (hasVotingOutside) options.push({ value: `${FILTER_OVERLAY_OUTSIDE_PREFIX}voting`, label: "Outside Voting overlay" });
+  if (hasGuadalupeOutside) options.push({ value: `${FILTER_OVERLAY_OUTSIDE_PREFIX}guadalupe`, label: "Outside Guadalupe overlay" });
 
   els.filterDistrict.innerHTML = options.map((option) => `<option value="${esc(option.value)}">${esc(option.label)}</option>`).join("");
   if (options.some((option) => option.value === currentValue)) {
@@ -1458,6 +1625,7 @@ function recordMatchesSearch(record, searchValue) {
     location.cityCouncilLabel,
     location.commissionerPrecinct,
     location.votingPrecinct,
+    location.guadalupePrecinct,
     location.addressPrecinct,
     ...(record.row && typeof record.row === "object" ? Object.values(record.row) : [])
   ]
@@ -1477,7 +1645,22 @@ function filterRecords(records) {
     if (mapStatus === "mapped" && !record.mapped) return false;
     if (mapStatus === "unmapped" && record.mapped) return false;
 
-    if (districtValue === FILTER_DISTRICT_OUTSIDE) {
+    if (districtValue.startsWith(FILTER_OVERLAY_OUTSIDE_PREFIX)) {
+      const outsideType = districtValue.slice(FILTER_OVERLAY_OUTSIDE_PREFIX.length);
+      if (!record.mapped) return false;
+      if (outsideType === "district" && record.districtKey) return false;
+      if (outsideType === "commissioner" && `${record.location?.commissionerPrecinct || ""}`.trim() && !/^outside\b/i.test(`${record.location?.commissionerPrecinct || ""}`.trim())) return false;
+      if (outsideType === "voting" && `${record.location?.votingPrecinct || ""}`.trim() && !/^outside\b/i.test(`${record.location?.votingPrecinct || ""}`.trim())) return false;
+      if (outsideType === "guadalupe" && `${record.location?.guadalupePrecinct || ""}`.trim() && !/^outside\b/i.test(`${record.location?.guadalupePrecinct || ""}`.trim())) return false;
+    } else if (districtValue.includes(":")) {
+      const [overlayType, overlayValueRaw] = districtValue.split(":");
+      const overlayValue = `${overlayValueRaw || ""}`.trim();
+      if (!record.mapped) return false;
+      if (overlayType === "district" && record.districtKey !== overlayValue) return false;
+      if (overlayType === "commissioner" && `${record.location?.commissionerPrecinct || ""}`.trim() !== overlayValue) return false;
+      if (overlayType === "voting" && `${record.location?.votingPrecinct || ""}`.trim() !== overlayValue) return false;
+      if (overlayType === "guadalupe" && `${record.location?.guadalupePrecinct || ""}`.trim() !== overlayValue) return false;
+    } else if (districtValue === FILTER_DISTRICT_OUTSIDE) {
       if (!record.mapped || record.districtKey) return false;
     } else if (districtValue) {
       if (record.districtKey !== districtValue) return false;
@@ -1495,17 +1678,19 @@ function filterRecords(records) {
 
 function buildCardTitle(record, fieldConfig) {
   const titleField = fieldConfig.fields?.[0]?.key || fieldConfig.labelField;
-  const preferred = titleField ? normalizeText(record.row?.[titleField]) : "";
+  const { getField } = buildRowFieldReader(record.row);
+  const preferred = titleField ? getField(titleField) : "";
   return preferred || normalizeText(record.label) || normalizeText(record.correctedAddress) || normalizeText(record.asmAddress) || "(record)";
 }
 
 function buildReportCard(record, fieldConfig) {
   const title = buildCardTitle(record, fieldConfig);
+  const { getField } = buildRowFieldReader(record.row);
   const asmAddress = normalizeText(record.asmAddress || record.address);
   const correctedAddress = normalizeText(record.correctedAddress || record.address || asmAddress);
   const location = record.location || {};
   const chips = [];
-  const dateValue = fieldConfig.dateField ? normalizeText(record.row?.[fieldConfig.dateField]) : "";
+  const dateValue = fieldConfig.dateField ? getField(fieldConfig.dateField) : "";
   const configuredFields = Array.isArray(fieldConfig.fields) ? [...fieldConfig.fields].sort((a, b) => a.order - b.order) : [];
   if (record.districtLabel) {
     chips.push(window.RC.chip("District: ", record.districtLabel));
@@ -1547,7 +1732,7 @@ function buildReportCard(record, fieldConfig) {
   for (const field of configuredFields) {
     const key = `${field.key || ""}`.trim();
     if (!key) continue;
-    const text = normalizeText(record.row?.[key]);
+    const text = getField(key);
     if (!text) continue;
     if (key === fieldConfig.addressField || key === fieldConfig.dateField) {
       continue;
@@ -1579,7 +1764,8 @@ function buildReportMarkup(records) {
   const groups = new Map();
   const groupField = fieldConfig.fields.find((field) => field.groupBy) || null;
   for (const record of records) {
-    const configuredGroupValue = groupField ? normalizeText(record.row?.[groupField.key]) : "";
+    const { getField } = buildRowFieldReader(record.row);
+    const configuredGroupValue = groupField ? getField(groupField.key) : "";
     const groupKey = configuredGroupValue || (record.mapped
       ? (record.districtLabel || "Outside district overlay")
       : "Unmapped");
@@ -1668,30 +1854,141 @@ function buildPrintableReportHtml(records) {
   return buildReportMarkup(records).replace(/\shidden(?=[ >])/g, "");
 }
 
-function openPrintReportWindow() {
+function getFilteredRecordsForActions() {
   if (!latestMapData || !Array.isArray(latestMapData.records)) {
+    return null;
+  }
+  return latestFilteredRecords.length
+    ? latestFilteredRecords
+    : filterRecords(latestMapData.records || []);
+}
+
+function csvEscape(value) {
+  const text = `${value ?? ""}`.replace(/\r?\n/g, " ").trim();
+  return /[",]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function exportCurrentReportCsv() {
+  const filteredRecords = getFilteredRecordsForActions();
+  if (!filteredRecords) {
+    els.metaText.textContent = "Build the map first, then export CSV.";
+    return;
+  }
+  if (!filteredRecords.length) {
+    els.metaText.textContent = "No filtered rows to export.";
+    return;
+  }
+
+  const fieldConfig = getCurrentFieldConfig();
+  const configuredFields = Array.isArray(fieldConfig.fields)
+    ? [...fieldConfig.fields].sort((a, b) => a.order - b.order)
+    : [];
+  const dynamicFields = configuredFields.filter((field) => `${field.key || ""}`.trim());
+
+  const headers = [
+    "Report Title",
+    "Card Title",
+    "Map Status",
+    "ASM Address",
+    "Corrected GIS Address",
+    "District",
+    "Commissioner Precinct",
+    "Voting Precinct",
+    "Guadalupe Precinct",
+    "City",
+    "County",
+    "Address Precinct",
+    "Latitude",
+    "Longitude",
+    ...dynamicFields.map((field) => field.label || toFriendlyFieldLabel(field.key))
+  ];
+
+  const rows = [headers.join(",")];
+  for (const record of filteredRecords) {
+    const { getField } = buildRowFieldReader(record.row || {});
+    const location = record.location || {};
+    const values = [
+      getCurrentReportHeading(),
+      buildCardTitle(record, fieldConfig),
+      record.mapped ? "Mapped" : "Unmapped",
+      normalizeText(record.asmAddress || record.address),
+      normalizeText(record.correctedAddress || record.address || record.asmAddress),
+      record.districtLabel || "",
+      location.commissionerPrecinct || "",
+      location.votingPrecinct || "",
+      location.guadalupePrecinct || "",
+      location.city || "",
+      location.county || "",
+      location.addressPrecinct || "",
+      record.mapped ? Number(record.lat).toFixed(6) : "",
+      record.mapped ? Number(record.lon).toFixed(6) : "",
+      ...dynamicFields.map((field) => getField(field.key))
+    ];
+    rows.push(values.map(csvEscape).join(","));
+  }
+
+  const csv = `\uFEFF${rows.join("\n")}`;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const reportSlug = getCurrentReportHeading()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "gis-report";
+  const stamp = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `${reportSlug}-${stamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  els.metaText.textContent = `Exported ${filteredRecords.length} row${filteredRecords.length === 1 ? "" : "s"} to CSV.`;
+}
+
+function openPrintReportWindow() {
+  const filteredRecords = getFilteredRecordsForActions();
+  if (!filteredRecords) {
     els.metaText.textContent = "Build the map first, then print the report.";
     return;
   }
 
-  const filteredRecords = latestFilteredRecords.length ? latestFilteredRecords : filterRecords(latestMapData.records || []);
+  els.metaText.textContent = "Capturing map snapshot\u2026";
+  const mapEl = document.getElementById("gisMap");
+  if (window.html2canvas && mapEl) {
+    window.html2canvas(mapEl, { useCORS: true, allowTaint: false, logging: false })
+      .then(function(canvas) {
+        const mapDataUrl = canvas.toDataURL("image/png");
+        els.metaText.textContent = "";
+        _launchPrintWindow(filteredRecords, mapDataUrl);
+      })
+      .catch(function() {
+        els.metaText.textContent = "";
+        _launchPrintWindow(filteredRecords, null);
+      });
+  } else {
+    els.metaText.textContent = "";
+    _launchPrintWindow(filteredRecords, null);
+  }
+}
+
+function _launchPrintWindow(filteredRecords, mapDataUrl) {
   const printablePoints = getUniquePointsFromRecords(filteredRecords);
   const reportMarkup = buildPrintableReportHtml(filteredRecords);
   const reportTitle = getCurrentReportHeading();
-  const reportSummary = `${filteredRecords.length} row${filteredRecords.length === 1 ? "" : "s"} shown · ${printablePoints.length} mapped location${printablePoints.length === 1 ? "" : "s"}`;
-  const pointData = JSON.stringify(printablePoints).replace(/</g, "\\u003c");
-  const districtData = JSON.stringify(districtGeoJsonData || null).replace(/</g, "\\u003c");
+  const reportSummary = `${filteredRecords.length} row${filteredRecords.length === 1 ? "" : "s"} shown \u00b7 ${printablePoints.length} mapped location${printablePoints.length === 1 ? "" : "s"}`;
   const reportHtmlData = JSON.stringify(reportMarkup).replace(/</g, "\\u003c");
-  const overlayColors = JSON.stringify(DISTRICT_OVERLAY.districtColors || {}).replace(/</g, "\\u003c");
-  const markerStyle = JSON.stringify(MARKER_STYLE).replace(/</g, "\\u003c");
 
-  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
+  const mapSection = mapDataUrl
+    ? `<img src="${mapDataUrl}" class="map-snapshot" alt="Map snapshot" />`
+    : `<div class="print-empty">Map snapshot unavailable.</div>`;
+
+  const printWindow = window.open("about:blank", "_blank", "width=1200,height=900");
   if (!printWindow) {
     els.metaText.textContent = "Popup blocked. Allow popups to print the report.";
     return;
   }
 
-  printWindow.document.write(`<!doctype html>
+  const printHtml = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -1701,7 +1998,6 @@ function openPrintReportWindow() {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Sora:wght@400;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/admin-report-cards.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <style>
       :root {
         --accent: #f5a623;
@@ -1777,12 +2073,14 @@ function openPrintReportWindow() {
         font-size: 0.8rem;
         font-weight: 600;
       }
-      #printMap {
+      .map-snapshot {
+        width: 100%;
         height: 420px;
+        object-fit: cover;
         border-radius: 12px;
-        overflow: hidden;
-        margin: 0.7rem 0 1rem;
         border: 1px solid var(--border);
+        display: block;
+        margin: 0.7rem 0 1rem;
       }
       .print-empty {
         color: var(--muted);
@@ -1804,7 +2102,7 @@ function openPrintReportWindow() {
         .print-shell { width: auto; padding: 0; }
         .print-actions { display: none !important; }
         .report-card { box-shadow: none; border: 0; padding: 0; }
-        #printMap { height: 360px; }
+        .map-snapshot { height: 360px; }
       }
     </style>
   </head>
@@ -1823,64 +2121,28 @@ function openPrintReportWindow() {
           </div>
           <div class="summary-chip">GIS Report</div>
         </div>
-        <div id="printMap"></div>
+        ${mapSection}
         <div id="printBody"></div>
       </section>
     </div>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script>
-      const pointData = ${pointData};
-      const districtData = ${districtData};
       const reportMarkup = ${reportHtmlData};
-      const districtColors = ${overlayColors};
-      const markerStyle = ${markerStyle};
-
       document.getElementById("printBody").innerHTML = reportMarkup;
-
-      const mapEl = document.getElementById("printMap");
-      if (!pointData.length) {
-        mapEl.outerHTML = '<div class="print-empty">No mapped locations match the current filters, so only the report rows are included.</div>';
-      } else {
-        const printMap = L.map("printMap", { zoomControl: false, attributionControl: false });
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(printMap);
-        if (districtData && Array.isArray(districtData.features)) {
-          L.geoJSON(districtData, {
-            style(feature) {
-              const key = feature?.properties?.District ?? feature?.properties?.DISTRICT ?? feature?.properties?.district ?? "District";
-              const color = districtColors[key] || "${DEFAULT_DISTRICT_COLOR}";
-              return {
-                color,
-                weight: 2,
-                fillColor: color,
-                fillOpacity: 0.06,
-                opacity: 0.9
-              };
-            }
-          }).addTo(printMap);
-        }
-        const latLngs = [];
-        for (const point of pointData) {
-          const marker = L.circleMarker([Number(point.lat), Number(point.lon)], {
-            radius: 6,
-            color: markerStyle.borderColor,
-            weight: 1.5,
-            fillColor: markerStyle.fillColor,
-            fillOpacity: 0.75
-          }).addTo(printMap);
-          marker.bindPopup((point.label ? '<strong>' + point.label + '</strong><br/>' : '') + point.address);
-          latLngs.push([Number(point.lat), Number(point.lon)]);
-        }
-        const bounds = L.latLngBounds(latLngs);
-        if (bounds.isValid()) {
-          printMap.fitBounds(bounds.pad(0.15));
-        } else {
-          printMap.setView([29.703, -98.124], 12);
-        }
-      }
     </script>
   </body>
-</html>`);
-  printWindow.document.close();
+</html>`;
+
+  try {
+    printWindow.document.open();
+    printWindow.document.write(printHtml);
+    printWindow.document.close();
+  } catch {
+    // Fallback for browsers that restrict direct document writes in popups.
+    const htmlBlob = new Blob([printHtml], { type: "text/html;charset=utf-8" });
+    const htmlUrl = URL.createObjectURL(htmlBlob);
+    printWindow.location.href = htmlUrl;
+    window.setTimeout(() => URL.revokeObjectURL(htmlUrl), 60_000);
+  }
 }
 
 async function runGisMap() {
@@ -1938,9 +2200,10 @@ async function runGisMap() {
     if (els.votingOverlayToggle?.checked) {
       await ensureCountyOverlayLayer("voting");
     }
-    if (els.guadalupeOverlayToggle?.checked) {
-      await ensureCountyOverlayLayer("guadalupe");
-    }
+
+    // Always load Guadalupe overlay for point-in-zone enrichment,
+    // even when not currently visible as a map layer.
+    await ensureCountyOverlayLayer("guadalupe");
 
     setLoadingState(true, "Rendering map points and report cards.");
     els.metaText.textContent = "Rendering map and report…";
@@ -1949,6 +2212,10 @@ async function runGisMap() {
     annotateMapDataWithSpatialOverlays(data);
     renderMapPoints(data);
     await handleDistrictOverlayToggle();
+    await handleCountyOverlayToggle("commissioner");
+    await handleCountyOverlayToggle("voting");
+    await handleCountyOverlayToggle("guadalupe");
+    await waitForMapVisualReady();
 
     const rowCount = Number(data.rowCount || 0);
     const pointCount = Number(data.pointCount || 0);
@@ -1957,7 +2224,11 @@ async function runGisMap() {
     const partialNote = unmappedRowCount > 0
       ? ` · ${unmappedRowCount} unmapped rows`
       : "";
-    els.metaText.textContent = `${rowCount} rows · ${mappedRecordCount} mapped rows · ${pointCount} mapped locations${partialNote}`;
+    const sourceNote = `${data.warning || ""}`.trim();
+    const baseMeta = `${rowCount} rows · ${mappedRecordCount} mapped rows · ${pointCount} mapped locations${partialNote}`;
+    els.metaText.textContent = sourceNote
+      ? `${baseMeta} · ${sourceNote}`
+      : baseMeta;
   } catch (error) {
     latestMapData = null;
     latestFilteredRecords = [];
@@ -1968,6 +2239,7 @@ async function runGisMap() {
   } finally {
     els.runBtn.disabled = false;
     setLoadingState(false);
+    if (map) map.invalidateSize(true);
   }
 }
 
@@ -2074,6 +2346,7 @@ els.clearFiltersBtn?.addEventListener("click", () => {
 });
 
 els.printReportBtn?.addEventListener("click", openPrintReportWindow);
+els.exportCsvBtn?.addEventListener("click", exportCurrentReportCsv);
 
 els.logoutBtn?.addEventListener("click", async () => {
   try {
@@ -2115,7 +2388,5 @@ els.logoutBtn?.addEventListener("click", async () => {
   if (els.votingOverlayToggle?.checked) {
     await ensureCountyOverlayLayer("voting");
   }
-  if (els.guadalupeOverlayToggle?.checked) {
-    await ensureCountyOverlayLayer("guadalupe");
-  }
+  await ensureCountyOverlayLayer("guadalupe");
 })();
