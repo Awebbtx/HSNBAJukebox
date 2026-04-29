@@ -4154,6 +4154,7 @@ async function hydrateMissingQueueMetadataSequential(limit = 1) {
   let processed = 0;
 
   try {
+    const now = Date.now();
     for (const item of state.localQueue) {
       if (processed >= maxItems) {
         break;
@@ -4162,16 +4163,24 @@ async function hydrateMissingQueueMetadataSequential(limit = 1) {
         continue;
       }
 
+      const nextAttemptAt = Number(item.metadataHydrationNextAttemptAt || 0);
+      if (nextAttemptAt > now) {
+        continue;
+      }
+
       processed += 1;
       let explicit = null;
+      let explicitResolved = false;
       try {
         explicit = await withTimeout(
           getSpotifyExplicitForUri(item.uri),
           5000,
           "Queue metadata hydration timed out"
         );
+        explicitResolved = true;
       } catch {
         explicit = null;
+        explicitResolved = false;
       }
 
       if (typeof explicit === "boolean" && item.explicit !== explicit) {
@@ -4181,6 +4190,25 @@ async function hydrateMissingQueueMetadataSequential(limit = 1) {
 
       const cachedTrack = getCachedSpotifyTrackForUri(item.uri);
       if (cachedTrack && applySpotifyTrackDataToQueueItem(item, cachedTrack)) {
+        updated = true;
+      }
+
+      const stillNeedsHydration = queueItemNeedsSpotifyHydration(item);
+      if (stillNeedsHydration) {
+        const prevFailures = Number(item.metadataHydrationFailures || 0);
+        const nextFailures = prevFailures + 1;
+        item.metadataHydrationFailures = nextFailures;
+        // Back off repeated failures so one bad Spotify URI does not block the entire queue.
+        const backoffMs = Math.min(5 * 60 * 1000, 15000 * Math.max(1, nextFailures));
+        item.metadataHydrationNextAttemptAt = Date.now() + backoffMs;
+        if (!explicitResolved && !cachedTrack) {
+          item.metadataHydrationLastError = "metadata unavailable";
+        }
+        updated = true;
+      } else if (item.metadataHydrationFailures || item.metadataHydrationNextAttemptAt || item.metadataHydrationLastError) {
+        delete item.metadataHydrationFailures;
+        delete item.metadataHydrationNextAttemptAt;
+        delete item.metadataHydrationLastError;
         updated = true;
       }
     }
