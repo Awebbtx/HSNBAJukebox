@@ -3928,7 +3928,7 @@ function mapMopidyTrack(track = {}) {
     album: track.album?.name || "",
     artists: (track.artists || []).map((artist) => artist.name).join(", "),
     durationMs: Number(track.length || 0),
-    explicit: Boolean(track.explicit),
+    explicit: typeof track.explicit === "boolean" ? track.explicit : null,
     imageUrl
   };
 }
@@ -4226,6 +4226,7 @@ function spotifyTrackToQueueItem(track, meta = {}) {
     album: track.album?.name || "",
     durationMs: Number(track.duration_ms || 0),
     explicit: typeof track.explicit === "boolean" ? track.explicit : null,
+    explicitSource: "spotify",
     imageUrl: img?.url || "",
     requestedBy: meta.requestedBy || "",
     requestedByToken: meta.requestedByToken || "",
@@ -4243,8 +4244,8 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
   const accessToken = await getValidAccessToken();
   const result = [];
   // GET /tracks (bulk) was removed in the Feb 2026 Spotify API changes.
-  // Fetch in parallel batches of 5 to stay within rate limits without serial delays.
-  const CONCURRENCY = 5;
+  // Keep metadata requests conservative to reduce prolonged Spotify 429 lockouts.
+  const CONCURRENCY = 2;
   for (let i = 0; i < ids.length; i += CONCURRENCY) {
     const chunk = ids.slice(i, i + CONCURRENCY);
     const settled = await Promise.allSettled(
@@ -4280,6 +4281,9 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
       } else if (outcome.status === "rejected") {
         console.warn(`[fetchSpotifyTrackObjects] batch fetch failed: ${outcome.reason?.message}`);
       }
+    }
+    if (i + CONCURRENCY < ids.length) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
     }
   }
   return result;
@@ -4434,7 +4438,11 @@ async function playbackLoop() {
         };
       }
       // Explicit auto-skip — use metadata already on nowPlaying (fetched from Spotify when enqueued).
-      if (state.explicitFilter && state.nowPlaying?.explicit) {
+      if (
+        state.explicitFilter
+        && state.nowPlaying?.explicit === true
+        && state.nowPlaying?.explicitSource === "spotify"
+      ) {
         const now = Date.now();
         if (state.lastExplicitAutoSkippedUri !== currentUri || now - state.lastExplicitAutoSkippedAt > 3000) {
           state.lastExplicitAutoSkippedUri = currentUri;
