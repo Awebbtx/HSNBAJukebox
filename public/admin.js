@@ -959,8 +959,20 @@ async function loadQueue() {
   ]);
   const items = data.queue || [];
   const explicitFilterOn = Boolean(explicitData.explicitFilter);
+  const hydration = data.metadataHydration || null;
 
-  els.queueCount.textContent = `${items.length} track${items.length !== 1 ? "s" : ""}`;
+  const baseCountLabel = `${items.length} track${items.length !== 1 ? "s" : ""}`;
+  if (hydration && Number(hydration.total || 0) > 0) {
+    const hydrated = Number(hydration.hydrated || 0);
+    const total = Number(hydration.total || 0);
+    const percent = Number(hydration.percent || 0);
+    const suffix = Number(hydration.pending || 0) > 0
+      ? ` • Metadata ${hydrated}/${total} (${percent}%)`
+      : ` • Metadata ready`;
+    els.queueCount.textContent = `${baseCountLabel}${suffix}`;
+  } else {
+    els.queueCount.textContent = baseCountLabel;
+  }
   els.queueList.innerHTML = "";
 
   if (!items.length) {
@@ -2600,7 +2612,11 @@ async function loadPlaylist(uri, replace) {
     setTimeout(() => {
       loadQueue().catch(() => {});
     }, 0);
-    toast(`Queued ${result.added} track${result.added !== 1 ? "s" : ""}${replace ? " (replaced queue)" : ""}. Metadata continues loading in background.`);
+    const meta = result?.metadataHydration || null;
+    const hydrationSuffix = meta && Number(meta.total || 0) > 0
+      ? ` Metadata ${Number(meta.hydrated || 0)}/${Number(meta.total || 0)} ready.`
+      : "";
+    toast(`Queued ${result.added} track${result.added !== 1 ? "s" : ""}${replace ? " (replaced queue)" : ""}. Metadata continues loading in background.${hydrationSuffix}`);
   } catch (e) {
     const isAbort = e?.name === "AbortError";
     toast(isAbort ? "Queueing timed out. Please retry; metadata can continue loading after songs are queued." : e.message, true);

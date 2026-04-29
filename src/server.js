@@ -4126,6 +4126,23 @@ function queueItemNeedsSpotifyHydration(item = {}) {
   );
 }
 
+function getQueueMetadataHydrationStatus(items = []) {
+  const list = Array.isArray(items) ? items : [];
+  const spotifyItems = list.filter((item) => Boolean(getSpotifyTrackIdFromUri(item?.uri || "")));
+  const pending = spotifyItems.filter((item) => queueItemNeedsSpotifyHydration(item)).length;
+  const total = spotifyItems.length;
+  const hydrated = Math.max(0, total - pending);
+  const percent = total > 0 ? Math.round((hydrated / total) * 100) : 100;
+
+  return {
+    total,
+    pending,
+    hydrated,
+    percent,
+    inProgress: pending > 0 && state.queueMetadataHydrationInProgress
+  };
+}
+
 async function hydrateMissingQueueMetadataSequential(limit = 1) {
   if (state.queueMetadataHydrationInProgress || !state.localQueue.length || !state.tokens?.access_token) {
     return;
@@ -8877,7 +8894,11 @@ app.get("/api/admin/queue", requireAdmin, requireJukeboxQueueAdmin, async (_req,
       : null;
     const queueItems = state.localQueue.map((item) => ({ ...item, ...getTrackVoteSummary(item.uri) }));
     const queue = nowPlayingItem ? [nowPlayingItem, ...queueItems] : queueItems;
-    res.json({ queue });
+    const metadataHydration = getQueueMetadataHydrationStatus(state.localQueue);
+    res.json({
+      queue,
+      metadataHydration
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -10236,7 +10257,8 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
       // ignore
     }
 
-    res.json({ ok: true, added: queueItems.length, blockedExplicit, unresolvedExplicit });
+    const metadataHydration = getQueueMetadataHydrationStatus(state.localQueue);
+    res.json({ ok: true, added: queueItems.length, blockedExplicit, unresolvedExplicit, metadataHydration });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
