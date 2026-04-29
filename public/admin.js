@@ -13,6 +13,7 @@ let volumeDebounce = null;
 let audioJackDebounce = null;
 let audioJackSaveSequence = 0;
 let masterVolumeBeforeMute = 80;
+let playlistLoadBusy = false;
 let settingsTab = "request";
 let asmSubtab = "connection";
 const pageMode = document.body?.dataset?.adminPage || "full";
@@ -2509,7 +2510,65 @@ async function savePlaylist() {
   } catch (e) { toast(e.message, true); }
 }
 
+function ensurePlaylistLoadOverlay() {
+  let overlay = document.getElementById("playlistLoadOverlay");
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div");
+  overlay.id = "playlistLoadOverlay";
+  overlay.setAttribute("hidden", "");
+  overlay.setAttribute("role", "status");
+  overlay.setAttribute("aria-live", "assertive");
+  overlay.style.position = "fixed";
+  overlay.style.inset = "0";
+  overlay.style.zIndex = "99999";
+  overlay.style.display = "grid";
+  overlay.style.placeItems = "center";
+  overlay.style.background = "rgba(6, 10, 16, 0.72)";
+  overlay.style.backdropFilter = "blur(3px)";
+  overlay.innerHTML = `
+    <div style="width:min(420px,90vw);border-radius:12px;border:1px solid rgba(255,255,255,0.16);background:rgba(16,24,36,0.96);box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:1rem 1.1rem;display:grid;gap:0.7rem;">
+      <div style="display:flex;align-items:center;gap:0.7rem;">
+        <span aria-hidden="true" style="width:24px;height:24px;border-radius:999px;border:3px solid rgba(245,166,35,0.24);border-top-color:#f5a623;animation:playlistLoadSpin .8s linear infinite;"></span>
+        <strong style="font:700 1rem/1.2 'Sora',sans-serif;color:#fff;">Loading Playlist</strong>
+      </div>
+      <p id="playlistLoadOverlayMessage" style="margin:0;color:#d6e2ed;font:500 0.92rem/1.35 'Outfit',sans-serif;">Loading songs into queue. Please wait…</p>
+    </div>
+  `;
+
+  const styleEl = document.createElement("style");
+  styleEl.id = "playlistLoadOverlayStyle";
+  styleEl.textContent = "@keyframes playlistLoadSpin { to { transform: rotate(360deg); } }";
+  document.head.appendChild(styleEl);
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function setPlaylistLoadBusy(isBusy, message = "") {
+  const overlay = ensurePlaylistLoadOverlay();
+  const messageEl = document.getElementById("playlistLoadOverlayMessage");
+  if (messageEl && message) {
+    messageEl.textContent = message;
+  }
+  overlay.toggleAttribute("hidden", !isBusy);
+  if (isBusy) {
+    document.body.setAttribute("aria-busy", "true");
+  } else {
+    document.body.removeAttribute("aria-busy");
+  }
+}
+
 async function loadPlaylist(uri, replace) {
+  if (playlistLoadBusy) {
+    toast("Playlist load already in progress. Please wait.");
+    return;
+  }
+
+  const queueButtons = document.querySelectorAll("#playlistList button, #queueList button, #randomBtn, #shuffleBtn, #clearBtn, #savePlaylistBtn, #refreshPlaylistsBtn");
+  queueButtons.forEach((btn) => { btn.disabled = true; });
+  playlistLoadBusy = true;
+  setPlaylistLoadBusy(true, "Loading songs into queue. Please do not close or refresh this page.");
+
   try {
     const result = await api("/api/admin/playlists/load", {
       method: "POST",
@@ -2517,7 +2576,13 @@ async function loadPlaylist(uri, replace) {
     });
     await loadQueue();
     toast(`Loaded ${result.added} track${result.added !== 1 ? "s" : ""}${replace ? " (replaced queue)" : ""}`);
-  } catch (e) { toast(e.message, true); }
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    playlistLoadBusy = false;
+    setPlaylistLoadBusy(false);
+    queueButtons.forEach((btn) => { btn.disabled = false; });
+  }
 }
 
 async function deletePlaylist(uri, name) {

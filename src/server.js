@@ -4243,6 +4243,16 @@ function shuffleArray(items = []) {
   return list;
 }
 
+async function randomizeQueuePreservingCurrent() {
+  if (!Array.isArray(state.localQueue) || state.localQueue.length < 2) {
+    return state.localQueue || [];
+  }
+
+  state.localQueue = shuffleArray(state.localQueue);
+  saveLocalQueue();
+  return state.localQueue;
+}
+
 
 async function getPendingCountForToken(token) {
   await cleanupRequestMetadata();

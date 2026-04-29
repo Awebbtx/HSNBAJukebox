@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## 2026-04-28
 
+### Jukebox Queue Master and Playlist UX Hardening
+
+- Restored server-side queue randomization helper used by admin randomize/shuffle endpoints to keep queue reordering on the local queue model.
+- Confirmed admin mode updates keep Mopidy random disabled so queue order remains the single source of truth.
+- Added a blocking playlist-load overlay in admin UI while loading saved playlists into queue to prevent conflicting user actions.
+- Added playlist-load busy-state guards and temporary button disabling to avoid duplicate queue-load requests during large playlist ingestion.
+- Updated remaining admin-page shuffle labels to queue-randomize wording for consistency with queue-master playback behavior.
+
 ### GIS Reporting Expansion and County Data Integration
 
 - Added a dedicated GIS report builder page and wiring for dynamic ASM report field probing, map build, and printable report output.
