@@ -966,9 +966,19 @@ async function loadQueue() {
     const hydrated = Number(hydration.hydrated || 0);
     const total = Number(hydration.total || 0);
     const percent = Number(hydration.percent || 0);
-    const suffix = Number(hydration.pending || 0) > 0
-      ? ` • Metadata ${hydrated}/${total} (${percent}%)`
-      : ` • Metadata ready`;
+    const pending = Number(hydration.pending || 0);
+    const activePending = Number(hydration.activePending || 0);
+    const backoffPending = Number(hydration.backoffPending || 0);
+    let suffix = " • Metadata ready";
+    if (pending > 0) {
+      suffix = ` • Metadata ${hydrated}/${total} (${percent}%)`;
+      if (activePending > 0 || backoffPending > 0) {
+        suffix += ` • Fetching ${activePending}`;
+        if (backoffPending > 0) {
+          suffix += ` • Waiting ${backoffPending}`;
+        }
+      }
+    }
     els.queueCount.textContent = `${baseCountLabel}${suffix}`;
   } else {
     els.queueCount.textContent = baseCountLabel;

@@ -4128,8 +4128,12 @@ function queueItemNeedsSpotifyHydration(item = {}) {
 
 function getQueueMetadataHydrationStatus(items = []) {
   const list = Array.isArray(items) ? items : [];
+  const now = Date.now();
   const spotifyItems = list.filter((item) => Boolean(getSpotifyTrackIdFromUri(item?.uri || "")));
-  const pending = spotifyItems.filter((item) => queueItemNeedsSpotifyHydration(item)).length;
+  const pendingItems = spotifyItems.filter((item) => queueItemNeedsSpotifyHydration(item));
+  const pending = pendingItems.length;
+  const backoffPending = pendingItems.filter((item) => Number(item?.metadataHydrationNextAttemptAt || 0) > now).length;
+  const activePending = Math.max(0, pending - backoffPending);
   const total = spotifyItems.length;
   const hydrated = Math.max(0, total - pending);
   const percent = total > 0 ? Math.round((hydrated / total) * 100) : 100;
@@ -4137,6 +4141,8 @@ function getQueueMetadataHydrationStatus(items = []) {
   return {
     total,
     pending,
+    activePending,
+    backoffPending,
     hydrated,
     percent,
     inProgress: pending > 0 && state.queueMetadataHydrationInProgress
