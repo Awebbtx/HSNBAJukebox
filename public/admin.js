@@ -2580,6 +2580,14 @@ async function loadPlaylist(uri, replace) {
 
   const abortController = new AbortController();
   const timeoutId = window.setTimeout(() => abortController.abort(), PLAYLIST_LOAD_TIMEOUT_MS);
+  let uiReleased = false;
+  const releaseUiLock = () => {
+    if (uiReleased) return;
+    uiReleased = true;
+    playlistLoadBusy = false;
+    setPlaylistLoadBusy(false);
+    queueButtons.forEach((btn) => { btn.disabled = false; });
+  };
 
   try {
     const result = await api("/api/admin/playlists/load", {
@@ -2587,7 +2595,11 @@ async function loadPlaylist(uri, replace) {
       body: JSON.stringify({ uri, replace }),
       signal: abortController.signal
     });
-    await loadQueue();
+    // Unlock as soon as queue commit returns; metadata and queue refresh can trail behind.
+    releaseUiLock();
+    setTimeout(() => {
+      loadQueue().catch(() => {});
+    }, 0);
     toast(`Queued ${result.added} track${result.added !== 1 ? "s" : ""}${replace ? " (replaced queue)" : ""}. Metadata continues loading in background.`);
   } catch (e) {
     const isAbort = e?.name === "AbortError";
@@ -2595,9 +2607,7 @@ async function loadPlaylist(uri, replace) {
   } finally {
     window.clearTimeout(timeoutId);
     for (const timer of statusTimers) window.clearTimeout(timer);
-    playlistLoadBusy = false;
-    setPlaylistLoadBusy(false);
-    queueButtons.forEach((btn) => { btn.disabled = false; });
+    releaseUiLock();
   }
 }
 
