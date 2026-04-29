@@ -969,6 +969,7 @@ async function loadQueue() {
     const pending = Number(hydration.pending || 0);
     const activePending = Number(hydration.activePending || 0);
     const backoffPending = Number(hydration.backoffPending || 0);
+    const exhausted = Number(hydration.exhausted || 0);
     let suffix = " • Metadata ready";
     if (pending > 0) {
       suffix = ` • Metadata ${hydrated}/${total} (${percent}%)`;
@@ -978,6 +979,9 @@ async function loadQueue() {
           suffix += ` • Waiting ${backoffPending}`;
         }
       }
+    }
+    if (exhausted > 0) {
+      suffix += ` • Unavailable ${exhausted}`;
     }
     els.queueCount.textContent = `${baseCountLabel}${suffix}`;
   } else {

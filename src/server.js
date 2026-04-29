@@ -47,6 +47,7 @@ const ACCOUNT_RESET_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_RESET_TTL
 const SPOTIFY_EXPLICIT_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_EXPLICIT_CACHE_TTL_MS || 6 * 60 * 60 * 1000));
 const SPOTIFY_TRACK_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_TRACK_CACHE_TTL_MS || 24 * 60 * 60 * 1000));
 const QUEUE_METADATA_HYDRATION_INTERVAL_MS = Math.max(5000, Number(process.env.QUEUE_METADATA_HYDRATION_INTERVAL_MS || 15000));
+const QUEUE_METADATA_HYDRATION_MAX_FAILURES = Math.max(1, Number(process.env.QUEUE_METADATA_HYDRATION_MAX_FAILURES || 5));
 const SPOTIFY_MARKET = `${process.env.SPOTIFY_MARKET || "US"}`.trim().toUpperCase();
 if (!SESSION_SECRET) {
   console.warn("WARNING: SESSION_SECRET is not set. Admin sessions will not be valid across process restarts or between jukebox/reporting processes.");
@@ -4103,7 +4104,7 @@ function applySpotifyTrackDataToQueueItem(item, track) {
 }
 
 function queueItemNeedsSpotifyHydration(item = {}) {
-  if (!item || !getSpotifyTrackIdFromUri(item.uri)) {
+  if (!item || !getSpotifyTrackIdFromUri(item.uri) || item.metadataHydrationExhausted === true) {
     return false;
   }
 
@@ -4130,6 +4131,7 @@ function getQueueMetadataHydrationStatus(items = []) {
   const list = Array.isArray(items) ? items : [];
   const now = Date.now();
   const spotifyItems = list.filter((item) => Boolean(getSpotifyTrackIdFromUri(item?.uri || "")));
+  const exhausted = spotifyItems.filter((item) => item?.metadataHydrationExhausted === true).length;
   const pendingItems = spotifyItems.filter((item) => queueItemNeedsSpotifyHydration(item));
   const pending = pendingItems.length;
   const backoffPending = pendingItems.filter((item) => Number(item?.metadataHydrationNextAttemptAt || 0) > now).length;
@@ -4140,6 +4142,7 @@ function getQueueMetadataHydrationStatus(items = []) {
 
   return {
     total,
+    exhausted,
     pending,
     activePending,
     backoffPending,
@@ -4204,6 +4207,13 @@ async function hydrateMissingQueueMetadataSequential(limit = 1) {
         const prevFailures = Number(item.metadataHydrationFailures || 0);
         const nextFailures = prevFailures + 1;
         item.metadataHydrationFailures = nextFailures;
+        if (nextFailures >= QUEUE_METADATA_HYDRATION_MAX_FAILURES) {
+          item.metadataHydrationExhausted = true;
+          item.metadataHydrationLastError = "metadata unavailable";
+          delete item.metadataHydrationNextAttemptAt;
+          updated = true;
+          continue;
+        }
         // Back off repeated failures so one bad Spotify URI does not block the entire queue.
         const backoffMs = Math.min(5 * 60 * 1000, 15000 * Math.max(1, nextFailures));
         item.metadataHydrationNextAttemptAt = Date.now() + backoffMs;
@@ -4211,10 +4221,11 @@ async function hydrateMissingQueueMetadataSequential(limit = 1) {
           item.metadataHydrationLastError = "metadata unavailable";
         }
         updated = true;
-      } else if (item.metadataHydrationFailures || item.metadataHydrationNextAttemptAt || item.metadataHydrationLastError) {
+      } else if (item.metadataHydrationFailures || item.metadataHydrationNextAttemptAt || item.metadataHydrationLastError || item.metadataHydrationExhausted) {
         delete item.metadataHydrationFailures;
         delete item.metadataHydrationNextAttemptAt;
         delete item.metadataHydrationLastError;
+        delete item.metadataHydrationExhausted;
         updated = true;
       }
     }
