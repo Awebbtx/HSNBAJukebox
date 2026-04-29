@@ -4291,7 +4291,9 @@ function isQueueItemAllowedUnderExplicitFilter(item = {}) {
   if (item.explicitApproved === true) {
     return true;
   }
-  return item.explicit === false;
+  // explicit: null means unresolved (e.g. Spotify API unavailable) — allow through.
+  // Only block tracks confirmed explicit (explicit === true).
+  return item.explicit !== true;
 }
 
 async function preScreenUpcomingQueueItems(limit = 3) {
