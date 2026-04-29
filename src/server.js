@@ -414,6 +414,9 @@ const state = {
   adminDb: null,
   lastKnownCurrentTrackUri: null,
   spotifyExplicitByTrackId: new Map(),
+  spotifyTrackByTrackId: new Map(),
+  queueMetadataHydrationInProgress: false,
+  explicitPrescreenInProgress: false,
   explicitAutoSkipInProgress: false,
   lastExplicitAutoSkippedUri: "",
   lastExplicitAutoSkippedAt: 0,
@@ -3935,6 +3938,131 @@ function getSpotifyTrackIdFromUri(uri = "") {
   return match ? match[1] : "";
 }
 
+function getCachedSpotifyTrackForUri(uri = "") {
+  const trackId = getSpotifyTrackIdFromUri(uri);
+  if (!trackId) {
+    return null;
+  }
+  const cached = state.spotifyTrackByTrackId.get(trackId);
+  return cached?.track || null;
+}
+
+function applySpotifyTrackDataToQueueItem(item, track) {
+  if (!item || !track) {
+    return false;
+  }
+
+  const images = track?.album?.images || [];
+  const img = images.find((i) => (i.width || 0) >= 300) || images[0];
+  const nextName = track.name || item.name || "Unknown track";
+  const nextArtists = (track.artists || []).map((a) => a.name).filter(Boolean).join(", ") || item.artists || "";
+  const nextAlbum = track.album?.name || item.album || "";
+  const nextDurationMs = Number(track.duration_ms || item.durationMs || 0);
+  const nextImageUrl = img?.url || item.imageUrl || "";
+
+  let changed = false;
+  if (item.name !== nextName) {
+    item.name = nextName;
+    changed = true;
+  }
+  if (item.artists !== nextArtists) {
+    item.artists = nextArtists;
+    changed = true;
+  }
+  if (item.album !== nextAlbum) {
+    item.album = nextAlbum;
+    changed = true;
+  }
+  if (Number(item.durationMs || 0) !== nextDurationMs) {
+    item.durationMs = nextDurationMs;
+    changed = true;
+  }
+  if (item.imageUrl !== nextImageUrl) {
+    item.imageUrl = nextImageUrl;
+    changed = true;
+  }
+  if (typeof track.explicit === "boolean" && item.explicit !== Boolean(track.explicit)) {
+    item.explicit = Boolean(track.explicit);
+    changed = true;
+  }
+
+  return changed;
+}
+
+function queueItemNeedsSpotifyHydration(item = {}) {
+  if (!item || !getSpotifyTrackIdFromUri(item.uri)) {
+    return false;
+  }
+
+  const name = `${item.name || ""}`.trim();
+  const artists = `${item.artists || ""}`.trim();
+  const album = `${item.album || ""}`.trim();
+  const imageUrl = `${item.imageUrl || ""}`.trim();
+  const durationMs = Number(item.durationMs || 0);
+  const hasExplicit = typeof item.explicit === "boolean";
+
+  return (
+    !name
+    || name === "Unknown track"
+    || /^Spotify track \(/.test(name)
+    || !artists
+    || !album
+    || !imageUrl
+    || durationMs <= 0
+    || !hasExplicit
+  );
+}
+
+async function hydrateMissingQueueMetadataSequential(limit = 1) {
+  if (state.queueMetadataHydrationInProgress || !state.localQueue.length || !state.tokens?.access_token) {
+    return;
+  }
+
+  const maxItems = Math.max(1, Number(limit) || 1);
+  state.queueMetadataHydrationInProgress = true;
+  let updated = false;
+  let processed = 0;
+
+  try {
+    for (const item of state.localQueue) {
+      if (processed >= maxItems) {
+        break;
+      }
+      if (!queueItemNeedsSpotifyHydration(item)) {
+        continue;
+      }
+
+      processed += 1;
+      let explicit = null;
+      try {
+        explicit = await withTimeout(
+          getSpotifyExplicitForUri(item.uri),
+          5000,
+          "Queue metadata hydration timed out"
+        );
+      } catch {
+        explicit = null;
+      }
+
+      if (typeof explicit === "boolean" && item.explicit !== explicit) {
+        item.explicit = explicit;
+        updated = true;
+      }
+
+      const cachedTrack = getCachedSpotifyTrackForUri(item.uri);
+      if (cachedTrack && applySpotifyTrackDataToQueueItem(item, cachedTrack)) {
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      saveLocalQueue();
+    }
+  } finally {
+    state.queueMetadataHydrationInProgress = false;
+  }
+}
+
 async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
   const ids = [...new Set((trackIds || []).filter(Boolean))];
   if (!ids.length || !state.tokens?.access_token) {
@@ -3967,6 +4095,18 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
         query: { market: SPOTIFY_MARKET }
       });
       if (track?.id) {
+        state.spotifyTrackByTrackId.set(track.id, {
+          track: {
+            id: track.id,
+            uri: track.uri,
+            name: track.name || "Unknown track",
+            artists: track.artists || [],
+            album: track.album || {},
+            duration_ms: Number(track.duration_ms || 0),
+            explicit: typeof track.explicit === "boolean" ? track.explicit : null
+          },
+          checkedAt: Date.now()
+        });
         state.spotifyExplicitByTrackId.set(track.id, {
           explicit: Boolean(track.explicit),
           checkedAt: Date.now()
@@ -4085,7 +4225,7 @@ function spotifyTrackToQueueItem(track, meta = {}) {
     artists: (track.artists || []).map((a) => a.name).filter(Boolean).join(", "),
     album: track.album?.name || "",
     durationMs: Number(track.duration_ms || 0),
-    explicit: Boolean(track.explicit),
+    explicit: typeof track.explicit === "boolean" ? track.explicit : null,
     imageUrl: img?.url || "",
     requestedBy: meta.requestedBy || "",
     requestedByToken: meta.requestedByToken || "",
@@ -4123,6 +4263,18 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
         const track = outcome.value;
         result.push(track);
         if (track.id) {
+          state.spotifyTrackByTrackId.set(track.id, {
+            track: {
+              id: track.id,
+              uri: track.uri,
+              name: track.name || "Unknown track",
+              artists: track.artists || [],
+              album: track.album || {},
+              duration_ms: Number(track.duration_ms || 0),
+              explicit: typeof track.explicit === "boolean" ? track.explicit : null
+            },
+            checkedAt: Date.now()
+          });
           state.spotifyExplicitByTrackId.set(track.id, { explicit: Boolean(track.explicit), checkedAt: Date.now() });
         }
       } else if (outcome.status === "rejected") {
@@ -4135,6 +4287,66 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
 
 // ── Playback queue management ──────────────────────────────────────────────────
 
+function isQueueItemAllowedUnderExplicitFilter(item = {}) {
+  if (item.explicitApproved === true) {
+    return true;
+  }
+  return item.explicit === false;
+}
+
+async function preScreenUpcomingQueueItems(limit = 3) {
+  if (!state.explicitFilter || state.explicitPrescreenInProgress || !state.localQueue.length) {
+    return;
+  }
+
+  const windowSize = Math.max(1, Number(limit) || 1);
+  state.explicitPrescreenInProgress = true;
+  let changed = false;
+
+  try {
+    const candidates = state.localQueue.slice(0, windowSize);
+    for (const item of candidates) {
+      if (!item || item.explicitApproved === true || typeof item.explicit === "boolean") {
+        continue;
+      }
+
+      if (!getSpotifyTrackIdFromUri(item.uri)) {
+        // Non-Spotify URIs cannot be screened via Spotify API.
+        item.explicit = false;
+        changed = true;
+        continue;
+      }
+
+      let explicit = null;
+      try {
+        explicit = await withTimeout(
+          getSpotifyExplicitForUri(item.uri),
+          5000,
+          "Explicit pre-screen timed out"
+        );
+      } catch {
+        explicit = null;
+      }
+
+      if (typeof explicit === "boolean") {
+        item.explicit = explicit;
+        changed = true;
+      }
+
+      const cachedTrack = getCachedSpotifyTrackForUri(item.uri);
+      if (cachedTrack && applySpotifyTrackDataToQueueItem(item, cachedTrack)) {
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      saveLocalQueue();
+    }
+  } finally {
+    state.explicitPrescreenInProgress = false;
+  }
+}
+
 async function playNextFromQueue() {
   if (state.playbackAdvancing) return;
   if (!state.localQueue.length) {
@@ -4146,8 +4358,9 @@ async function playNextFromQueue() {
     // When explicit filter is on, find the first non-explicit (or admin-approved) track.
     let nextIdx = 0;
     if (state.explicitFilter) {
+      await preScreenUpcomingQueueItems(3);
       nextIdx = state.localQueue.findIndex(
-        (item) => !item.explicit || item.explicitApproved === true
+        (item) => isQueueItemAllowedUnderExplicitFilter(item)
       );
       if (nextIdx === -1) {
         // All remaining tracks are explicit and unapproved — wait for admin to allow one.
@@ -4198,6 +4411,10 @@ async function playbackLoop() {
     if (mopidyState === "stopped") {
       if (state.nowPlaying) state.nowPlaying = null;
       if (state.localQueue.length > 0 && !state.playbackAdvancing) {
+        await hydrateMissingQueueMetadataSequential(1);
+        if (state.explicitFilter) {
+          await preScreenUpcomingQueueItems(3);
+        }
         await playNextFromQueue();
       }
     } else if (mopidyState === "playing" && currentUri) {
@@ -4226,6 +4443,12 @@ async function playbackLoop() {
           console.log(`Auto-skipped explicit track: ${currentUri}`);
         }
       }
+      if (state.explicitFilter && state.localQueue.length) {
+        preScreenUpcomingQueueItems(3).catch(() => {});
+      }
+      if (state.localQueue.length) {
+        hydrateMissingQueueMetadataSequential(1).catch(() => {});
+      }
     }
   } catch {
     // Mopidy may be transiently unreachable.
@@ -4241,6 +4464,20 @@ function shuffleArray(items = []) {
     [list[i], list[j]] = [list[j], list[i]];
   }
   return list;
+}
+
+async function withTimeout(promise, timeoutMs, timeoutMessage) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage || `Operation timed out after ${timeoutMs}ms`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function randomizeQueuePreservingCurrent() {
@@ -8987,10 +9224,11 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
       return;
     }
 
+    let verifiedExplicit = null;
     if (state.explicitFilter) {
-      const explicit = await getSpotifyExplicitForUri(uri);
+      verifiedExplicit = await getSpotifyExplicitForUri(uri);
       // Only block when Spotify confirms explicit=true. If lookup fails (null), allow through.
-      if (explicit === true) {
+      if (verifiedExplicit === true) {
         res.status(403).json({ error: "Explicit songs are currently blocked by admin settings." });
         return;
       }
@@ -9011,7 +9249,7 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
           artists: [],
           album: { name: "", images: [] },
           duration_ms: 0,
-          explicit: false
+          explicit: typeof verifiedExplicit === "boolean" ? verifiedExplicit : null
         };
     if (!spotifyTrack?.uri) {
       console.warn(`[queue-add] metadata unavailable for ${uri}; enqueuing with fallback metadata`);
@@ -9026,6 +9264,7 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
     console.log(`[queue-add] queueItem.explicit=${queueItem.explicit}`);
     state.localQueue.push(queueItem);
     saveLocalQueue();
+    setImmediate(() => hydrateMissingQueueMetadataSequential(1).catch(() => {}));
     if (staff) {
       recordSongRequest({ staff, track: queueItem });
     }
@@ -9323,7 +9562,7 @@ app.get("/api/top-tracks", async (req, res) => {
 
 app.get("/api/queue", (_req, res) => {
   res.json({
-    activeDeviceId: state.activeDeviceId,
+    activeDeviceId: state.spotify.activeDeviceId,
     queue: state.localQueue
   });
 });
@@ -9362,7 +9601,7 @@ app.post("/api/queue/:id/send", async (req, res) => {
     return;
   }
 
-  if (!state.activeDeviceId) {
+  if (!state.spotify.activeDeviceId) {
     res.status(400).json({ error: "No active device selected." });
     return;
   }
@@ -9373,7 +9612,7 @@ app.post("/api/queue/:id/send", async (req, res) => {
       path: "/me/player/queue",
       query: {
         uri: item.uri,
-        device_id: state.activeDeviceId
+        device_id: state.spotify.activeDeviceId
       }
     });
 
@@ -9384,7 +9623,7 @@ app.post("/api/queue/:id/send", async (req, res) => {
 });
 
 app.post("/api/queue/send-all", async (_req, res) => {
-  if (!state.activeDeviceId) {
+  if (!state.spotify.activeDeviceId) {
     res.status(400).json({ error: "No active device selected." });
     return;
   }
@@ -9399,7 +9638,7 @@ app.post("/api/queue/send-all", async (_req, res) => {
         path: "/me/player/queue",
         query: {
           uri: item.uri,
-          device_id: state.activeDeviceId
+          device_id: state.spotify.activeDeviceId
         }
       });
       sent.push(item.id);
@@ -9418,7 +9657,7 @@ app.post("/api/queue/:id/play-now", async (req, res) => {
     return;
   }
 
-  if (!state.activeDeviceId) {
+  if (!state.spotify.activeDeviceId) {
     res.status(400).json({ error: "No active device selected." });
     return;
   }
@@ -9427,7 +9666,7 @@ app.post("/api/queue/:id/play-now", async (req, res) => {
     await spotify({
       method: "PUT",
       path: "/me/player/play",
-      query: { device_id: state.activeDeviceId },
+      query: { device_id: state.spotify.activeDeviceId },
       body: { uris: [item.uri] }
     });
 
@@ -9438,7 +9677,7 @@ app.post("/api/queue/:id/play-now", async (req, res) => {
 });
 
 app.post("/api/queue/play-next", async (_req, res) => {
-  if (!state.activeDeviceId) {
+  if (!state.spotify.activeDeviceId) {
     res.status(400).json({ error: "No active device selected." });
     return;
   }
@@ -9453,7 +9692,7 @@ app.post("/api/queue/play-next", async (_req, res) => {
     await spotify({
       method: "PUT",
       path: "/me/player/play",
-      query: { device_id: state.activeDeviceId },
+      query: { device_id: state.spotify.activeDeviceId },
       body: { uris: [item.uri] }
     });
 
@@ -9740,6 +9979,8 @@ app.delete("/api/admin/playlists", requireAdmin, async (req, res) => {
 
 app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
   const { uri, replace = false } = req.body || {};
+  const explicitCheckTimeoutMs = 20000;
+  const spotifyMetadataTimeoutMs = 25000;
   if (!uri) {
     res.status(400).json({ error: "uri is required." });
     return;
@@ -9747,6 +9988,7 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
   try {
     const tracks = await mopidyRpc("core.playlists.get_items", { uri });
     let uris = (tracks || []).map((t) => t.uri).filter(Boolean);
+    const explicitStatusByUri = new Map();
     // Keep Mopidy track objects for fallback metadata when Spotify is unavailable
     const mopidyByUri = new Map((tracks || []).map((t) => [t.uri, t]));
     if (!uris.length) {
@@ -9755,14 +9997,37 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
     }
 
     let blockedExplicit = 0;
+    let unresolvedExplicit = 0;
     if (state.explicitFilter) {
       const BATCH = 100;
       const filtered = [];
       for (let i = 0; i < uris.length; i += BATCH) {
         const batchUris = uris.slice(i, i + BATCH);
-        const { explicitByUri } = await evaluateSpotifyExplicitForUris(batchUris);
-        // Only remove tracks that Spotify confirmed as explicit. Unresolved tracks are allowed through.
+        let explicitByUri = new Map();
+        let unresolvedUris = [];
+        try {
+          const result = await withTimeout(
+            evaluateSpotifyExplicitForUris(batchUris),
+            explicitCheckTimeoutMs,
+            "Spotify explicit check timed out"
+          );
+          explicitByUri = result?.explicitByUri instanceof Map ? result.explicitByUri : new Map();
+          unresolvedUris = Array.isArray(result?.unresolvedUris) ? result.unresolvedUris : [];
+        } catch (error) {
+          console.warn(`[playlists/load] explicit check failed: ${error?.message || error}`);
+          unresolvedExplicit += batchUris.length;
+          filtered.push(...batchUris);
+          continue;
+        }
+        const unresolvedSet = new Set(unresolvedUris);
+        // Keep unresolved tracks queued with explicit=null; they are pre-screened before playback.
         for (const trackUri of batchUris) {
+          if (unresolvedSet.has(trackUri) || !explicitByUri.has(trackUri)) {
+            unresolvedExplicit += 1;
+            filtered.push(trackUri);
+            continue;
+          }
+          explicitStatusByUri.set(trackUri, Boolean(explicitByUri.get(trackUri)));
           if (explicitByUri.get(trackUri) === true) {
             blockedExplicit += 1;
           } else {
@@ -9790,9 +10055,39 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
       await mopidyRpc("core.playback.stop").catch(() => {});
     }
 
-    const trackIds = uris.map(getSpotifyTrackIdFromUri).filter(Boolean);
-    const spotifyTracks = await fetchSpotifyTrackObjects(trackIds);
-    const spotifyByUri = new Map(spotifyTracks.map((track) => [track.uri, track]));
+    const spotifyByUri = new Map();
+    for (const trackUri of uris) {
+      const cachedTrack = getCachedSpotifyTrackForUri(trackUri);
+      if (cachedTrack?.uri) {
+        spotifyByUri.set(trackUri, cachedTrack);
+      }
+    }
+
+    const missingTrackIds = [...new Set(
+      uris
+        .filter((trackUri) => !spotifyByUri.has(trackUri))
+        .map((trackUri) => getSpotifyTrackIdFromUri(trackUri))
+        .filter(Boolean)
+    )];
+
+    if (missingTrackIds.length) {
+      let spotifyTracks = [];
+      try {
+        spotifyTracks = await withTimeout(
+          fetchSpotifyTrackObjects(missingTrackIds),
+          spotifyMetadataTimeoutMs,
+          "Spotify track metadata timed out"
+        );
+      } catch (error) {
+        console.warn(`[playlists/load] metadata fallback: ${error?.message || error}`);
+        spotifyTracks = [];
+      }
+      for (const track of spotifyTracks) {
+        if (track?.uri) {
+          spotifyByUri.set(track.uri, track);
+        }
+      }
+    }
     const existingUris = new Set([
       state.nowPlaying?.uri || "",
       ...state.localQueue.map((item) => item.uri || "")
@@ -9802,7 +10097,11 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
       .filter((trackUri) => !existingUris.has(trackUri))
       .map((trackUri) => {
         if (spotifyByUri.has(trackUri)) {
-          return spotifyTrackToQueueItem(spotifyByUri.get(trackUri), { requestedAt });
+          const item = spotifyTrackToQueueItem(spotifyByUri.get(trackUri), { requestedAt });
+          if (explicitStatusByUri.has(trackUri)) {
+            item.explicit = Boolean(explicitStatusByUri.get(trackUri));
+          }
+          return item;
         }
         // Spotify metadata unavailable — fall back to Mopidy track data
         const mt = mopidyByUri.get(trackUri);
@@ -9814,7 +10113,7 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
           artists: (mt.artists || []).map((a) => a.name).filter(Boolean).join(", "),
           album: mt.album?.name || "",
           durationMs: Number(mt.length || 0),
-          explicit: false,
+          explicit: explicitStatusByUri.has(trackUri) ? Boolean(explicitStatusByUri.get(trackUri)) : null,
           imageUrl: "",
           requestedBy: "",
           requestedByToken: "",
@@ -9829,6 +10128,7 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
 
     state.localQueue.push(...queueItems);
     saveLocalQueue();
+    setImmediate(() => hydrateMissingQueueMetadataSequential(1).catch(() => {}));
 
     if (queueItems.length === 0) {
       res.status(502).json({ error: "No tracks from this playlist could be resolved (Spotify and Mopidy metadata both unavailable).", playlistUri: uri, requested: uris.length, added: 0 });
@@ -9844,7 +10144,7 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
       // ignore
     }
 
-    res.json({ ok: true, added: queueItems.length, blockedExplicit });
+    res.json({ ok: true, added: queueItems.length, blockedExplicit, unresolvedExplicit });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
