@@ -14,7 +14,7 @@ let audioJackDebounce = null;
 let audioJackSaveSequence = 0;
 let masterVolumeBeforeMute = 80;
 let playlistLoadBusy = false;
-const PLAYLIST_LOAD_TIMEOUT_MS = 180000;
+const PLAYLIST_LOAD_TIMEOUT_MS = 90000;
 let settingsTab = "request";
 let asmSubtab = "connection";
 const pageMode = document.body?.dataset?.adminPage || "full";
@@ -2517,7 +2517,6 @@ function ensurePlaylistLoadOverlay() {
 
   overlay = document.createElement("div");
   overlay.id = "playlistLoadOverlay";
-  overlay.setAttribute("hidden", "");
   overlay.setAttribute("role", "status");
   overlay.setAttribute("aria-live", "assertive");
   overlay.style.position = "fixed";
@@ -2527,13 +2526,15 @@ function ensurePlaylistLoadOverlay() {
   overlay.style.placeItems = "center";
   overlay.style.background = "rgba(6, 10, 16, 0.72)";
   overlay.style.backdropFilter = "blur(3px)";
+  overlay.style.visibility = "hidden";
+  overlay.style.pointerEvents = "none";
   overlay.innerHTML = `
     <div style="width:min(420px,90vw);border-radius:12px;border:1px solid rgba(255,255,255,0.16);background:rgba(16,24,36,0.96);box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:1rem 1.1rem;display:grid;gap:0.7rem;">
       <div style="display:flex;align-items:center;gap:0.7rem;">
         <span aria-hidden="true" style="width:24px;height:24px;border-radius:999px;border:3px solid rgba(245,166,35,0.24);border-top-color:#f5a623;animation:playlistLoadSpin .8s linear infinite;"></span>
-        <strong style="font:700 1rem/1.2 'Sora',sans-serif;color:#fff;">Loading Playlist</strong>
+        <strong style="font:700 1rem/1.2 'Sora',sans-serif;color:#fff;">Queueing Playlist</strong>
       </div>
-      <p id="playlistLoadOverlayMessage" style="margin:0;color:#d6e2ed;font:500 0.92rem/1.35 'Outfit',sans-serif;">Loading songs into queue. Please wait…</p>
+      <p id="playlistLoadOverlayMessage" style="margin:0;color:#d6e2ed;font:500 0.92rem/1.35 'Outfit',sans-serif;">Adding songs to the queue. Please wait…</p>
     </div>
   `;
 
@@ -2549,9 +2550,10 @@ function setPlaylistLoadBusy(isBusy, message = "") {
   const overlay = ensurePlaylistLoadOverlay();
   const messageEl = document.getElementById("playlistLoadOverlayMessage");
   if (messageEl) {
-    messageEl.textContent = message || "Loading songs into queue. Please wait…";
+    messageEl.textContent = message || "Adding songs to the queue. Please wait…";
   }
-  overlay.toggleAttribute("hidden", !isBusy);
+  overlay.style.visibility = isBusy ? "visible" : "hidden";
+  overlay.style.pointerEvents = isBusy ? "auto" : "none";
   if (isBusy) {
     document.body.setAttribute("aria-busy", "true");
   } else {
@@ -2568,13 +2570,13 @@ async function loadPlaylist(uri, replace) {
   const queueButtons = document.querySelectorAll("#playlistList button, #queueList button, #randomBtn, #shuffleBtn, #clearBtn, #savePlaylistBtn, #refreshPlaylistsBtn");
   queueButtons.forEach((btn) => { btn.disabled = true; });
   playlistLoadBusy = true;
-  setPlaylistLoadBusy(true, "Loading songs into queue. Please do not close or refresh this page.");
+  setPlaylistLoadBusy(true, "Adding songs to the queue. Please do not close or refresh this page.");
 
   const statusTimers = [];
   const setPhase = (text) => setPlaylistLoadBusy(true, text);
-  statusTimers.push(window.setTimeout(() => setPhase("Still loading songs into queue. Large playlists can take a bit."), 2500));
-  statusTimers.push(window.setTimeout(() => setPhase("Resolving track metadata and filtering explicit tracks…"), 7000));
-  statusTimers.push(window.setTimeout(() => setPhase("Almost done. Finalizing queue and refreshing view…"), 15000));
+  statusTimers.push(window.setTimeout(() => setPhase("Still queueing songs. Large playlists can take a bit."), 2500));
+  statusTimers.push(window.setTimeout(() => setPhase("Queue first, metadata fills in shortly after…"), 7000));
+  statusTimers.push(window.setTimeout(() => setPhase("Almost done. Refreshing queue view…"), 15000));
 
   const abortController = new AbortController();
   const timeoutId = window.setTimeout(() => abortController.abort(), PLAYLIST_LOAD_TIMEOUT_MS);
@@ -2586,10 +2588,10 @@ async function loadPlaylist(uri, replace) {
       signal: abortController.signal
     });
     await loadQueue();
-    toast(`Loaded ${result.added} track${result.added !== 1 ? "s" : ""}${replace ? " (replaced queue)" : ""}`);
+    toast(`Queued ${result.added} track${result.added !== 1 ? "s" : ""}${replace ? " (replaced queue)" : ""}. Metadata continues loading in background.`);
   } catch (e) {
     const isAbort = e?.name === "AbortError";
-    toast(isAbort ? "Playlist load timed out. Please retry with a smaller batch or try again." : e.message, true);
+    toast(isAbort ? "Queueing timed out. Please retry; metadata can continue loading after songs are queued." : e.message, true);
   } finally {
     window.clearTimeout(timeoutId);
     for (const timer of statusTimers) window.clearTimeout(timer);
