@@ -14,6 +14,7 @@ let audioJackDebounce = null;
 let audioJackSaveSequence = 0;
 let masterVolumeBeforeMute = 80;
 let playlistLoadBusy = false;
+const PLAYLIST_LOAD_TIMEOUT_MS = 180000;
 let settingsTab = "request";
 let asmSubtab = "connection";
 const pageMode = document.body?.dataset?.adminPage || "full";
@@ -2547,8 +2548,8 @@ function ensurePlaylistLoadOverlay() {
 function setPlaylistLoadBusy(isBusy, message = "") {
   const overlay = ensurePlaylistLoadOverlay();
   const messageEl = document.getElementById("playlistLoadOverlayMessage");
-  if (messageEl && message) {
-    messageEl.textContent = message;
+  if (messageEl) {
+    messageEl.textContent = message || "Loading songs into queue. Please wait…";
   }
   overlay.toggleAttribute("hidden", !isBusy);
   if (isBusy) {
@@ -2569,16 +2570,29 @@ async function loadPlaylist(uri, replace) {
   playlistLoadBusy = true;
   setPlaylistLoadBusy(true, "Loading songs into queue. Please do not close or refresh this page.");
 
+  const statusTimers = [];
+  const setPhase = (text) => setPlaylistLoadBusy(true, text);
+  statusTimers.push(window.setTimeout(() => setPhase("Still loading songs into queue. Large playlists can take a bit."), 2500));
+  statusTimers.push(window.setTimeout(() => setPhase("Resolving track metadata and filtering explicit tracks…"), 7000));
+  statusTimers.push(window.setTimeout(() => setPhase("Almost done. Finalizing queue and refreshing view…"), 15000));
+
+  const abortController = new AbortController();
+  const timeoutId = window.setTimeout(() => abortController.abort(), PLAYLIST_LOAD_TIMEOUT_MS);
+
   try {
     const result = await api("/api/admin/playlists/load", {
       method: "POST",
-      body: JSON.stringify({ uri, replace })
+      body: JSON.stringify({ uri, replace }),
+      signal: abortController.signal
     });
     await loadQueue();
     toast(`Loaded ${result.added} track${result.added !== 1 ? "s" : ""}${replace ? " (replaced queue)" : ""}`);
   } catch (e) {
-    toast(e.message, true);
+    const isAbort = e?.name === "AbortError";
+    toast(isAbort ? "Playlist load timed out. Please retry with a smaller batch or try again." : e.message, true);
   } finally {
+    window.clearTimeout(timeoutId);
+    for (const timer of statusTimers) window.clearTimeout(timer);
     playlistLoadBusy = false;
     setPlaylistLoadBusy(false);
     queueButtons.forEach((btn) => { btn.disabled = false; });
