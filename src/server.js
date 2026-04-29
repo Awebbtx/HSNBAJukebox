@@ -374,6 +374,7 @@ const state = {
   playlists: [],
   nowPlaying: null,
   playbackAdvancing: false,
+  playbackAdvanceCooldownUntil: 0,
   playbackLoopRunning: false,
   asm: {
     serviceUrl: `${process.env.ASM_SERVICE_URL || ""}`.trim(),
@@ -4383,6 +4384,9 @@ async function playNextFromQueue() {
     } else {
       await mopidyRpc("core.playback.play");
     }
+    // Mopidy/Spotify can remain "stopped" briefly while the stream spins up.
+    // Hold off auto-advance checks for a short window to avoid rapid skip loops.
+    state.playbackAdvanceCooldownUntil = Date.now() + 8000;
 
     state.localQueue.splice(nextIdx, 1);
     state.nowPlaying = { ...next, tlid };
@@ -4416,7 +4420,11 @@ async function playbackLoop() {
 
     if (mopidyState === "stopped") {
       if (state.nowPlaying) state.nowPlaying = null;
-      if (state.localQueue.length > 0 && !state.playbackAdvancing) {
+      if (
+        state.localQueue.length > 0
+        && !state.playbackAdvancing
+        && Date.now() >= Number(state.playbackAdvanceCooldownUntil || 0)
+      ) {
         await hydrateMissingQueueMetadataSequential(1);
         if (state.explicitFilter) {
           await preScreenUpcomingQueueItems(3);
@@ -4424,6 +4432,7 @@ async function playbackLoop() {
         await playNextFromQueue();
       }
     } else if (mopidyState === "playing" && currentUri) {
+      state.playbackAdvanceCooldownUntil = 0;
       // Sync nowPlaying if Mopidy was controlled externally.
       if (!state.nowPlaying || state.nowPlaying.uri !== currentUri) {
         const mapped = mapMopidyTrack(currentTrack);
