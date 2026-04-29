@@ -45,6 +45,8 @@ const ADMIN_SESSION_TTL_HOURS = Math.max(1, Number(process.env.ADMIN_SESSION_TTL
 const ACCOUNT_INVITE_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_INVITE_TTL_HOURS || 72));
 const ACCOUNT_RESET_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_RESET_TTL_HOURS || 2));
 const SPOTIFY_EXPLICIT_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_EXPLICIT_CACHE_TTL_MS || 6 * 60 * 60 * 1000));
+const SPOTIFY_TRACK_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_TRACK_CACHE_TTL_MS || 24 * 60 * 60 * 1000));
+const QUEUE_METADATA_HYDRATION_INTERVAL_MS = Math.max(5000, Number(process.env.QUEUE_METADATA_HYDRATION_INTERVAL_MS || 15000));
 const SPOTIFY_MARKET = `${process.env.SPOTIFY_MARKET || "US"}`.trim().toUpperCase();
 if (!SESSION_SECRET) {
   console.warn("WARNING: SESSION_SECRET is not set. Admin sessions will not be valid across process restarts or between jukebox/reporting processes.");
@@ -91,6 +93,7 @@ const ADMIN_DB_SNAPSHOT_KEEP = Math.max(10, Number(process.env.ADMIN_DB_SNAPSHOT
 const SLIDESHOW_CONFIG_PATH = path.resolve(__dirname, "../data/slideshow-config.json");
 const AUDIO_AUTOMATION_CONFIG_PATH = path.resolve(__dirname, "../data/audio-automation.json");
 const SPOTIFY_TOKENS_PATH = path.resolve(__dirname, "../data/spotify-tokens.json");
+const SPOTIFY_TRACK_CACHE_PATH = path.resolve(__dirname, "../data/spotify-track-cache.json");
 const LOCAL_QUEUE_PATH = path.resolve(__dirname, "../data/local-queue.json");
 const PLAYLISTS_PATH = path.resolve(__dirname, "../data/playlists.json");
 const OAUTH_PENDING_PATH = path.resolve(__dirname, "../data/oauth-pending.json");
@@ -416,6 +419,7 @@ const state = {
   lastKnownCurrentTrackUri: null,
   spotifyExplicitByTrackId: new Map(),
   spotifyTrackByTrackId: new Map(),
+  spotifyTrackCacheDirty: false,
   queueMetadataHydrationInProgress: false,
   explicitPrescreenInProgress: false,
   explicitAutoSkipInProgress: false,
@@ -2040,6 +2044,7 @@ try {
 loadSlideshowConfig();
 loadAudioAutomationConfig();
 loadSystemConfig();
+loadSpotifyTrackCache();
 loadLocalQueue();
 loadPlaylists();
 loadReportingSnapshot();
@@ -3554,6 +3559,113 @@ function saveSpotifyTokens() {
   }
 }
 
+function upsertSpotifyTrackCacheEntry(track = {}) {
+  const id = `${track?.id || ""}`.trim();
+  const uri = `${track?.uri || ""}`.trim();
+  if (!id || !uri) {
+    return;
+  }
+
+  const normalized = {
+    id,
+    uri,
+    name: track.name || "Unknown track",
+    artists: Array.isArray(track.artists) ? track.artists : [],
+    album: track.album || {},
+    duration_ms: Number(track.duration_ms || 0),
+    explicit: typeof track.explicit === "boolean" ? track.explicit : null
+  };
+
+  const checkedAt = Date.now();
+  state.spotifyTrackByTrackId.set(id, {
+    track: normalized,
+    checkedAt
+  });
+  state.spotifyExplicitByTrackId.set(id, {
+    explicit: normalized.explicit === true,
+    checkedAt
+  });
+  state.spotifyTrackCacheDirty = true;
+}
+
+function saveSpotifyTrackCache() {
+  try {
+    const dir = path.dirname(SPOTIFY_TRACK_CACHE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const now = Date.now();
+    const rows = [];
+    for (const [id, entry] of state.spotifyTrackByTrackId.entries()) {
+      const checkedAt = Number(entry?.checkedAt || 0);
+      if (!entry?.track || !checkedAt) {
+        continue;
+      }
+      if ((now - checkedAt) > SPOTIFY_TRACK_CACHE_TTL_MS) {
+        continue;
+      }
+      rows.push({
+        id,
+        checkedAt,
+        track: entry.track
+      });
+    }
+
+    fs.writeFileSync(SPOTIFY_TRACK_CACHE_PATH, JSON.stringify(rows, null, 2), "utf8");
+    state.spotifyTrackCacheDirty = false;
+  } catch (error) {
+    console.warn(`Unable to persist Spotify track cache: ${error.message}`);
+  }
+}
+
+function loadSpotifyTrackCache() {
+  try {
+    if (!fs.existsSync(SPOTIFY_TRACK_CACHE_PATH)) {
+      return;
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(SPOTIFY_TRACK_CACHE_PATH, "utf8"));
+    if (!Array.isArray(parsed)) {
+      return;
+    }
+
+    const now = Date.now();
+    let loaded = 0;
+    for (const row of parsed) {
+      const track = row?.track;
+      const id = `${row?.id || track?.id || ""}`.trim();
+      const checkedAt = Number(row?.checkedAt || 0);
+      if (!id || !track?.uri || !checkedAt) {
+        continue;
+      }
+      if ((now - checkedAt) > SPOTIFY_TRACK_CACHE_TTL_MS) {
+        continue;
+      }
+
+      const normalized = {
+        id,
+        uri: `${track.uri}`,
+        name: track.name || "Unknown track",
+        artists: Array.isArray(track.artists) ? track.artists : [],
+        album: track.album || {},
+        duration_ms: Number(track.duration_ms || 0),
+        explicit: typeof track.explicit === "boolean" ? track.explicit : null
+      };
+
+      state.spotifyTrackByTrackId.set(id, { track: normalized, checkedAt });
+      state.spotifyExplicitByTrackId.set(id, { explicit: normalized.explicit === true, checkedAt });
+      loaded += 1;
+    }
+
+    if (loaded > 0) {
+      console.log(`Loaded ${loaded} Spotify track metadata cache item(s) from disk.`);
+    }
+  } catch (error) {
+    console.warn(`Unable to load Spotify track cache: ${error.message}`);
+  }
+}
+
 function loadSpotifyTokens() {
   try {
     if (fs.existsSync(SPOTIFY_TOKENS_PATH)) {
@@ -4096,22 +4208,7 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
         query: { market: SPOTIFY_MARKET }
       });
       if (track?.id) {
-        state.spotifyTrackByTrackId.set(track.id, {
-          track: {
-            id: track.id,
-            uri: track.uri,
-            name: track.name || "Unknown track",
-            artists: track.artists || [],
-            album: track.album || {},
-            duration_ms: Number(track.duration_ms || 0),
-            explicit: typeof track.explicit === "boolean" ? track.explicit : null
-          },
-          checkedAt: Date.now()
-        });
-        state.spotifyExplicitByTrackId.set(track.id, {
-          explicit: Boolean(track.explicit),
-          checkedAt: Date.now()
-        });
+        upsertSpotifyTrackCacheEntry(track);
       }
     } catch {
       // Keep unresolved.
@@ -4265,19 +4362,7 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
         const track = outcome.value;
         result.push(track);
         if (track.id) {
-          state.spotifyTrackByTrackId.set(track.id, {
-            track: {
-              id: track.id,
-              uri: track.uri,
-              name: track.name || "Unknown track",
-              artists: track.artists || [],
-              album: track.album || {},
-              duration_ms: Number(track.duration_ms || 0),
-              explicit: typeof track.explicit === "boolean" ? track.explicit : null
-            },
-            checkedAt: Date.now()
-          });
-          state.spotifyExplicitByTrackId.set(track.id, { explicit: Boolean(track.explicit), checkedAt: Date.now() });
+          upsertSpotifyTrackCacheEntry(track);
         }
       } else if (outcome.status === "rejected") {
         console.warn(`[fetchSpotifyTrackObjects] batch fetch failed: ${outcome.reason?.message}`);
@@ -4555,6 +4640,20 @@ const playbackLoopTimer = setInterval(() => {
 }, 3000);
 
 playbackLoopTimer.unref();
+
+const queueMetadataHydrationTimer = setInterval(() => {
+  hydrateMissingQueueMetadataSequential(1).catch(() => {});
+}, QUEUE_METADATA_HYDRATION_INTERVAL_MS);
+
+queueMetadataHydrationTimer.unref();
+
+const spotifyTrackCacheFlushTimer = setInterval(() => {
+  if (state.spotifyTrackCacheDirty) {
+    saveSpotifyTrackCache();
+  }
+}, 60000);
+
+spotifyTrackCacheFlushTimer.unref();
 
 const adminDbSnapshotTimer = setInterval(() => {
   try {
@@ -9999,7 +10098,6 @@ app.delete("/api/admin/playlists", requireAdmin, async (req, res) => {
 app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
   const { uri, replace = false } = req.body || {};
   const explicitCheckTimeoutMs = 20000;
-  const spotifyMetadataTimeoutMs = 25000;
   if (!uri) {
     res.status(400).json({ error: "uri is required." });
     return;
@@ -10081,32 +10179,6 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
         spotifyByUri.set(trackUri, cachedTrack);
       }
     }
-
-    const missingTrackIds = [...new Set(
-      uris
-        .filter((trackUri) => !spotifyByUri.has(trackUri))
-        .map((trackUri) => getSpotifyTrackIdFromUri(trackUri))
-        .filter(Boolean)
-    )];
-
-    if (missingTrackIds.length) {
-      let spotifyTracks = [];
-      try {
-        spotifyTracks = await withTimeout(
-          fetchSpotifyTrackObjects(missingTrackIds),
-          spotifyMetadataTimeoutMs,
-          "Spotify track metadata timed out"
-        );
-      } catch (error) {
-        console.warn(`[playlists/load] metadata fallback: ${error?.message || error}`);
-        spotifyTracks = [];
-      }
-      for (const track of spotifyTracks) {
-        if (track?.uri) {
-          spotifyByUri.set(track.uri, track);
-        }
-      }
-    }
     const existingUris = new Set([
       state.nowPlaying?.uri || "",
       ...state.localQueue.map((item) => item.uri || "")
@@ -10134,6 +10206,7 @@ app.post("/api/admin/playlists/load", requireAdmin, async (req, res) => {
           durationMs: Number(mt.length || 0),
           explicit: explicitStatusByUri.has(trackUri) ? Boolean(explicitStatusByUri.get(trackUri)) : null,
           imageUrl: "",
+          explicitSource: "spotify",
           requestedBy: "",
           requestedByToken: "",
           requestedAt,
