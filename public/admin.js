@@ -34,7 +34,6 @@ const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "skip"
 ];
 const SLIDESHOW_DISPLAY_FIELD_SLOT_MIN = 1;
-const SLIDESHOW_DISPLAY_FIELD_SLOT_MAX = 10;
 const DEFAULT_CUSTOM_FILTER_FIELD_OPTIONS = [];
 let slideshowDisplayFieldCatalog = [];
 let slideshowDisplayFieldOptions = [...SLIDESHOW_DISPLAY_FIELD_OPTIONS];
@@ -585,10 +584,7 @@ function normalizeSlideshowDisplayFields(raw) {
   const hasNonEmptySourceValue = source.some((value) => `${value || ""}`.trim());
   const targetLength = Math.max(
     SLIDESHOW_DISPLAY_FIELD_SLOT_MIN,
-    Math.min(
-      SLIDESHOW_DISPLAY_FIELD_SLOT_MAX,
-      hasNonEmptySourceValue ? source.length : DEFAULT_SLIDESHOW_DISPLAY_FIELDS.length
-    )
+    hasNonEmptySourceValue ? source.length : DEFAULT_SLIDESHOW_DISPLAY_FIELDS.length
   );
   const normalized = Array.from({ length: targetLength }, (_fallback, index) => {
     const value = `${source[index] || ""}`.trim();
@@ -633,6 +629,7 @@ function renderSlideshowDisplayFieldSelectors(selectedFields, rawOptions) {
     row.innerHTML = `
       <span class="slot-label">${index + 1}.</span>
       <select data-display-slot="${index}">${optionsMarkup}</select>
+      <button type="button" class="btn-sm slideshow-display-remove" data-display-remove-index="${index}" title="Remove slot" aria-label="Remove slot" ${slotCount <= SLIDESHOW_DISPLAY_FIELD_SLOT_MIN ? "disabled" : ""}>X</button>
     `;
     const select = row.querySelector("select");
     select.value = sanitizedSelection[index] || "skip";
@@ -642,8 +639,7 @@ function renderSlideshowDisplayFieldSelectors(selectedFields, rawOptions) {
   const controls = document.createElement("div");
   controls.className = "slideshow-display-controls";
   controls.innerHTML = `
-    <button type="button" class="btn-sm" data-display-add ${slotCount >= SLIDESHOW_DISPLAY_FIELD_SLOT_MAX ? "disabled" : ""}>Add Slot</button>
-    <button type="button" class="btn-sm" data-display-remove ${slotCount <= SLIDESHOW_DISPLAY_FIELD_SLOT_MIN ? "disabled" : ""}>Remove Slot</button>
+    <button type="button" class="btn-sm" data-display-add>Add Slot</button>
     <span class="setting-desc">${slotCount} slot${slotCount === 1 ? "" : "s"}</span>
   `;
   els.slideshowDisplayFieldsContainer.append(controls);
@@ -656,17 +652,18 @@ function renderSlideshowDisplayFieldSelectors(selectedFields, rawOptions) {
     });
   }
 
-  const removeBtn = controls.querySelector("button[data-display-remove]");
-  if (removeBtn) {
-    removeBtn.addEventListener("click", () => {
+  Array.from(els.slideshowDisplayFieldsContainer.querySelectorAll("button[data-display-remove-index]"))
+    .forEach((removeBtn) => {
+      removeBtn.addEventListener("click", () => {
       const current = getSelectedSlideshowDisplayFields();
       if (current.length <= SLIDESHOW_DISPLAY_FIELD_SLOT_MIN) {
         return;
       }
-      const next = normalizeSlideshowDisplayFields(current.slice(0, current.length - 1));
+      const removeIndex = Number(removeBtn.getAttribute("data-display-remove-index") || -1);
+      const next = normalizeSlideshowDisplayFields(current.filter((_value, index) => index !== removeIndex));
       renderSlideshowDisplayFieldSelectors(next, slideshowDisplayFieldOptions);
     });
-  }
+  });
 }
 
 function getSelectedSlideshowDisplayFields() {

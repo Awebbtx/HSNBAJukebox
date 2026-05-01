@@ -724,7 +724,7 @@ select optgroup {
 
 .slideshow-display-row {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 0.45rem;
   align-items: center;
 }
@@ -748,6 +748,29 @@ select optgroup {
 .slideshow-display-row select:focus {
   outline: 2px solid rgba(245,166,35,0.35);
   outline-offset: 1px;
+}
+
+.slideshow-display-remove {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0.2rem 0.45rem;
+  border-color: rgba(255, 56, 56, 0.65);
+  background: rgba(255, 56, 56, 0.16) !important;
+  color: #ff6e6e;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.slideshow-display-remove:hover,
+.slideshow-display-remove:focus-visible {
+  background: rgba(255, 56, 56, 0.28) !important;
+  border-color: rgba(255, 92, 92, 0.9);
+  color: #ffd6d6;
+}
+
+.slideshow-display-remove:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .slideshow-display-controls {

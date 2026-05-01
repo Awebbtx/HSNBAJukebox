@@ -167,7 +167,6 @@ const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "skip"
 ];
 const SLIDESHOW_DISPLAY_FIELD_SLOT_MIN = 1;
-const SLIDESHOW_DISPLAY_FIELD_SLOT_MAX = 10;
 const ENV_FILE_PATH = path.resolve(__dirname, "../.env");
 const USER_DB_PATH = path.resolve(__dirname, "../data/user-db.json");
 const ADMIN_DB_PATH = path.resolve(__dirname, "../data/admin-db.json");
@@ -748,10 +747,7 @@ function sanitizeSlideshowDisplayFields(raw, displayFieldCatalog = []) {
   const hasNonEmptySourceValue = source.some((value) => `${value || ""}`.trim());
   const targetLength = Math.max(
     SLIDESHOW_DISPLAY_FIELD_SLOT_MIN,
-    Math.min(
-      SLIDESHOW_DISPLAY_FIELD_SLOT_MAX,
-      hasNonEmptySourceValue ? source.length : DEFAULT_SLIDESHOW_DISPLAY_FIELDS.length
-    )
+    hasNonEmptySourceValue ? source.length : DEFAULT_SLIDESHOW_DISPLAY_FIELDS.length
   );
   const normalized = Array.from({ length: targetLength }, (_fallback, index) => {
     const value = `${source[index] || ""}`.trim();
