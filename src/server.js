@@ -166,6 +166,8 @@ const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "skip",
   "skip"
 ];
+const SLIDESHOW_DISPLAY_FIELD_SLOT_MIN = 1;
+const SLIDESHOW_DISPLAY_FIELD_SLOT_MAX = 10;
 const ENV_FILE_PATH = path.resolve(__dirname, "../.env");
 const USER_DB_PATH = path.resolve(__dirname, "../data/user-db.json");
 const ADMIN_DB_PATH = path.resolve(__dirname, "../data/admin-db.json");
@@ -743,12 +745,27 @@ function buildSlideshowDisplayFieldOptions(displayFieldCatalog = []) {
 function sanitizeSlideshowDisplayFields(raw, displayFieldCatalog = []) {
   const allowed = new Set(buildSlideshowDisplayFieldOptions(displayFieldCatalog).map((option) => option.key));
   const source = Array.isArray(raw) ? raw : [];
-  const normalized = DEFAULT_SLIDESHOW_DISPLAY_FIELDS.map((_fallback, index) => {
+  const hasNonEmptySourceValue = source.some((value) => `${value || ""}`.trim());
+  const targetLength = Math.max(
+    SLIDESHOW_DISPLAY_FIELD_SLOT_MIN,
+    Math.min(
+      SLIDESHOW_DISPLAY_FIELD_SLOT_MAX,
+      hasNonEmptySourceValue ? source.length : DEFAULT_SLIDESHOW_DISPLAY_FIELDS.length
+    )
+  );
+  const normalized = Array.from({ length: targetLength }, (_fallback, index) => {
     const value = `${source[index] || ""}`.trim();
     return allowed.has(value) ? value : "skip";
   });
   const hasSelectedValue = normalized.some((value) => value !== "skip");
-  return hasSelectedValue ? normalized : [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS];
+  if (hasSelectedValue) {
+    return normalized;
+  }
+  const fallback = Array.from({ length: targetLength }, () => "skip");
+  for (let index = 0; index < targetLength; index += 1) {
+    fallback[index] = DEFAULT_SLIDESHOW_DISPLAY_FIELDS[index] || "skip";
+  }
+  return fallback;
 }
 
 function parseIsoDate(value) {

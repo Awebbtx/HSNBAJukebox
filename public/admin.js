@@ -33,6 +33,8 @@ const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "skip",
   "skip"
 ];
+const SLIDESHOW_DISPLAY_FIELD_SLOT_MIN = 1;
+const SLIDESHOW_DISPLAY_FIELD_SLOT_MAX = 10;
 const DEFAULT_CUSTOM_FILTER_FIELD_OPTIONS = [];
 let slideshowDisplayFieldCatalog = [];
 let slideshowDisplayFieldOptions = [...SLIDESHOW_DISPLAY_FIELD_OPTIONS];
@@ -580,12 +582,27 @@ function buildSlideshowDisplayFieldOptions(catalog = slideshowDisplayFieldCatalo
 function normalizeSlideshowDisplayFields(raw) {
   const allowed = new Set((slideshowDisplayFieldOptions || []).map((option) => option.key));
   const source = Array.isArray(raw) ? raw : [];
-  const normalized = DEFAULT_SLIDESHOW_DISPLAY_FIELDS.map((fallback, index) => {
+  const hasNonEmptySourceValue = source.some((value) => `${value || ""}`.trim());
+  const targetLength = Math.max(
+    SLIDESHOW_DISPLAY_FIELD_SLOT_MIN,
+    Math.min(
+      SLIDESHOW_DISPLAY_FIELD_SLOT_MAX,
+      hasNonEmptySourceValue ? source.length : DEFAULT_SLIDESHOW_DISPLAY_FIELDS.length
+    )
+  );
+  const normalized = Array.from({ length: targetLength }, (_fallback, index) => {
     const value = `${source[index] || ""}`.trim();
     return allowed.has(value) ? value : "skip";
   });
   const hasSelectedValue = normalized.some((value) => value !== "skip");
-  return hasSelectedValue ? normalized : [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS];
+  if (hasSelectedValue) {
+    return normalized;
+  }
+  const fallback = Array.from({ length: targetLength }, () => "skip");
+  for (let index = 0; index < targetLength; index += 1) {
+    fallback[index] = DEFAULT_SLIDESHOW_DISPLAY_FIELDS[index] || "skip";
+  }
+  return fallback;
 }
 
 function renderSlideshowDisplayFieldSelectors(selectedFields, rawOptions) {
@@ -609,7 +626,8 @@ function renderSlideshowDisplayFieldSelectors(selectedFields, rawOptions) {
     .join("");
 
   els.slideshowDisplayFieldsContainer.innerHTML = "";
-  for (let index = 0; index < 10; index += 1) {
+  const slotCount = sanitizedSelection.length;
+  for (let index = 0; index < slotCount; index += 1) {
     const row = document.createElement("div");
     row.className = "slideshow-display-row";
     row.innerHTML = `
@@ -620,6 +638,35 @@ function renderSlideshowDisplayFieldSelectors(selectedFields, rawOptions) {
     select.value = sanitizedSelection[index] || "skip";
     els.slideshowDisplayFieldsContainer.append(row);
   }
+
+  const controls = document.createElement("div");
+  controls.className = "slideshow-display-controls";
+  controls.innerHTML = `
+    <button type="button" class="btn-sm" data-display-add ${slotCount >= SLIDESHOW_DISPLAY_FIELD_SLOT_MAX ? "disabled" : ""}>Add Slot</button>
+    <button type="button" class="btn-sm" data-display-remove ${slotCount <= SLIDESHOW_DISPLAY_FIELD_SLOT_MIN ? "disabled" : ""}>Remove Slot</button>
+    <span class="setting-desc">${slotCount} slot${slotCount === 1 ? "" : "s"}</span>
+  `;
+  els.slideshowDisplayFieldsContainer.append(controls);
+
+  const addBtn = controls.querySelector("button[data-display-add]");
+  if (addBtn) {
+    addBtn.addEventListener("click", () => {
+      const next = normalizeSlideshowDisplayFields([...getSelectedSlideshowDisplayFields(), "skip"]);
+      renderSlideshowDisplayFieldSelectors(next, slideshowDisplayFieldOptions);
+    });
+  }
+
+  const removeBtn = controls.querySelector("button[data-display-remove]");
+  if (removeBtn) {
+    removeBtn.addEventListener("click", () => {
+      const current = getSelectedSlideshowDisplayFields();
+      if (current.length <= SLIDESHOW_DISPLAY_FIELD_SLOT_MIN) {
+        return;
+      }
+      const next = normalizeSlideshowDisplayFields(current.slice(0, current.length - 1));
+      renderSlideshowDisplayFieldSelectors(next, slideshowDisplayFieldOptions);
+    });
+  }
 }
 
 function getSelectedSlideshowDisplayFields() {
@@ -627,7 +674,6 @@ function getSelectedSlideshowDisplayFields() {
     return [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS];
   }
   const selected = Array.from(els.slideshowDisplayFieldsContainer.querySelectorAll("select[data-display-slot]"))
-    .slice(0, 10)
     .map((select) => `${select.value || "skip"}`.trim() || "skip");
   return normalizeSlideshowDisplayFields(selected);
 }

@@ -750,6 +750,18 @@ select optgroup {
   outline-offset: 1px;
 }
 
+.slideshow-display-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
+}
+
+.slideshow-display-controls .setting-desc {
+  margin-left: auto;
+}
+
 .map-dialog {
   width: min(620px, 94vw);
   border: 1px solid var(--border);
