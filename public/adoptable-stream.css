@@ -82,8 +82,11 @@ a.top-brand:hover .brand-name {
 }
 
 .shell {
-  width: min(1500px, 97vw);
-  margin: 0.9rem auto 1.4rem;
+  width: 100vw;
+  max-width: none;
+  min-height: calc(100vh - 54px);
+  margin: 0;
+  padding: 0.45rem;
   display: grid;
   gap: 0.85rem;
 }
@@ -94,6 +97,10 @@ a.top-brand:hover .brand-name {
   border-radius: 18px;
   padding: 1rem;
   backdrop-filter: blur(8px);
+}
+
+.slide-card {
+  min-height: calc(100vh - 54px - 0.9rem);
 }
 
 .card-head {
@@ -121,16 +128,23 @@ a.top-brand:hover .brand-name {
 
 .slide-grid {
   display: grid;
-  grid-template-columns: minmax(560px, 64%) minmax(340px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1.2rem;
   align-items: stretch;
+}
+
+.slide-grid > :last-child {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .photo-wrap {
   position: relative;
   width: 100%;
-  min-height: 72vh;
-  max-height: 72vh;
+  min-height: calc(100vh - 245px);
+  max-height: calc(100vh - 245px);
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -152,7 +166,7 @@ a.top-brand:hover .brand-name {
 
 :fullscreen .slide-grid,
 :-webkit-full-screen .slide-grid {
-  grid-template-columns: minmax(760px, 68%) minmax(360px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
 }
 
@@ -189,6 +203,22 @@ a.top-brand:hover .brand-name {
   font-size: clamp(1.05rem, 1.45vw, 1.5rem);
 }
 
+:fullscreen #animalProfileLink,
+:-webkit-full-screen #animalProfileLink {
+  display: none !important;
+}
+
+:fullscreen .slide-actions,
+:-webkit-full-screen .slide-actions {
+  display: none !important;
+}
+
+:fullscreen .status-hud,
+:-webkit-full-screen .status-hud {
+  left: 1rem;
+  right: auto;
+}
+
 .photo-wrap img {
   width: 100%;
   height: 100%;
@@ -198,17 +228,6 @@ a.top-brand:hover .brand-name {
 
 .photo-wrap.has-image img {
   display: block;
-}
-
-/* Portrait images: contain so the full animal shows without cropping */
-.photo-wrap.portrait img {
-  object-fit: contain;
-  background: rgba(0, 0, 0, 0.55);
-}
-
-/* Landscape images: cover fills the frame (default, explicit for clarity) */
-.photo-wrap.landscape img {
-  object-fit: cover;
 }
 
 .image-fallback {
@@ -253,14 +272,14 @@ a.top-brand:hover .brand-name {
 }
 
 .special-slide {
-  min-height: 72vh;
+  min-height: calc(100vh - 245px);
 }
 
 .special-image-template {
   position: relative;
   width: 100%;
-  min-height: 72vh;
-  max-height: 72vh;
+  min-height: calc(100vh - 245px);
+  max-height: calc(100vh - 245px);
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -272,8 +291,8 @@ a.top-brand:hover .brand-name {
   border-radius: 14px;
   overflow: hidden;
   background: rgba(255,255,255,0.04);
-  min-height: 72vh;
-  max-height: 72vh;
+  min-height: calc(100vh - 245px);
+  max-height: calc(100vh - 245px);
 }
 
 .special-image-template img,
@@ -291,8 +310,8 @@ a.top-brand:hover .brand-name {
 
 .special-split-photo-wrap {
   position: relative;
-  min-height: 72vh;
-  max-height: 72vh;
+  min-height: calc(100vh - 245px);
+  max-height: calc(100vh - 245px);
   overflow: hidden;
 }
 
@@ -327,16 +346,17 @@ a.top-brand:hover .brand-name {
 
 .status-hud {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(50px + 1rem);
+  right: 1rem;
+  left: auto;
+  transform: none;
+  bottom: calc(50px + 0.6rem);
   z-index: 8;
-  width: min(450px, calc(100vw - 1.5rem));
+  width: min(220px, calc(100vw - 1.5rem));
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 10px;
   background: rgba(7,17,27,0.9);
   backdrop-filter: blur(8px);
-  padding: 0.7rem 0.85rem;
+  padding: 0.36rem 0.44rem;
 }
 
 .hud-kicker {

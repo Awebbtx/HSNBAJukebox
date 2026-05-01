@@ -784,8 +784,7 @@ select optgroup {
 
 .map-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem 0.8rem;
+  gap: 0.55rem;
   max-height: 48vh;
   overflow: auto;
   border: 1px solid var(--border);
@@ -794,23 +793,109 @@ select optgroup {
   padding: 0.7rem;
 }
 
-.map-list label {
-  display: flex;
-  align-items: center;
+.map-table-head {
+  display: grid;
+  grid-template-columns: 80px minmax(180px, 1fr) minmax(160px, 1fr) minmax(220px, 1.4fr) 56px;
   gap: 0.45rem;
-  color: var(--ink);
-  font-size: 0.86rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.map-list input[type="text"] {
+.map-table-rows {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.map-row {
+  display: grid;
+  grid-template-columns: 80px minmax(180px, 1fr) minmax(160px, 1fr) minmax(220px, 1.4fr) 56px;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.map-cell {
   min-width: 0;
-  flex: 1;
   background: rgba(255,255,255,0.06);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--ink);
   font: inherit;
   padding: 0.35rem 0.5rem;
+}
+
+.map-cell-enable {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+}
+
+.map-cell-enable input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.map-row button.map-cell {
+  background: rgba(255,255,255,0.09);
+  padding: 0.35rem 0.45rem;
+}
+
+.map-remove-btn {
+  border-color: rgba(255, 56, 56, 0.65);
+  background: rgba(255, 56, 56, 0.16) !important;
+  color: #ff6e6e;
+  font-weight: 800;
+  font-size: 0.98rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.map-remove-btn:hover,
+.map-remove-btn:focus-visible {
+  background: rgba(255, 56, 56, 0.28) !important;
+  border-color: rgba(255, 92, 92, 0.9);
+  color: #ffd6d6;
+}
+
+.map-actions {
+  justify-content: flex-start;
+}
+
+.map-emoji-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.04);
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.map-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 0.4rem;
+}
+
+.emoji-chip {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.06);
+  color: var(--ink);
+  min-height: 34px;
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.emoji-chip:hover,
+.emoji-chip:focus-visible {
+  border-color: rgba(245,166,35,0.6);
+  background: rgba(245,166,35,0.16);
+  outline: none;
 }
 
 .special-pages-list {

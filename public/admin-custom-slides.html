@@ -296,22 +296,18 @@
               </div>
               <div class="setting-form-row">
                 <label class="setting-desc"><input id="slideshowAudioEnabledToggle" type="checkbox" /> Enable background music</label>
-                <label class="setting-desc"><input id="slideshowAudioAutoplayToggle" type="checkbox" /> Try autoplay</label>
+                <label class="setting-desc"><input id="slideshowAudioAutoplayToggle" type="checkbox" /> Autoplay audio when the browser allows it</label>
               </div>
               <div class="setting-form-row">
-                <label class="setting-desc"><input id="slideshowExcludeFeralToggle" type="checkbox" /> Exclude feral animals</label>
-                <label class="setting-desc"><input id="slideshowReadyTodayToggle" type="checkbox" /> Only show ready-today animals</label>
               </div>
-              <div id="customFiltersRow" class="setting-row stack">
+              <div id="fieldMapRow" class="setting-row stack">
                 <div>
-                  <div class="setting-name">Custom Filters</div>
-                  <div class="setting-desc">Comma-separated terms to include in slideshow results (species, breed, sex, age, bio, etc).</div>
+                  <div class="setting-name">Field Map Table</div>
+                  <div class="setting-desc">Edit ASM source fields and custom labels directly. This table controls available options in Display Fields and custom labels shown in the adoptable stream.</div>
                 </div>
-                <div class="setting-form-row">
-                  <label class="setting-desc"><input id="slideshowCustomFiltersEnabledToggle" type="checkbox" /> Enable custom filters</label>
-                </div>
-                <div class="setting-form-row">
-                  <input id="slideshowCustomFiltersInput" type="text" placeholder="Example: dog, puppy, labrador" />
+                <div id="slideshowFieldMapList" class="map-list"></div>
+                <div class="setting-form-actions">
+                  <button id="saveSlideshowFieldMapBtn" class="btn-sm" type="button">Apply Field Table</button>
                 </div>
               </div>
               <div id="displayFieldsRow" class="setting-row stack">
@@ -319,10 +315,21 @@
                   <div class="setting-name">Display Fields (Order 1-10)</div>
                   <div class="setting-desc">Choose what appears in the slideshow detail panel. Unused slots default to Skip.</div>
                 </div>
-                <div class="setting-form-actions">
-                  <button id="openSlideshowFieldMapBtn" class="btn-sm" type="button">Map Available Fields</button>
-                </div>
                 <div id="slideshowDisplayFieldsContainer" class="slideshow-display-grid"></div>
+              </div>
+              <div id="customFiltersRow" class="setting-row stack">
+                <div>
+                  <div class="setting-name">Custom Filters</div>
+                  <div class="setting-desc">Add structured filter rules for ASM fields. Common fields are available immediately, and Inspect Response can load the full field list.</div>
+                </div>
+                <div class="setting-form-row">
+                  <label class="setting-desc"><input id="slideshowCustomFiltersEnabledToggle" type="checkbox" /> Enable custom filters</label>
+                </div>
+                <div class="setting-form-actions">
+                  <button id="addCustomFilterRuleBtn" class="btn-sm" type="button">Add Filter</button>
+                  <button id="applyCustomFiltersBtn" class="btn-sm" type="button">Apply</button>
+                </div>
+                <div id="slideshowCustomFiltersBuilder" class="custom-filter-builder"></div>
               </div>
 
               <div id="rotationRulesRow" class="setting-row stack">
@@ -447,20 +454,6 @@
       </section>
 
     </main>
-
-    <dialog id="slideshowFieldMapDialog" class="map-dialog">
-      <form method="dialog" class="map-dialog-form">
-        <div class="map-dialog-head">
-          <h3>Map Available ASM Fields</h3>
-          <button id="cancelSlideshowFieldMapBtn" class="btn-sm" type="button">Close</button>
-        </div>
-        <p class="setting-desc">Select ASM fields to make available in the 10 display slot dropdowns and optionally rename their display labels.</p>
-        <div id="slideshowFieldMapList" class="map-list"></div>
-        <div class="setting-form-actions">
-          <button id="saveSlideshowFieldMapBtn" class="btn-sm" type="button">Save Available Fields</button>
-        </div>
-      </form>
-    </dialog>
 
     <dialog id="loginDialog" class="login-dialog">
       <form id="loginForm" method="dialog">

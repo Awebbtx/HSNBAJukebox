@@ -122,7 +122,7 @@ const MAP_RENDER_YIELD_MS = 60;
 const DISPLAY_DEFAULTS_STORAGE_KEY = "hsnba.gis.reports.display.defaults.v1";
 const GIS_SAVED_REPORTS_STORAGE_KEY = "hsnba.gis.saved.reports.v1";
 const DEFAULT_SAVED_REPORTS = [
-  "Cats TNR'd for Map",
+  "Cats TNR Map API",
   "Microchipped Non-shelter Animals",
   "Owner Requested End of Life Services"
 ];
@@ -299,7 +299,7 @@ function persistSavedReportNames(reportNames) {
 function populateSavedReportDropdown({ selected = "" } = {}) {
   if (!els.reportTitle) return;
   const reportNames = loadSavedReportNames();
-  const options = ['<option value=""> Add a report Here --> </option>', ...reportNames.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`)];
+  const options = ['<option value=""> Selected Saved Report Title </option>', ...reportNames.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`)];
   els.reportTitle.innerHTML = options.join("");
   if (selected && reportNames.some((name) => name.toLowerCase() === selected.toLowerCase())) {
     els.reportTitle.value = reportNames.find((name) => name.toLowerCase() === selected.toLowerCase()) || "";
@@ -1945,6 +1945,140 @@ function exportCurrentReportCsv() {
   els.metaText.textContent = `Exported ${filteredRecords.length} row${filteredRecords.length === 1 ? "" : "s"} to CSV.`;
 }
 
+async function captureMapSnapshot() {
+  const mapEl = document.getElementById("gisMap");
+  if (!mapEl || !map) return null;
+
+  const rect = mapEl.getBoundingClientRect();
+  const w = Math.round(rect.width);
+  const h = Math.round(rect.height);
+  if (w < 1 || h < 1) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const drawSvgElement = async (svgEl, sr) => {
+    try {
+      const clone = svgEl.cloneNode(true);
+      if (!(clone instanceof SVGElement)) return;
+
+      // Leaflet often applies pane offsets via inline root SVG positioning.
+      // When we also place by getBoundingClientRect, that offset can be applied twice.
+      clone.style.left = "0px";
+      clone.style.top = "0px";
+      clone.style.transform = "none";
+      clone.style.position = "static";
+      clone.style.margin = "0";
+      clone.style.padding = "0";
+
+      let svgStr = new XMLSerializer().serializeToString(clone);
+      if (!svgStr.includes("xmlns=\"http://www.w3.org/2000/svg\"")) {
+        svgStr = svgStr.replace("<svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"");
+      }
+      const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+      const svgUrl = URL.createObjectURL(svgBlob);
+      await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, Math.round(sr.left - rect.left), Math.round(sr.top - rect.top), Math.round(sr.width), Math.round(sr.height));
+          URL.revokeObjectURL(svgUrl);
+          resolve();
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(svgUrl);
+          resolve();
+        };
+        img.src = svgUrl;
+      });
+    } catch {
+      // Skip problematic SVG pane and keep capturing the rest.
+    }
+  };
+
+  const drawImageElement = (imgEl, ir) => {
+    if (!imgEl.complete || imgEl.naturalWidth === 0) return;
+    try {
+      ctx.drawImage(imgEl, Math.round(ir.left - rect.left), Math.round(ir.top - rect.top), Math.round(ir.width), Math.round(ir.height));
+    } catch {
+      // Skip tainted image.
+    }
+  };
+
+  const drawCanvasElement = (canvasEl, cr) => {
+    if (cr.width < 1 || cr.height < 1) return;
+    try {
+      ctx.drawImage(canvasEl, Math.round(cr.left - rect.left), Math.round(cr.top - rect.top), Math.round(cr.width), Math.round(cr.height));
+    } catch {
+      // Skip canvas that cannot be read.
+    }
+  };
+
+  // Draw tile images (already loaded same-origin via /tile-proxy/)
+  const tileImgs = mapEl.querySelectorAll(".leaflet-tile-pane img.leaflet-tile");
+  for (const img of tileImgs) {
+    if (!img.complete || img.naturalWidth === 0) continue;
+    const ir = img.getBoundingClientRect();
+    try {
+      ctx.drawImage(img, Math.round(ir.left - rect.left), Math.round(ir.top - rect.top), Math.round(ir.width), Math.round(ir.height));
+    } catch { /* skip tainted tile */ }
+  }
+
+  // Draw the rest of Leaflet panes in DOM order so overlays stay visible in print.
+  const paneNodes = mapEl.querySelectorAll(".leaflet-pane img, .leaflet-pane canvas, .leaflet-pane svg");
+  for (const node of paneNodes) {
+    const box = node.getBoundingClientRect();
+    if (box.width < 1 || box.height < 1) continue;
+    if (node instanceof SVGElement) {
+      await drawSvgElement(node, box);
+      continue;
+    }
+    if (node instanceof HTMLCanvasElement) {
+      drawCanvasElement(node, box);
+      continue;
+    }
+    if (node instanceof HTMLImageElement) {
+      const isTile = node.classList.contains("leaflet-tile");
+      if (isTile) continue;
+      drawImageElement(node, box);
+    }
+  }
+
+  return canvas.toDataURL("image/png");
+}
+
+async function ensurePrintOverlaysReady() {
+  initMap();
+
+  const loadPromises = [];
+  if (els.districtOverlayToggle?.checked) {
+    loadPromises.push(ensureDistrictLayer());
+  }
+  if (els.commissionerOverlayToggle?.checked) {
+    loadPromises.push(ensureCountyOverlayLayer("commissioner"));
+  }
+  if (els.votingOverlayToggle?.checked) {
+    loadPromises.push(ensureCountyOverlayLayer("voting"));
+  }
+  if (els.guadalupeOverlayToggle?.checked) {
+    loadPromises.push(ensureCountyOverlayLayer("guadalupe"));
+  }
+  if (loadPromises.length) {
+    await Promise.allSettled(loadPromises);
+  }
+
+  if (!map) return;
+  map.invalidateSize(false);
+
+  await new Promise((resolve) => {
+    map.whenReady(() => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+  });
+}
+
 function openPrintReportWindow() {
   const filteredRecords = getFilteredRecordsForActions();
   if (!filteredRecords) {
@@ -1952,23 +2086,17 @@ function openPrintReportWindow() {
     return;
   }
 
-  els.metaText.textContent = "Capturing map snapshot\u2026";
-  const mapEl = document.getElementById("gisMap");
-  if (window.html2canvas && mapEl) {
-    window.html2canvas(mapEl, { useCORS: true, allowTaint: false, logging: false })
-      .then(function(canvas) {
-        const mapDataUrl = canvas.toDataURL("image/png");
-        els.metaText.textContent = "";
-        _launchPrintWindow(filteredRecords, mapDataUrl);
-      })
-      .catch(function() {
-        els.metaText.textContent = "";
-        _launchPrintWindow(filteredRecords, null);
-      });
-  } else {
-    els.metaText.textContent = "";
-    _launchPrintWindow(filteredRecords, null);
-  }
+  els.metaText.textContent = "Preparing overlays and capturing map snapshot…";
+  ensurePrintOverlaysReady()
+    .then(() => captureMapSnapshot())
+    .then(function(mapDataUrl) {
+      els.metaText.textContent = "";
+      _launchPrintWindow(filteredRecords, mapDataUrl);
+    })
+    .catch(function() {
+      els.metaText.textContent = "";
+      _launchPrintWindow(filteredRecords, null);
+    });
 }
 
 function _launchPrintWindow(filteredRecords, mapDataUrl) {

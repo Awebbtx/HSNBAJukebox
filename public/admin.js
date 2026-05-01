@@ -19,33 +19,35 @@ let settingsTab = "request";
 let asmSubtab = "connection";
 const pageMode = document.body?.dataset?.adminPage || "full";
 const SLIDESHOW_DISPLAY_FIELD_OPTIONS = [
-  { key: "skip", label: "Skip" },
-  { key: "readyToday", label: "Ready Today" },
-  { key: "species", label: "Species" },
-  { key: "breed", label: "Breed" },
-  { key: "sex", label: "Sex" },
-  { key: "ageGroup", label: "Age Group" },
-  { key: "location", label: "Location" },
-  { key: "name", label: "Name" },
-  { key: "bio", label: "Bio" }
+  { key: "skip", label: "Skip" }
 ];
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
-  "readyToday",
-  "species",
-  "breed",
-  "sex",
-  "ageGroup",
-  "location",
+  "skip",
+  "skip",
+  "skip",
+  "skip",
+  "skip",
+  "skip",
   "skip",
   "skip",
   "skip",
   "skip"
 ];
+const DEFAULT_CUSTOM_FILTER_FIELD_OPTIONS = [];
 let slideshowDisplayFieldCatalog = [];
 let slideshowDisplayFieldOptions = [...SLIDESHOW_DISPLAY_FIELD_OPTIONS];
+let slideshowCustomFilterRules = [];
+let slideshowFieldMapDraftRows = [];
+let slideshowFieldMapActiveInput = null;
 let asmKnownFieldNames = [];
+let asmFieldTypes = {};
 let specialPages = [];
 let audioAutomationSchedules = [];
+const FIELD_MAP_EMOJI_OPTIONS = [
+  "😀", "😄", "🙂", "😉", "😍", "🤩", "😘", "🤗", "🤔", "🤷",
+  "🐶", "🐱", "🐾", "🦴", "🏠", "❤️", "💙", "⭐", "✅", "❌",
+  "⚠️", "⏳", "🎉", "📣", "🔔", "📌", "🧼", "🩺", "💊", "🚫"
+];
 const playlistEditorState = {
   uri: "",
   name: "",
@@ -280,9 +282,10 @@ const els = {
   slideshowAudioEnabledToggle: document.getElementById("slideshowAudioEnabledToggle"),
   slideshowAudioAutoplayToggle: document.getElementById("slideshowAudioAutoplayToggle"),
   slideshowExcludeFeralToggle: document.getElementById("slideshowExcludeFeralToggle"),
-  slideshowReadyTodayToggle: document.getElementById("slideshowReadyTodayToggle"),
   slideshowCustomFiltersEnabledToggle: document.getElementById("slideshowCustomFiltersEnabledToggle"),
-  slideshowCustomFiltersInput: document.getElementById("slideshowCustomFiltersInput"),
+  slideshowCustomFiltersBuilder: document.getElementById("slideshowCustomFiltersBuilder"),
+  addCustomFilterRuleBtn: document.getElementById("addCustomFilterRuleBtn"),
+  applyCustomFiltersBtn: document.getElementById("applyCustomFiltersBtn"),
   adoptablesPerSpecialInput: document.getElementById("adoptablesPerSpecialInput"),
   alertEveryXSlidesInput: document.getElementById("alertEveryXSlidesInput"),
   specialImageMaxMbInput: document.getElementById("specialImageMaxMbInput"),
@@ -328,6 +331,31 @@ function escapeHtml(v) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function queueItemNeedsMetadataHydration(item = {}) {
+  const uri = `${item.uri || ""}`.trim();
+  if (!/^spotify:track:[A-Za-z0-9]+$/.test(uri) || item.metadataHydrationExhausted === true) {
+    return false;
+  }
+
+  const name = `${item.name || ""}`.trim();
+  const artists = `${item.artists || ""}`.trim();
+  const album = `${item.album || ""}`.trim();
+  const imageUrl = `${item.imageUrl || ""}`.trim();
+  const durationMs = Number(item.durationMs || 0);
+  const hasExplicit = typeof item.explicit === "boolean";
+
+  return (
+    !name
+    || name === "Unknown track"
+    || /^Spotify track \(/.test(name)
+    || !artists
+    || !album
+    || !imageUrl
+    || durationMs <= 0
+    || !hasExplicit
+  );
 }
 
 function formatBytes(bytes) {
@@ -414,6 +442,104 @@ function formatSlideshowFieldLabel(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function sanitizeSlideshowValueLabels(valueLabels) {
+  if (!valueLabels || typeof valueLabels !== "object") {
+    return {};
+  }
+  const entries = Object.entries(valueLabels)
+    .map(([rawValue, label]) => {
+      const valueKey = `${rawValue || ""}`.trim().slice(0, 64);
+      const displayLabel = `${label || ""}`.trim().slice(0, 80);
+      return valueKey && displayLabel ? [valueKey, displayLabel] : null;
+    })
+    .filter(Boolean)
+    .slice(0, 40);
+  return Object.fromEntries(entries);
+}
+
+function parseValueLabelsInput(text) {
+  const source = `${text || ""}`.trim();
+  if (!source) {
+    return {};
+  }
+  const valueLabels = {};
+  // Split on pipes, newlines, OR spaces (but be smart about it)
+  // First try to split on pipes/newlines; if none exist, split on spaces
+  const hasPipeOrNewline = /[\|\n\r]/.test(source);
+  const entries = hasPipeOrNewline
+    ? source.split(/\||\n|\r/g)
+    : source.split(/\s+/g);
+
+  entries
+    .map((entry) => `${entry || ""}`.trim())
+    .filter(Boolean)
+    .forEach((entry) => {
+      const hasEquals = entry.includes("=");
+      const hasColon = entry.includes(":");
+      const separatorIndex = hasEquals ? entry.indexOf("=") : (hasColon ? entry.indexOf(":") : -1);
+      if (separatorIndex <= 0) {
+        return;
+      }
+      const key = entry.slice(0, separatorIndex).trim().slice(0, 64);
+      const label = entry.slice(separatorIndex + 1).trim().slice(0, 80);
+      if (key && label) {
+        valueLabels[key] = label;
+      }
+    });
+  return sanitizeSlideshowValueLabels(valueLabels);
+}
+
+function insertTextAtCursor(input, text) {
+  const target = input;
+  if (!target || typeof target.value !== "string") {
+    return false;
+  }
+  const start = Number.isInteger(target.selectionStart) ? target.selectionStart : target.value.length;
+  const end = Number.isInteger(target.selectionEnd) ? target.selectionEnd : target.value.length;
+  const before = target.value.slice(0, start);
+  const after = target.value.slice(end);
+  target.value = `${before}${text}${after}`;
+  const caret = start + text.length;
+  target.setSelectionRange(caret, caret);
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  return true;
+}
+
+async function copyTextToClipboard(text) {
+  const value = `${text || ""}`;
+  if (!value) {
+    return false;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // Fallback below.
+  }
+  try {
+    const fallback = document.createElement("textarea");
+    fallback.value = value;
+    fallback.setAttribute("readonly", "readonly");
+    fallback.style.position = "fixed";
+    fallback.style.opacity = "0";
+    document.body.append(fallback);
+    fallback.select();
+    const copied = document.execCommand("copy");
+    fallback.remove();
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
+function formatValueLabelsInput(valueLabels) {
+  return Object.entries(sanitizeSlideshowValueLabels(valueLabels || {}))
+    .map(([valueKey, label]) => `${valueKey}=${label}`)
+    .join(" | ");
+}
+
 function sanitizeSlideshowDisplayFieldCatalog(raw) {
   if (!Array.isArray(raw)) {
     return [];
@@ -434,7 +560,8 @@ function sanitizeSlideshowDisplayFieldCatalog(raw) {
       key: `raw:${sourceKey}`,
       sourceKey,
       label: `${item?.label || formatSlideshowFieldLabel(sourceKey)}`.trim().slice(0, 60) || formatSlideshowFieldLabel(sourceKey),
-      enabled: item?.enabled !== false
+      enabled: item?.enabled !== false,
+      valueLabels: sanitizeSlideshowValueLabels(item?.valueLabels || {})
     });
   }
   return catalog;
@@ -505,37 +632,336 @@ function getSelectedSlideshowDisplayFields() {
   return normalizeSlideshowDisplayFields(selected);
 }
 
-function renderSlideshowFieldMapDialogList() {
-  if (!els.slideshowFieldMapList) {
-    return;
+const CUSTOM_FILTER_METHOD_OPTIONS = [
+  { key: "eq", label: "=" },
+  { key: "gte", label: ">=" },
+  { key: "lte", label: "<=" },
+  { key: "match", label: "Match" },
+  { key: "contains", label: "Partial Match" }
+];
+const CUSTOM_FILTER_METHOD_OPTIONS_BY_TYPE = {
+  boolean: ["eq"],
+  number: ["eq", "gte", "lte"],
+  date: ["eq", "gte", "lte"],
+  text: ["match", "contains"],
+  unknown: ["eq", "gte", "lte", "match", "contains"]
+};
+
+function sanitizeAsmFieldTypeMap(raw) {
+  if (!raw || typeof raw !== "object") {
+    return {};
   }
-  const known = sanitizeAsmFieldNameList(asmKnownFieldNames, 120);
-  if (!known.length) {
-    els.slideshowFieldMapList.innerHTML = '<div class="setting-desc">No ASM fields found yet. Run Inspect Response first.</div>';
-    return;
+  return Object.fromEntries(
+    Object.entries(raw)
+      .map(([key, value]) => {
+        const sourceKey = sanitizeAsmFieldName(key);
+        const type = `${value || ""}`.trim().toLowerCase();
+        const allowedType = ["boolean", "number", "date", "text"].includes(type) ? type : "unknown";
+        return sourceKey ? [sourceKey.toUpperCase(), allowedType] : null;
+      })
+      .filter(Boolean)
+  );
+}
+
+function getCustomFilterFieldType(sourceKey) {
+  return asmFieldTypes?.[`${sourceKey || ""}`.trim().toUpperCase()] || "unknown";
+}
+
+function getAllowedCustomFilterMethodOptions(sourceKey) {
+  const fieldType = getCustomFilterFieldType(sourceKey);
+  const allowed = new Set(CUSTOM_FILTER_METHOD_OPTIONS_BY_TYPE[fieldType] || CUSTOM_FILTER_METHOD_OPTIONS_BY_TYPE.unknown);
+  return CUSTOM_FILTER_METHOD_OPTIONS.filter((option) => allowed.has(option.key));
+}
+
+function getDefaultCustomFilterMethod(sourceKey) {
+  return getAllowedCustomFilterMethodOptions(sourceKey)[0]?.key || "contains";
+}
+
+function sanitizeCustomFilterRules(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const allowedMethods = new Set(CUSTOM_FILTER_METHOD_OPTIONS.map((item) => item.key));
+  return raw
+    .map((item) => {
+      const sourceKey = sanitizeAsmFieldName(item?.sourceKey || "");
+      const method = `${item?.method || "contains"}`.trim().toLowerCase();
+      const value = `${item?.value || ""}`.trim().slice(0, 160);
+      if (!sourceKey || !value) {
+        return null;
+      }
+      return {
+        sourceKey,
+        method: allowedMethods.has(method) ? method : "contains",
+        value
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 50);
+}
+
+function getAsmFieldOptionsForCustomFilters() {
+  const fromInspect = sanitizeAsmFieldNameList(asmKnownFieldNames || [], 120);
+  const fromCatalog = sanitizeSlideshowDisplayFieldCatalog(slideshowDisplayFieldCatalog)
+    .map((entry) => sanitizeAsmFieldName(entry.sourceKey || ""))
+    .filter(Boolean);
+  const fromDefaults = DEFAULT_CUSTOM_FILTER_FIELD_OPTIONS
+    .map((entry) => sanitizeAsmFieldName(entry.sourceKey || ""))
+    .filter(Boolean);
+  const merged = Array.from(new Set([...fromInspect, ...fromCatalog, ...fromDefaults]));
+  if (!merged.length) {
+    return [];
   }
   const catalogByField = new Map(
     sanitizeSlideshowDisplayFieldCatalog(slideshowDisplayFieldCatalog)
       .map((entry) => [entry.sourceKey.toUpperCase(), entry])
   );
-  els.slideshowFieldMapList.innerHTML = known
-    .map((fieldName) => `
-      <label>
-        <input type="checkbox" data-asm-field="${escapeHtml(fieldName)}" ${catalogByField.get(fieldName.toUpperCase())?.enabled !== false ? "checked" : ""} />
-        <span>${escapeHtml(fieldName)}</span>
-        <input type="text" data-asm-label="${escapeHtml(fieldName)}" value="${escapeHtml(catalogByField.get(fieldName.toUpperCase())?.label || formatSlideshowFieldLabel(fieldName))}" maxlength="60" placeholder="Label" />
-      </label>
+  const defaultsByField = new Map(
+    DEFAULT_CUSTOM_FILTER_FIELD_OPTIONS
+      .map((entry) => [entry.sourceKey.toUpperCase(), entry])
+  );
+  return merged.map((sourceKey) => {
+    const mapped = catalogByField.get(sourceKey.toUpperCase());
+    const fallback = defaultsByField.get(sourceKey.toUpperCase());
+    return {
+      sourceKey,
+      label: mapped?.label || fallback?.label || formatSlideshowFieldLabel(sourceKey)
+    };
+  });
+}
+
+function collectCustomFilterRulesFromUi() {
+  if (!els.slideshowCustomFiltersBuilder) {
+    return sanitizeCustomFilterRules(slideshowCustomFilterRules);
+  }
+  const rows = Array.from(els.slideshowCustomFiltersBuilder.querySelectorAll(".custom-filter-row"));
+  const rules = rows.map((row) => ({
+    sourceKey: sanitizeAsmFieldName(row.querySelector('select[data-filter-field]')?.value || ""),
+    method: `${row.querySelector('select[data-filter-method]')?.value || "contains"}`.trim().toLowerCase(),
+    value: `${row.querySelector('input[data-filter-value]')?.value || ""}`.trim()
+  }));
+  return sanitizeCustomFilterRules(rules);
+}
+
+function collectCustomFilterRuleDraftsFromUi() {
+  if (!els.slideshowCustomFiltersBuilder) {
+    return Array.isArray(slideshowCustomFilterRules) ? [...slideshowCustomFilterRules] : [];
+  }
+  return Array.from(els.slideshowCustomFiltersBuilder.querySelectorAll(".custom-filter-row")).map((row) => ({
+    sourceKey: sanitizeAsmFieldName(row.querySelector('select[data-filter-field]')?.value || ""),
+    method: `${row.querySelector('select[data-filter-method]')?.value || "contains"}`.trim().toLowerCase(),
+    value: `${row.querySelector('input[data-filter-value]')?.value || ""}`.trim()
+  }));
+}
+
+function renderCustomFilterRuleRows(rules = slideshowCustomFilterRules) {
+  if (!els.slideshowCustomFiltersBuilder) {
+    return;
+  }
+  const draftRules = Array.isArray(rules)
+    ? rules
+        .map((item) => ({
+          sourceKey: sanitizeAsmFieldName(item?.sourceKey || ""),
+          method: `${item?.method || "contains"}`.trim().toLowerCase(),
+          value: `${item?.value || ""}`.trim().slice(0, 160)
+        }))
+        .filter((item) => item.sourceKey)
+        .slice(0, 50)
+    : [];
+  const safeRules = sanitizeCustomFilterRules(draftRules);
+  const fieldOptions = getAsmFieldOptionsForCustomFilters();
+
+  if (!fieldOptions.length) {
+    els.slideshowCustomFiltersBuilder.innerHTML = '<div class="setting-desc">No ASM fields available yet. Run Inspect Response first.</div>';
+    return;
+  }
+
+  const fieldOptionsMarkup = fieldOptions
+    .map((option) => `<option value="${escapeHtml(option.sourceKey)}">${escapeHtml(option.label)} (${escapeHtml(option.sourceKey)})</option>`)
+    .join("");
+
+  const rows = draftRules.length ? draftRules : (safeRules.length ? safeRules : [{ sourceKey: fieldOptions[0].sourceKey, method: getDefaultCustomFilterMethod(fieldOptions[0].sourceKey), value: "" }]);
+  els.slideshowCustomFiltersBuilder.innerHTML = rows.map((rule, index) => `
+    <div class="custom-filter-row" data-filter-index="${index}">
+      <select data-filter-field>${fieldOptionsMarkup}</select>
+      <select data-filter-method>${getAllowedCustomFilterMethodOptions(rule.sourceKey).map((option) => `<option value="${escapeHtml(option.key)}">${escapeHtml(option.label)}</option>`).join("")}</select>
+      <input type="text" data-filter-value placeholder="Filter value" value="${escapeHtml(rule.value || "")}" maxlength="160" />
+      <button type="button" class="btn-sm danger" data-remove-filter="${index}" title="Remove filter">✕</button>
+    </div>
+  `).join("");
+
+  const rowsEls = Array.from(els.slideshowCustomFiltersBuilder.querySelectorAll(".custom-filter-row"));
+  rowsEls.forEach((row, index) => {
+    const safeRule = rows[index] || rows[0];
+    const fieldSelect = row.querySelector('select[data-filter-field]');
+    const methodSelect = row.querySelector('select[data-filter-method]');
+    if (fieldSelect) {
+      fieldSelect.value = safeRule.sourceKey || fieldOptions[0].sourceKey;
+    }
+    if (methodSelect) {
+      const allowedMethods = getAllowedCustomFilterMethodOptions(fieldSelect?.value || safeRule.sourceKey || fieldOptions[0].sourceKey);
+      methodSelect.value = allowedMethods.some((option) => option.key === safeRule.method)
+        ? safeRule.method
+        : (allowedMethods[0]?.key || "contains");
+    }
+  });
+
+  Array.from(els.slideshowCustomFiltersBuilder.querySelectorAll('select[data-filter-field]')).forEach((select) => {
+    select.addEventListener("change", () => {
+      const drafts = collectCustomFilterRuleDraftsFromUi().map((rule) => ({
+        ...rule,
+        method: getAllowedCustomFilterMethodOptions(rule.sourceKey).some((option) => option.key === rule.method)
+          ? rule.method
+          : getDefaultCustomFilterMethod(rule.sourceKey)
+      }));
+      renderCustomFilterRuleRows(drafts);
+    });
+  });
+
+  Array.from(els.slideshowCustomFiltersBuilder.querySelectorAll("button[data-remove-filter]")).forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = collectCustomFilterRulesFromUi();
+      const idx = Number(button.getAttribute("data-remove-filter") || -1);
+      const remaining = next.filter((_row, i) => i !== idx);
+      slideshowCustomFilterRules = sanitizeCustomFilterRules(remaining);
+      renderCustomFilterRuleRows(slideshowCustomFilterRules);
+    });
+  });
+}
+
+function renderSlideshowFieldMapDialogList() {
+  if (!els.slideshowFieldMapList) {
+    return;
+  }
+  const known = sanitizeAsmFieldNameList(asmKnownFieldNames, 120);
+  const rows = Array.isArray(slideshowFieldMapDraftRows) && slideshowFieldMapDraftRows.length
+    ? slideshowFieldMapDraftRows
+    : sanitizeSlideshowDisplayFieldCatalog(slideshowDisplayFieldCatalog).map((entry) => ({
+        sourceKey: entry.sourceKey,
+        label: entry.label,
+        enabled: entry.enabled !== false,
+        valueLabels: sanitizeSlideshowValueLabels(entry.valueLabels || {})
+      }));
+  const safeRows = rows.length
+    ? rows
+    : [{ sourceKey: "", label: "", enabled: true }];
+
+  const datalistId = "asmFieldMapKnownFields";
+  const rowMarkup = safeRows
+    .map((entry, index) => `
+      <div class="map-row" data-map-row="${index}">
+        <label class="map-cell map-cell-enable">
+          <input type="checkbox" data-map-enabled ${entry.enabled !== false ? "checked" : ""} />
+        </label>
+        <input class="map-cell" type="text" data-map-source value="${escapeHtml(entry.sourceKey || "")}" maxlength="64" list="${datalistId}" placeholder="ASM field (e.g. BREEDNAME)" />
+        <input class="map-cell" type="text" data-map-label value="${escapeHtml(entry.label || "")}" maxlength="60" placeholder="Display label" />
+        <input class="map-cell" type="text" data-map-values value="${escapeHtml(formatValueLabelsInput(entry.valueLabels || {}))}" maxlength="420" placeholder="All values for this field: 0=hide 1=Yes 3=Maybe (space, pipe, or line-separated)" />
+        <button type="button" class="btn-sm map-cell map-remove-btn" data-map-remove="${index}" title="Remove field" aria-label="Remove field">X</button>
+      </div>
     `)
     .join("");
+
+  const datalistMarkup = `
+    <datalist id="${datalistId}">
+      ${known.map((fieldName) => `<option value="${escapeHtml(fieldName)}"></option>`).join("")}
+    </datalist>
+  `;
+  const emojiMarkup = FIELD_MAP_EMOJI_OPTIONS
+    .map((emoji) => `<button type="button" class="emoji-chip" data-map-emoji="${escapeHtml(emoji)}" title="Copy ${escapeHtml(emoji)}">${escapeHtml(emoji)}</button>`)
+    .join("");
+
+  els.slideshowFieldMapList.innerHTML = `
+    <div class="map-table-head">
+      <span>Show</span>
+      <span>ASM Data Field</span>
+      <span>Custom Label</span>
+      <span>Data Map Values</span>
+      <span>X</span>
+    </div>
+    <div class="map-table-rows">${rowMarkup}</div>
+    <div class="setting-form-actions map-actions">
+      <button type="button" class="btn-sm" data-map-add>Add Field</button>
+      <button type="button" class="btn-sm" data-map-emoji-toggle>Emoji Menu</button>
+    </div>
+    <div class="map-emoji-panel" data-map-emoji-panel hidden>
+      <div class="map-emoji-grid">${emojiMarkup}</div>
+      <div class="setting-desc">Click an emoji to copy it. If a Label or Value Labels input is focused, it will be inserted there too.</div>
+    </div>
+    ${datalistMarkup}
+  `;
+
+  const collectRows = () =>
+    Array.from(els.slideshowFieldMapList.querySelectorAll(".map-row")).map((row) => ({
+      sourceKey: `${row.querySelector("input[data-map-source]")?.value || ""}`.trim(),
+      label: `${row.querySelector("input[data-map-label]")?.value || ""}`.trim().slice(0, 60),
+      enabled: Boolean(row.querySelector("input[data-map-enabled]")?.checked),
+      valueLabels: parseValueLabelsInput(row.querySelector("input[data-map-values]")?.value || "")
+    }));
+
+  Array.from(els.slideshowFieldMapList.querySelectorAll("button[data-map-remove]")).forEach((button) => {
+    button.addEventListener("click", () => {
+      const idx = Number(button.getAttribute("data-map-remove") || -1);
+      const remaining = collectRows().filter((_row, rowIndex) => rowIndex !== idx);
+      slideshowFieldMapDraftRows = remaining.length ? remaining : [{ sourceKey: "", label: "", enabled: true }];
+      renderSlideshowFieldMapDialogList();
+    });
+  });
+
+  const addBtn = els.slideshowFieldMapList.querySelector("button[data-map-add]");
+  if (addBtn) {
+    addBtn.addEventListener("click", () => {
+      slideshowFieldMapDraftRows = [...collectRows(), { sourceKey: "", label: "", enabled: true }];
+      renderSlideshowFieldMapDialogList();
+    });
+  }
+
+  Array.from(els.slideshowFieldMapList.querySelectorAll('input[data-map-label], input[data-map-values]')).forEach((input) => {
+    const rememberFocus = () => {
+      slideshowFieldMapActiveInput = input;
+    };
+    input.addEventListener("focus", rememberFocus);
+    input.addEventListener("click", rememberFocus);
+  });
+
+  const emojiToggleBtn = els.slideshowFieldMapList.querySelector("button[data-map-emoji-toggle]");
+  const emojiPanel = els.slideshowFieldMapList.querySelector("[data-map-emoji-panel]");
+  if (emojiToggleBtn && emojiPanel) {
+    emojiToggleBtn.addEventListener("click", () => {
+      emojiPanel.hidden = !emojiPanel.hidden;
+    });
+  }
+
+  Array.from(els.slideshowFieldMapList.querySelectorAll("button[data-map-emoji]")).forEach((button) => {
+    button.addEventListener("click", async () => {
+      const emoji = `${button.getAttribute("data-map-emoji") || ""}`;
+      if (!emoji) {
+        return;
+      }
+      const activeInput = slideshowFieldMapActiveInput;
+      if (activeInput && document.contains(activeInput)) {
+        activeInput.focus();
+        insertTextAtCursor(activeInput, emoji);
+      }
+      const copied = await copyTextToClipboard(emoji);
+      toast(copied ? `Copied ${emoji}` : `Selected ${emoji}`);
+    });
+  });
 }
 
 async function openSlideshowFieldMapDialog() {
   if (!els.slideshowFieldMapDialog) {
     return;
   }
+  slideshowFieldMapDraftRows = sanitizeSlideshowDisplayFieldCatalog(slideshowDisplayFieldCatalog).map((entry) => ({
+    sourceKey: entry.sourceKey,
+    label: entry.label,
+    enabled: entry.enabled !== false,
+    valueLabels: sanitizeSlideshowValueLabels(entry.valueLabels || {})
+  }));
   try {
     const inspect = await api("/api/admin/settings/asm/inspect");
     asmKnownFieldNames = sanitizeAsmFieldNameList(inspect.fieldNames || [], 120);
+    asmFieldTypes = sanitizeAsmFieldTypeMap(inspect.fieldTypes || {});
   } catch {
     // Keep last known fields if inspect fails.
   }
@@ -549,27 +975,62 @@ function saveSlideshowFieldMapSelection() {
   if (!els.slideshowFieldMapList) {
     return;
   }
-  const labelsByField = new Map(
-    Array.from(els.slideshowFieldMapList.querySelectorAll('input[type="text"][data-asm-label]'))
-      .map((input) => [
-        `${input.getAttribute("data-asm-label") || ""}`.trim().toUpperCase(),
-        `${input.value || ""}`.trim().slice(0, 60)
-      ])
-  );
-  const selected = Array.from(els.slideshowFieldMapList.querySelectorAll('input[type="checkbox"][data-asm-field]:checked'))
-    .map((checkbox) => sanitizeAsmFieldName(checkbox.getAttribute("data-asm-field")))
-    .filter(Boolean)
-    .slice(0, 80)
-    .map((sourceKey) => ({
-      sourceKey,
-      label: labelsByField.get(sourceKey.toUpperCase()) || formatSlideshowFieldLabel(sourceKey),
-      enabled: true
-    }));
+  const priorFilterDrafts = collectCustomFilterRuleDraftsFromUi();
+  const selected = Array.from(els.slideshowFieldMapList.querySelectorAll(".map-row"))
+    .map((row) => {
+      const sourceKey = sanitizeAsmFieldName(row.querySelector("input[data-map-source]")?.value || "");
+      if (!sourceKey) {
+        return null;
+      }
+      const labelRaw = `${row.querySelector("input[data-map-label]")?.value || ""}`.trim().slice(0, 60);
+      const valueLabelsRaw = row.querySelector("input[data-map-values]")?.value || "";
+      const parsed = parseValueLabelsInput(valueLabelsRaw);
+      return {
+        sourceKey,
+        label: labelRaw || formatSlideshowFieldLabel(sourceKey),
+        enabled: Boolean(row.querySelector("input[data-map-enabled]")?.checked),
+        valueLabels: parsed
+      };
+    })
+    .filter(Boolean);
   slideshowDisplayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(selected);
+  slideshowFieldMapDraftRows = sanitizeSlideshowDisplayFieldCatalog(slideshowDisplayFieldCatalog).map((entry) => ({
+    sourceKey: entry.sourceKey,
+    label: entry.label,
+    enabled: entry.enabled !== false,
+    valueLabels: sanitizeSlideshowValueLabels(entry.valueLabels || {})
+  }));
   const priorSelection = getSelectedSlideshowDisplayFields();
   renderSlideshowDisplayFieldSelectors(priorSelection, buildSlideshowDisplayFieldOptions(slideshowDisplayFieldCatalog));
-  els.slideshowFieldMapDialog?.close();
-  toast("Available slideshow fields updated. Save / Apply to persist.");
+  renderCustomFilterRuleRows(priorFilterDrafts);
+  if (els.slideshowFieldMapDialog?.open) {
+    els.slideshowFieldMapDialog.close();
+  }
+  toast("Field table applied. Save / Apply Settings to persist.");
+}
+
+function syncSlideshowFieldMapSelectionFromUi() {
+  if (!els.slideshowFieldMapList) {
+    return;
+  }
+  const selected = Array.from(els.slideshowFieldMapList.querySelectorAll(".map-row"))
+    .map((row) => {
+      const sourceKey = sanitizeAsmFieldName(row.querySelector("input[data-map-source]")?.value || "");
+      if (!sourceKey) {
+        return null;
+      }
+      const labelRaw = `${row.querySelector("input[data-map-label]")?.value || ""}`.trim().slice(0, 60);
+      const valueLabelsRaw = row.querySelector("input[data-map-values]")?.value || "";
+      const valueLabels = parseValueLabelsInput(valueLabelsRaw);
+      return {
+        sourceKey,
+        label: labelRaw || formatSlideshowFieldLabel(sourceKey),
+        enabled: Boolean(row.querySelector("input[data-map-enabled]")?.checked),
+        valueLabels
+      };
+    })
+    .filter(Boolean);
+  slideshowDisplayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(selected);
 }
 
 function toDatetimeLocalValue(value) {
@@ -1001,7 +1462,26 @@ async function loadQueue() {
   items.forEach((item, idx) => {
     const li = document.createElement("li");
     li.className = "q-item";
-    const byline = [item.artists, item.album].filter(Boolean).join(" • ");
+    const needsHydration = queueItemNeedsMetadataHydration(item);
+    const isHydrationExhausted = item.metadataHydrationExhausted === true;
+    const nextAttemptAt = Number(item.metadataHydrationNextAttemptAt || 0);
+    const isBackoff = needsHydration && nextAttemptAt > Date.now();
+
+    let byline = [item.artists, item.album].filter(Boolean).join(" • ");
+    if (!byline && needsHydration) {
+      byline = "Metadata pending...";
+    } else if (!byline && isHydrationExhausted) {
+      byline = "Metadata unavailable";
+    } else if (!byline) {
+      byline = "Unknown artist";
+    }
+
+    const metadataStatusTag = isHydrationExhausted
+      ? '<span class="req-tag held">Metadata unavailable</span>'
+      : (needsHydration
+        ? `<span class="req-tag">${isBackoff ? "Metadata retrying" : "Metadata fetching"}</span>`
+        : "");
+
     const isHeld = item.explicit && !item.explicitApproved && explicitFilterOn;
     const explicitTag = item.explicit
       ? `<span class="req-tag${isHeld ? " held" : ""}">[E]</span>`
@@ -1016,7 +1496,7 @@ async function loadQueue() {
       <span class="q-num">${idx + 1}</span>
       <div class="q-info">
         <div class="q-title">${escapeHtml(item.name)} ${explicitTag}</div>
-        <div class="q-meta">${escapeHtml(byline)} ${reqTag}${isHeld ? '<span class="req-tag held">⏸ Held — explicit filter on</span>' : ""}</div>
+        <div class="q-meta">${escapeHtml(byline)} ${metadataStatusTag}${reqTag}${isHeld ? '<span class="req-tag held">⏸ Held — explicit filter on</span>' : ""}</div>
       </div>
       <div class="q-btns">
         ${allowBtn}
@@ -2205,15 +2685,11 @@ async function loadAsmSettings() {
     if (els.slideshowExcludeFeralToggle) {
       els.slideshowExcludeFeralToggle.checked = show.excludeFeral !== false;
     }
-    if (els.slideshowReadyTodayToggle) {
-      els.slideshowReadyTodayToggle.checked = show.readyTodayOnly !== false;
-    }
     if (els.slideshowCustomFiltersEnabledToggle) {
       els.slideshowCustomFiltersEnabledToggle.checked = Boolean(show.customFiltersEnabled);
     }
-    if (els.slideshowCustomFiltersInput) {
-      els.slideshowCustomFiltersInput.value = Array.isArray(show.customFilters) ? show.customFilters.join(", ") : "";
-    }
+    slideshowCustomFilterRules = sanitizeCustomFilterRules(show.customFilterRules || []);
+    renderCustomFilterRuleRows(slideshowCustomFilterRules);
     if (els.adoptablesPerSpecialInput) {
       els.adoptablesPerSpecialInput.value = `${Math.max(1, Number(show.adoptablesPerSpecial || 3))}`;
     }
@@ -2229,6 +2705,8 @@ async function loadAsmSettings() {
     updateSpecialPageImageButtons();
     slideshowDisplayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(show.displayFieldCatalog || []);
     asmKnownFieldNames = sanitizeAsmFieldNameList(data.fieldNames || [], 120);
+    asmFieldTypes = sanitizeAsmFieldTypeMap(data.fieldTypes || {});
+    renderSlideshowFieldMapDialogList();
     const options = Array.isArray(data.displayFieldOptions) && data.displayFieldOptions.length
       ? data.displayFieldOptions
       : buildSlideshowDisplayFieldOptions(slideshowDisplayFieldCatalog);
@@ -2262,6 +2740,7 @@ async function loadAsmSettings() {
     els.asmFieldNames.textContent = (data.fieldNames || []).length
       ? JSON.stringify(data.fieldNames, null, 2)
       : "No fields captured yet.";
+    renderCustomFilterRuleRows(slideshowCustomFilterRules);
     els.asmBodyPreview.textContent = data.bodyPreview || "No response preview available.";
     els.asmFirstItem.textContent = "Use Inspect Response to fetch a live sample item.";
   } catch (e) {
@@ -2270,34 +2749,34 @@ async function loadAsmSettings() {
 }
 
 async function saveAsmSettings() {
+  slideshowCustomFilterRules = collectCustomFilterRulesFromUi();
+  syncSlideshowFieldMapSelectionFromUi();
+  const payload = {
+    serviceUrl: els.asmServiceUrlInput.value.trim(),
+    account: els.asmAccountInput.value.trim(),
+    apiKey: els.asmApiKeyInput.value.trim(),
+    username: els.asmUsernameInput.value.trim(),
+    password: els.asmPasswordInput.value.trim(),
+    adoptableMethod: els.asmMethodInput.value.trim(),
+    animalControlReportTitle: els.asmAnimalControlReportTitleInput?.value.trim() || "",
+    cacheSeconds: Number(els.asmCacheSecondsInput.value || 600),
+    intervalSeconds: Number(els.slideshowIntervalInput.value || 12),
+    defaultLimit: Number(els.slideshowLimitInput.value || 20),
+    audioEnabled: Boolean(els.slideshowAudioEnabledToggle.checked),
+    audioAutoplay: Boolean(els.slideshowAudioAutoplayToggle.checked),
+    excludeFeral: els.slideshowExcludeFeralToggle ? Boolean(els.slideshowExcludeFeralToggle.checked) : true,
+    customFiltersEnabled: Boolean(els.slideshowCustomFiltersEnabledToggle?.checked),
+    customFilterRules: sanitizeCustomFilterRules(slideshowCustomFilterRules),
+    displayFieldCatalog: sanitizeSlideshowDisplayFieldCatalog(slideshowDisplayFieldCatalog),
+    displayFields: getSelectedSlideshowDisplayFields(),
+    adoptablesPerSpecial: Number(els.adoptablesPerSpecialInput?.value || 3),
+    alertEveryXSlidesInput: Number(els.alertEveryXSlidesInput?.value || 6),
+    specialImageMaxMb: Number(els.specialImageMaxMbInput?.value || 4),
+    customFilters: []
+  };
   await api("/api/admin/settings/asm", {
     method: "POST",
-    body: JSON.stringify({
-      serviceUrl: els.asmServiceUrlInput.value.trim(),
-      account: els.asmAccountInput.value.trim(),
-      apiKey: els.asmApiKeyInput.value.trim(),
-      username: els.asmUsernameInput.value.trim(),
-      password: els.asmPasswordInput.value.trim(),
-      adoptableMethod: els.asmMethodInput.value.trim(),
-      animalControlReportTitle: els.asmAnimalControlReportTitleInput?.value.trim() || "",
-      cacheSeconds: Number(els.asmCacheSecondsInput.value || 600),
-      intervalSeconds: Number(els.slideshowIntervalInput.value || 12),
-      defaultLimit: Number(els.slideshowLimitInput.value || 20),
-      audioEnabled: Boolean(els.slideshowAudioEnabledToggle.checked),
-      audioAutoplay: Boolean(els.slideshowAudioAutoplayToggle.checked),
-      excludeFeral: Boolean(els.slideshowExcludeFeralToggle?.checked),
-      readyTodayOnly: Boolean(els.slideshowReadyTodayToggle?.checked),
-      customFiltersEnabled: Boolean(els.slideshowCustomFiltersEnabledToggle?.checked),
-      displayFieldCatalog: sanitizeSlideshowDisplayFieldCatalog(slideshowDisplayFieldCatalog),
-      displayFields: getSelectedSlideshowDisplayFields(),
-      adoptablesPerSpecial: Number(els.adoptablesPerSpecialInput?.value || 3),
-      alertEveryXSlides: Number(els.alertEveryXSlidesInput?.value || 6),
-      specialImageMaxMb: Number(els.specialImageMaxMbInput?.value || 4),
-      customFilters: `${els.slideshowCustomFiltersInput?.value || ""}`
-        .split(/[\n,|]/g)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    })
+    body: JSON.stringify(payload)
   });
   els.asmApiKeyInput.value = "";
   els.asmPasswordInput.value = "";
@@ -2327,9 +2806,8 @@ async function inspectAsmSettings() {
     ? JSON.stringify(data.fieldNames, null, 2)
     : "No fields returned.";
   asmKnownFieldNames = sanitizeAsmFieldNameList(data.fieldNames || [], 120);
-  if (els.slideshowFieldMapDialog?.open) {
-    renderSlideshowFieldMapDialogList();
-  }
+  asmFieldTypes = sanitizeAsmFieldTypeMap(data.fieldTypes || {});
+  renderSlideshowFieldMapDialogList();
   els.asmBodyPreview.textContent = data.bodyPreview || "No response body preview available.";
   els.asmFirstItem.textContent = data.firstItem
     ? JSON.stringify(data.firstItem, null, 2)
@@ -2694,6 +3172,25 @@ if (els.openSlideshowFieldMapBtn) {
     } catch (e) {
       toast(e.message, true);
     }
+  });
+}
+if (els.addCustomFilterRuleBtn) {
+  els.addCustomFilterRuleBtn.addEventListener("click", () => {
+    const current = collectCustomFilterRuleDraftsFromUi();
+    const options = getAsmFieldOptionsForCustomFilters();
+    if (!options.length) {
+      toast("Run Inspect Response first to load ASM fields.", true);
+      return;
+    }
+    current.push({ sourceKey: options[0].sourceKey, method: "contains", value: "" });
+    renderCustomFilterRuleRows(current);
+  });
+}
+if (els.applyCustomFiltersBtn) {
+  els.applyCustomFiltersBtn.addEventListener("click", () => {
+    slideshowCustomFilterRules = collectCustomFilterRulesFromUi();
+    renderCustomFilterRuleRows(slideshowCustomFilterRules);
+    toast("Filters staged. Click Save / Apply Settings to persist.");
   });
 }
 if (els.saveSlideshowFieldMapBtn) {

@@ -370,7 +370,6 @@
               </div>
               <div class="setting-form-row">
                 <label class="setting-desc"><input id="slideshowExcludeFeralToggle" type="checkbox" /> Exclude feral animals</label>
-                <label class="setting-desc"><input id="slideshowReadyTodayToggle" type="checkbox" /> Only show ready-today animals</label>
               </div>
               <div class="setting-row stack">
                 <div>
@@ -380,9 +379,11 @@
                 <div class="setting-form-row">
                   <label class="setting-desc"><input id="slideshowCustomFiltersEnabledToggle" type="checkbox" /> Enable custom filters</label>
                 </div>
-                <div class="setting-form-row">
-                  <input id="slideshowCustomFiltersInput" type="text" placeholder="Example: dog, puppy, labrador" />
+                <div class="setting-form-actions">
+                  <button id="addCustomFilterRuleBtn" class="btn-sm" type="button">Add Filter</button>
+                  <button id="applyCustomFiltersBtn" class="btn-sm" type="button">Apply</button>
                 </div>
+                <div id="slideshowCustomFiltersBuilder" class="custom-filter-builder"></div>
               </div>
             </div>
           </div>

@@ -106,7 +106,7 @@ export async function spotifyApiRequest({ accessToken, method = "GET", path, que
     }
   }
 
-  const maxAttempts = 2;
+  const maxAttempts = 4;
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -141,17 +141,23 @@ export async function spotifyApiRequest({ accessToken, method = "GET", path, que
       return payload;
     }
 
-    if (response.status === 429 && attempt < maxAttempts) {
+    if ((response.status === 429 || response.status >= 500) && attempt < maxAttempts) {
       const retryAfterSeconds = Number(response.headers.get("retry-after") || "0");
+      if (response.status === 429 && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 120) {
+        lastError = new Error(`Spotify API failed: ${response.status} retry_after=${Math.ceil(retryAfterSeconds)} ${JSON.stringify(payload)}`);
+        break;
+      }
       const rawBackoffMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
         ? Math.ceil(retryAfterSeconds * 1000)
-        : Math.min(8000, 500 * (2 ** (attempt - 1)));
-      const backoffMs = Math.min(rawBackoffMs, 2000);
+        : Math.min(60000, 1000 * (2 ** (attempt - 1)));
+      const jitterMs = Math.floor(Math.random() * 250);
+      const backoffMs = Math.min(60000, rawBackoffMs + jitterMs);
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       continue;
     }
 
-    lastError = new Error(`Spotify API failed: ${response.status} ${JSON.stringify(payload)}`);
+    const retryAfterHeader = response.headers.get("retry-after") || "";
+    lastError = new Error(`Spotify API failed: ${response.status}${retryAfterHeader ? ` retry_after=${retryAfterHeader}` : ""} ${JSON.stringify(payload)}`);
     break;
   }
 

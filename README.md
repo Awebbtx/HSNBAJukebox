@@ -13,6 +13,8 @@ This project combines:
 
 For deeper product and architecture detail, see [ABOUT.md](ABOUT.md).
 Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
+Operational release/context notes are tracked in [GITHUB-NOTES.md](GITHUB-NOTES.md).
+Build and execution runbook notes are tracked in [LETS-BUILD-NOTES.md](LETS-BUILD-NOTES.md).
 
 ## Current State
 

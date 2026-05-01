@@ -46,15 +46,15 @@ const ACCOUNT_INVITE_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_INVITE_T
 const ACCOUNT_RESET_TTL_HOURS = Math.max(1, Number(process.env.ACCOUNT_RESET_TTL_HOURS || 2));
 const SPOTIFY_EXPLICIT_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_EXPLICIT_CACHE_TTL_MS || 6 * 60 * 60 * 1000));
 const SPOTIFY_TRACK_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_TRACK_CACHE_TTL_MS || 24 * 60 * 60 * 1000));
-const QUEUE_METADATA_HYDRATION_INTERVAL_MS = Math.max(5000, Number(process.env.QUEUE_METADATA_HYDRATION_INTERVAL_MS || 15000));
-const QUEUE_METADATA_HYDRATION_MAX_FAILURES = Math.max(1, Number(process.env.QUEUE_METADATA_HYDRATION_MAX_FAILURES || 5));
+const QUEUE_METADATA_HYDRATION_INTERVAL_MS = Math.max(10000, Number(process.env.QUEUE_METADATA_HYDRATION_INTERVAL_MS || 30000));
+const QUEUE_METADATA_HYDRATION_MAX_FAILURES = Math.max(1, Number(process.env.QUEUE_METADATA_HYDRATION_MAX_FAILURES || 8));
+const QUEUE_METADATA_HYDRATION_EXHAUSTED_RETRY_MS = Math.max(10 * 60 * 1000, Number(process.env.QUEUE_METADATA_HYDRATION_EXHAUSTED_RETRY_MS || 45 * 60 * 1000));
 const SPOTIFY_MARKET = `${process.env.SPOTIFY_MARKET || "US"}`.trim().toUpperCase();
 if (!SESSION_SECRET) {
   console.warn("WARNING: SESSION_SECRET is not set. Admin sessions will not be valid across process restarts or between jukebox/reporting processes.");
 }
 const EXPLICIT_FILTER_ENABLED = `${process.env.EXPLICIT_FILTER_ENABLED || "false"}`.toLowerCase() === "true";
 const SLIDESHOW_EXCLUDE_FERAL = `${process.env.SLIDESHOW_EXCLUDE_FERAL || "true"}`.toLowerCase() !== "false";
-const SLIDESHOW_READY_TODAY_ONLY = `${process.env.SLIDESHOW_READY_TODAY_ONLY || "true"}`.toLowerCase() !== "false";
 const SLIDESHOW_CUSTOM_FILTERS_ENABLED = `${process.env.SLIDESHOW_CUSTOM_FILTERS_ENABLED || "false"}`.toLowerCase() === "true";
 const SLIDESHOW_CUSTOM_FILTERS = `${process.env.SLIDESHOW_CUSTOM_FILTERS || ""}`
   .split("|")
@@ -72,15 +72,105 @@ const SLIDESHOW_DISPLAY_FIELD_OPTIONS = [
   { key: "name", label: "Name" },
   { key: "bio", label: "Bio" }
 ];
+const DEFAULT_SLIDESHOW_CUSTOM_FILTER_RULES = [
+  {
+    sourceKey: "NEUTERED",
+    method: "eq",
+    value: "1"
+  }
+];
+const DEFAULT_SLIDESHOW_DISPLAY_FIELD_CATALOG = [
+  {
+    key: "raw:NEUTERED",
+    sourceKey: "NEUTERED",
+    label: "Fixed",
+    enabled: true,
+    valueLabels: {
+      "0": "No",
+      "1": "🎉 Yes",
+      "2": "⏳Maybe"
+    }
+  },
+  {
+    key: "raw:ISGOODWITHCATS",
+    sourceKey: "ISGOODWITHCATS",
+    label: "Like Cats?",
+    enabled: true,
+    valueLabels: {
+      "0": "hide",
+      "1": "Yes",
+      "2": "hide"
+    }
+  },
+  {
+    key: "raw:ISGOODWITHDOGS",
+    sourceKey: "ISGOODWITHDOGS",
+    label: "Like Dogs?",
+    enabled: true,
+    valueLabels: {
+      "0": "hide",
+      "1": "Yes",
+      "2": "hide"
+    }
+  },
+  {
+    key: "raw:ISGOODWITHCHILDREN",
+    sourceKey: "ISGOODWITHCHILDREN",
+    label: "Like Kids?",
+    enabled: true,
+    valueLabels: {
+      "0": "hide",
+      "1": "Yes",
+      "2": "hide"
+    }
+  },
+  {
+    key: "raw:ISHOUSETRAINED",
+    sourceKey: "ISHOUSETRAINED",
+    label: "Pee on carpet?",
+    enabled: true,
+    valueLabels: {
+      "0": "hide",
+      "1": "Never!",
+      "2": "hide"
+    }
+  },
+  {
+    key: "raw:SIZE",
+    sourceKey: "SIZE",
+    label: "Size",
+    enabled: true,
+    valueLabels: {
+      "0": "very large",
+      "1": "large",
+      "2": "medium",
+      "3": "small"
+    }
+  },
+  {
+    key: "raw:TIMEONSHELTER",
+    sourceKey: "TIMEONSHELTER",
+    label: "Days in Care",
+    enabled: true,
+    valueLabels: {}
+  },
+  {
+    key: "raw:WEIGHT",
+    sourceKey: "WEIGHT",
+    label: "Weight:",
+    enabled: true,
+    valueLabels: {}
+  }
+];
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
-  "readyToday",
-  "species",
-  "breed",
-  "sex",
-  "ageGroup",
-  "location",
-  "skip",
-  "skip",
+  "raw:NEUTERED",
+  "raw:ISGOODWITHCATS",
+  "raw:ISGOODWITHDOGS",
+  "raw:ISGOODWITHCHILDREN",
+  "raw:ISHOUSETRAINED",
+  "raw:WEIGHT",
+  "raw:TIMEONSHELTER",
+  "raw:SIZE",
   "skip",
   "skip"
 ];
@@ -391,17 +481,17 @@ const state = {
     cacheSeconds: Number(process.env.ASM_ADOPTABLE_CACHE_SECONDS || 600)
   },
   slideshow: {
-    intervalSeconds: Math.max(5, Number(process.env.SLIDESHOW_INTERVAL_SECONDS || 12)),
-    defaultLimit: Math.max(1, Math.min(50, Number(process.env.SLIDESHOW_DEFAULT_LIMIT || 20))),
+    intervalSeconds: Math.max(5, Number(process.env.SLIDESHOW_INTERVAL_SECONDS || 15)),
+    defaultLimit: Math.max(1, Math.min(50, Number(process.env.SLIDESHOW_DEFAULT_LIMIT || 50))),
     audioEnabled: `${process.env.SLIDESHOW_AUDIO_ENABLED || "true"}`.toLowerCase() !== "false",
     audioSource: `${process.env.SLIDESHOW_AUDIO_SOURCE || "/live.mp3"}`.trim() || "/live.mp3",
     audioVolume: Math.max(0, Math.min(100, Number(process.env.SLIDESHOW_AUDIO_VOLUME || 70))),
-    audioAutoplay: `${process.env.SLIDESHOW_AUDIO_AUTOPLAY || "false"}`.toLowerCase() === "true",
+    audioAutoplay: `${process.env.SLIDESHOW_AUDIO_AUTOPLAY || "true"}`.toLowerCase() === "true",
     excludeFeral: SLIDESHOW_EXCLUDE_FERAL,
-    readyTodayOnly: SLIDESHOW_READY_TODAY_ONLY,
     customFiltersEnabled: SLIDESHOW_CUSTOM_FILTERS_ENABLED,
     customFilters: SLIDESHOW_CUSTOM_FILTERS,
-    displayFieldCatalog: [],
+    customFilterRules: sanitizeCustomFilterRules(DEFAULT_SLIDESHOW_CUSTOM_FILTER_RULES),
+    displayFieldCatalog: sanitizeSlideshowDisplayFieldCatalog(DEFAULT_SLIDESHOW_DISPLAY_FIELD_CATALOG),
     displayFields: [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS],
     specialPages: [],
     adoptablesPerSpecial: Math.max(1, Number(process.env.SLIDESHOW_ADOPTABLES_PER_SPECIAL || 3)),
@@ -421,6 +511,7 @@ const state = {
   spotifyExplicitByTrackId: new Map(),
   spotifyTrackByTrackId: new Map(),
   spotifyTrackCacheDirty: false,
+  spotifyTrackRateLimitedUntil: 0,
   queueMetadataHydrationInProgress: false,
   explicitPrescreenInProgress: false,
   explicitAutoSkipInProgress: false,
@@ -581,10 +672,35 @@ function formatSlideshowFieldLabel(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function sanitizeSlideshowValueLabels(valueLabels) {
+  if (!valueLabels || typeof valueLabels !== "object") {
+    return {};
+  }
+  const entries = Object.entries(valueLabels)
+    .map(([rawValue, label]) => {
+      const valueKey = `${rawValue || ""}`.trim().slice(0, 64);
+      const displayLabel = `${label || ""}`.trim().slice(0, 80);
+      return valueKey && displayLabel ? [valueKey, displayLabel] : null;
+    })
+    .filter(Boolean)
+    .slice(0, 40);
+  return Object.fromEntries(entries);
+}
+
 function sanitizeSlideshowDisplayFieldCatalog(raw) {
   if (!Array.isArray(raw)) {
     return [];
   }
+  const defaultsBySourceKey = new Map(
+    (Array.isArray(DEFAULT_SLIDESHOW_DISPLAY_FIELD_CATALOG) ? DEFAULT_SLIDESHOW_DISPLAY_FIELD_CATALOG : [])
+      .map((entry) => {
+        const sourceKey = `${entry?.sourceKey || ""}`.trim();
+        return sourceKey
+          ? [sourceKey.toUpperCase(), sanitizeSlideshowValueLabels(entry?.valueLabels || {})]
+          : null;
+      })
+      .filter(Boolean)
+  );
   const seen = new Set();
   const catalog = [];
   for (const item of raw) {
@@ -597,11 +713,18 @@ function sanitizeSlideshowDisplayFieldCatalog(raw) {
       continue;
     }
     seen.add(dedupeKey);
+    const inputValueLabels = sanitizeSlideshowValueLabels(item?.valueLabels || {});
+    const defaultValueLabels = sanitizeSlideshowValueLabels(defaultsBySourceKey.get(dedupeKey) || {});
+    const valueLabels = {
+      ...defaultValueLabels,
+      ...inputValueLabels
+    };
     catalog.push({
       key: `raw:${sourceKey}`,
       sourceKey,
       label: `${item?.label || formatSlideshowFieldLabel(sourceKey)}`.trim().slice(0, 60) || formatSlideshowFieldLabel(sourceKey),
-      enabled: item?.enabled !== false
+      enabled: item?.enabled !== false,
+      valueLabels
     });
     if (catalog.length >= 80) {
       break;
@@ -1184,12 +1307,15 @@ function saveSpecialPageImageDataUrl(pageId, dataUrl) {
 function normalizeSlideshowConfig(raw) {
   const config = raw && typeof raw === "object" ? raw : {};
   const legacyCatalog = getLegacySlideshowCatalogDefaults();
-  const displayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(config.displayFieldCatalog || legacyCatalog);
+  const defaultCatalog = legacyCatalog.length ? legacyCatalog : DEFAULT_SLIDESHOW_DISPLAY_FIELD_CATALOG;
+  const displayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(config.displayFieldCatalog || defaultCatalog);
+  const customFilterRules = sanitizeCustomFilterRules(config.customFilterRules || DEFAULT_SLIDESHOW_CUSTOM_FILTER_RULES);
   const legacyDisplayFields = `${process.env.SLIDESHOW_DISPLAY_FIELDS || ""}`.split("|");
   const displayFields = sanitizeSlideshowDisplayFields(config.displayFields || legacyDisplayFields, displayFieldCatalog);
   const specialPages = sanitizeSpecialPages(config.specialPages || []);
   return {
     version: 1,
+    customFilterRules,
     displayFieldCatalog,
     displayFields,
     specialPages,
@@ -1201,6 +1327,7 @@ function normalizeSlideshowConfig(raw) {
 
 function saveSlideshowConfig() {
   const config = normalizeSlideshowConfig({
+    customFilterRules: state.slideshow?.customFilterRules || [],
     displayFieldCatalog: state.slideshow?.displayFieldCatalog || [],
     displayFields: state.slideshow?.displayFields || [],
     specialPages: state.slideshow?.specialPages || [],
@@ -1219,6 +1346,7 @@ function loadSlideshowConfig() {
   try {
     if (!fs.existsSync(SLIDESHOW_CONFIG_PATH)) {
       const initial = normalizeSlideshowConfig(null);
+      state.slideshow.customFilterRules = initial.customFilterRules;
       state.slideshow.displayFieldCatalog = initial.displayFieldCatalog;
       state.slideshow.displayFields = initial.displayFields;
       state.slideshow.specialPages = initial.specialPages;
@@ -1231,6 +1359,7 @@ function loadSlideshowConfig() {
     const text = fs.readFileSync(SLIDESHOW_CONFIG_PATH, "utf8");
     const parsed = JSON.parse(text);
     const normalized = normalizeSlideshowConfig(parsed);
+    state.slideshow.customFilterRules = normalized.customFilterRules;
     state.slideshow.displayFieldCatalog = normalized.displayFieldCatalog;
     state.slideshow.displayFields = normalized.displayFields;
     state.slideshow.specialPages = normalized.specialPages;
@@ -1241,6 +1370,7 @@ function loadSlideshowConfig() {
   } catch (error) {
     console.warn(`Failed to load slideshow config: ${error.message}`);
     const fallback = normalizeSlideshowConfig(null);
+    state.slideshow.customFilterRules = fallback.customFilterRules;
     state.slideshow.displayFieldCatalog = fallback.displayFieldCatalog;
     state.slideshow.displayFields = fallback.displayFields;
     state.slideshow.specialPages = fallback.specialPages;
@@ -2477,7 +2607,162 @@ function sanitizeCustomFilters(raw) {
     .slice(0, 25);
 }
 
+function sanitizeCustomFilterMethod(value) {
+  const method = `${value || ""}`.trim().toLowerCase();
+  if (method === "=>" || method === ">=") return "gte";
+  if (method === "=<" || method === "<=") return "lte";
+  if (method === "=") return "eq";
+  if (["eq", "gte", "lte", "match", "contains"].includes(method)) return method;
+  return "contains";
+}
+
+function sanitizeCustomFilterRules(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const rules = [];
+  for (const item of raw) {
+    const sourceKey = `${item?.sourceKey || ""}`.trim();
+    const value = `${item?.value || ""}`.trim().slice(0, 160);
+    if (!sourceKey || !/^[A-Za-z0-9_]{1,64}$/.test(sourceKey) || !value) {
+      continue;
+    }
+    rules.push({
+      sourceKey,
+      method: sanitizeCustomFilterMethod(item?.method),
+      value
+    });
+    if (rules.length >= 50) {
+      break;
+    }
+  }
+  return rules;
+}
+
+function compareCustomFilterValues(actualRaw, expectedRaw, method) {
+  const normalizeText = (value) => {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    return `${value}`.trim();
+  };
+  const normalizeBooleanLikeNumber = (value) => {
+    const text = normalizeText(value).toLowerCase();
+    if (!text) {
+      return Number.NaN;
+    }
+    if (["true", "yes", "y", "on"].includes(text)) {
+      return 1;
+    }
+    if (["false", "no", "n", "off"].includes(text)) {
+      return 0;
+    }
+    return Number(text);
+  };
+
+  const actualText = normalizeText(actualRaw);
+  const expectedText = normalizeText(expectedRaw);
+  if (!actualText || !expectedText) {
+    return false;
+  }
+
+  const actualNum = normalizeBooleanLikeNumber(actualRaw);
+  const expectedNum = normalizeBooleanLikeNumber(expectedRaw);
+  const bothNumeric = Number.isFinite(actualNum) && Number.isFinite(expectedNum);
+  if (method === "gte") {
+    return bothNumeric ? actualNum >= expectedNum : false;
+  }
+  if (method === "lte") {
+    return bothNumeric ? actualNum <= expectedNum : false;
+  }
+
+  if (method === "eq") {
+    return bothNumeric ? actualNum === expectedNum : actualText.toLowerCase() === expectedText.toLowerCase();
+  }
+  if (method === "match") {
+    return actualText.toLowerCase() === expectedText.toLowerCase();
+  }
+  return actualText.toLowerCase().includes(expectedText.toLowerCase());
+}
+
+function inferAsmFieldTypes(rows = [], sampleLimit = 50) {
+  const stats = new Map();
+  const boolTokens = new Set(["0", "1", "true", "false", "yes", "no", "y", "n", "on", "off"]);
+  const sampledRows = Array.isArray(rows) ? rows.filter((row) => row && typeof row === "object").slice(0, sampleLimit) : [];
+
+  const getEntry = (key) => {
+    if (!stats.has(key)) {
+      stats.set(key, {
+        samples: 0,
+        booleanLike: true,
+        numericLike: true,
+        dateLike: true
+      });
+    }
+    return stats.get(key);
+  };
+
+  for (const row of sampledRows) {
+    for (const [key, value] of Object.entries(row)) {
+      if (value === null || value === undefined) {
+        continue;
+      }
+      const text = `${value}`.trim();
+      if (!text) {
+        continue;
+      }
+      const entry = getEntry(key);
+      entry.samples += 1;
+      const lower = text.toLowerCase();
+      if (!boolTokens.has(lower)) {
+        entry.booleanLike = false;
+      }
+      if (!Number.isFinite(Number(text))) {
+        entry.numericLike = false;
+      }
+      const looksDateShaped = /[-/:T]/.test(text) && !Number.isFinite(Number(text));
+      const parsedTime = Date.parse(text);
+      if (!looksDateShaped || !Number.isFinite(parsedTime)) {
+        entry.dateLike = false;
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    Array.from(stats.entries()).map(([key, entry]) => {
+      let type = "text";
+      if (entry.samples > 0 && entry.booleanLike) {
+        type = "boolean";
+      } else if (entry.samples > 0 && entry.numericLike) {
+        type = "number";
+      } else if (entry.samples > 0 && entry.dateLike) {
+        type = "date";
+      }
+      return [key, type];
+    })
+  );
+}
+
+function applyAdoptableCustomFilterRules(items) {
+  const rules = sanitizeCustomFilterRules(state.slideshow.customFilterRules || []);
+  if (!state.slideshow.customFiltersEnabled || !rules.length) {
+    return items;
+  }
+
+  return (items || []).filter((item) => {
+    const fields = item?.rawFields || {};
+    return rules.every((rule) => {
+      const actual = fields?.[rule.sourceKey];
+      return compareCustomFilterValues(actual, rule.value, rule.method);
+    });
+  });
+}
+
 function applyAdoptableCustomFilters(items) {
+  const withRules = applyAdoptableCustomFilterRules(items);
+  if (withRules !== items) {
+    return withRules;
+  }
   const filters = sanitizeCustomFilters(state.slideshow.customFilters || []);
   if (!state.slideshow.customFiltersEnabled || !filters.length) {
     return items;
@@ -3408,7 +3693,19 @@ async function fetchAsmDiagnostics() {
     };
   }
 
-  const response = await fetch(requestUrl, { headers: { Accept: "application/json" } });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ASM_FETCH_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(requestUrl, { headers: { Accept: "application/json" }, signal: controller.signal });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error?.name === "AbortError") {
+      return { ok: false, requestUrl: sanitizeAsmUrl(requestUrl), responseStatus: 0, contentType: "", sourceCount: 0, fieldNames: [], bodyPreview: "", firstItem: null, rows: [], mappedItems: [], error: `ASM diagnostics request timed out after ${Math.round(ASM_FETCH_TIMEOUT_MS / 1000)}s` };
+    }
+    throw error;
+  }
+  clearTimeout(timer);
   const contentType = `${response.headers.get("content-type") || ""}`;
   const bodyText = await response.text();
   const bodyPreview = bodyText.slice(0, 500).replace(/\s+/g, " ").trim();
@@ -3452,12 +3749,12 @@ async function fetchAsmDiagnostics() {
   const mappedItems = applyAdoptableCustomFilters(
     rows
       .filter((item) => (state.slideshow.excludeFeral ? !hasFeralFlag(item) : true))
-      .filter((item) => (state.slideshow.readyTodayOnly ? isReadyToday(item) : true))
       .map(mapAsmAnimal)
       .filter((item) => item.id)
   );
   const firstItem = rows[0] && typeof rows[0] === "object" ? rows[0] : null;
   const fieldNames = firstItem ? Object.keys(firstItem) : [];
+  const fieldTypes = inferAsmFieldTypes(rows);
   const error = rows.length > 0 && mappedItems.length === 0
     ? "ASM returned records, but none matched the expected animal ID fields."
     : "";
@@ -3469,6 +3766,7 @@ async function fetchAsmDiagnostics() {
     contentType,
     sourceCount: rows.length,
     fieldNames,
+    fieldTypes,
     bodyPreview,
     firstItem,
     rows,
@@ -3494,6 +3792,7 @@ async function getAsmAdoptables(force = false) {
       responseStatus: 0,
       contentType: "",
       fieldNames: [],
+      fieldTypes: {},
       bodyPreview: ""
     };
     return state.asmCache;
@@ -3510,6 +3809,7 @@ async function getAsmAdoptables(force = false) {
       responseStatus: Number(result.responseStatus || 0),
       contentType: result.contentType || "",
       fieldNames: result.fieldNames || [],
+      fieldTypes: result.fieldTypes || {},
       bodyPreview: result.bodyPreview || ""
     };
     return state.asmCache;
@@ -3523,6 +3823,7 @@ async function getAsmAdoptables(force = false) {
       responseStatus: 0,
       contentType: "",
       fieldNames: [],
+      fieldTypes: {},
       bodyPreview: ""
     };
     return state.asmCache;
@@ -4061,6 +4362,100 @@ function getCachedSpotifyTrackForUri(uri = "") {
   return cached?.track || null;
 }
 
+function parseSpotifyHttpStatusFromError(error) {
+  const message = `${error?.message || ""}`;
+  const match = message.match(/Spotify API failed:\s*(\d{3})/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function parseSpotifyRetryAfterMsFromError(error) {
+  const message = `${error?.message || ""}`;
+  const match = message.match(/retry_after\s*=\s*(\d+)/i);
+  if (!match) {
+    return 0;
+  }
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return 0;
+  }
+  return Math.min(12 * 60 * 60 * 1000, Math.ceil(seconds * 1000));
+}
+
+function isSpotifyTrackRateLimitActive() {
+  return Number(state.spotifyTrackRateLimitedUntil || 0) > Date.now();
+}
+
+async function getNowPlayingWithMopidyFallback() {
+  const base = state.nowPlaying
+    ? { ...state.nowPlaying }
+    : null;
+
+  if (!isSpotifyTrackRateLimitActive()) {
+    return base;
+  }
+
+  try {
+    const mopidyCurrent = await mopidyRpc("core.playback.get_current_track");
+    if (!mopidyCurrent?.uri) {
+      return base;
+    }
+
+    const mapped = mapMopidyTrack(mopidyCurrent);
+    return {
+      id: base?.id || crypto.randomUUID(),
+      tlid: mopidyCurrent?.tlid ?? base?.tlid ?? null,
+      requestedBy: base?.requestedBy || "",
+      requestedByToken: base?.requestedByToken || "",
+      requestedAt: base?.requestedAt || new Date().toISOString(),
+      upvotes: Number(base?.upvotes || 0),
+      downvotes: Number(base?.downvotes || 0),
+      voteScore: Number(base?.voteScore || 0),
+      ...base,
+      ...mapped
+    };
+  } catch {
+    return base;
+  }
+}
+
+function isTransientSpotifyError(error) {
+  const status = parseSpotifyHttpStatusFromError(error);
+  if (status === 429 || status >= 500) {
+    return true;
+  }
+  const message = `${error?.message || ""}`.toLowerCase();
+  return (
+    message.includes("timed out")
+    || message.includes("fetch failed")
+    || message.includes("ecconnreset")
+    || message.includes("econnreset")
+    || message.includes("etimedout")
+    || message.includes("network")
+  );
+}
+
+async function fetchSpotifyTrackByIdWithFallback(id, accessToken) {
+  try {
+    return await spotifyApiRequest({
+      accessToken,
+      method: "GET",
+      path: `/tracks/${id}`,
+      query: { market: SPOTIFY_MARKET }
+    });
+  } catch (error) {
+    // Some tracks are market-restricted for SPOTIFY_MARKET; retry once without market.
+    if (parseSpotifyHttpStatusFromError(error) !== 404) {
+      throw error;
+    }
+  }
+
+  return spotifyApiRequest({
+    accessToken,
+    method: "GET",
+    path: `/tracks/${id}`
+  });
+}
+
 function applySpotifyTrackDataToQueueItem(item, track) {
   if (!item || !track) {
     return false;
@@ -4168,7 +4563,31 @@ async function hydrateMissingQueueMetadataSequential(limit = 1) {
       if (processed >= maxItems) {
         break;
       }
+
+      if (item?.metadataHydrationExhausted === true) {
+        const exhaustedAt = Number(item.metadataHydrationExhaustedAt || 0);
+        if (exhaustedAt > 0 && (now - exhaustedAt) >= QUEUE_METADATA_HYDRATION_EXHAUSTED_RETRY_MS) {
+          delete item.metadataHydrationExhausted;
+          delete item.metadataHydrationExhaustedAt;
+          delete item.metadataHydrationFailures;
+          delete item.metadataHydrationTransientFailures;
+          delete item.metadataHydrationNextAttemptAt;
+          delete item.metadataHydrationLastError;
+          updated = true;
+        }
+      }
+
       if (!queueItemNeedsSpotifyHydration(item)) {
+        continue;
+      }
+
+      if (isSpotifyTrackRateLimitActive()) {
+        const retryAt = Number(state.spotifyTrackRateLimitedUntil || 0) + 1000;
+        if (Number(item.metadataHydrationNextAttemptAt || 0) < retryAt) {
+          item.metadataHydrationNextAttemptAt = retryAt;
+          item.metadataHydrationLastError = `spotify retry pending (${Math.max(1, Math.ceil((retryAt - now) / 1000))}s)`;
+          updated = true;
+        }
         continue;
       }
 
@@ -4180,16 +4599,26 @@ async function hydrateMissingQueueMetadataSequential(limit = 1) {
       processed += 1;
       let explicit = null;
       let explicitResolved = false;
+      let transientSpotifyFailure = false;
+      let spotifyRetryAfterMs = 0;
       try {
         explicit = await withTimeout(
-          getSpotifyExplicitForUri(item.uri),
+          getSpotifyExplicitForUri(item.uri, { swallowErrors: false }),
           5000,
           "Queue metadata hydration timed out"
         );
         explicitResolved = true;
-      } catch {
+      } catch (error) {
         explicit = null;
         explicitResolved = false;
+        transientSpotifyFailure = isTransientSpotifyError(error);
+        spotifyRetryAfterMs = parseSpotifyRetryAfterMsFromError(error);
+        if (spotifyRetryAfterMs > 0) {
+          state.spotifyTrackRateLimitedUntil = Math.max(
+            Number(state.spotifyTrackRateLimitedUntil || 0),
+            Date.now() + spotifyRetryAfterMs
+          );
+        }
       }
 
       if (typeof explicit === "boolean" && item.explicit !== explicit) {
@@ -4204,28 +4633,49 @@ async function hydrateMissingQueueMetadataSequential(limit = 1) {
 
       const stillNeedsHydration = queueItemNeedsSpotifyHydration(item);
       if (stillNeedsHydration) {
+        if (transientSpotifyFailure) {
+          const transientFailures = Number(item.metadataHydrationTransientFailures || 0) + 1;
+          item.metadataHydrationTransientFailures = transientFailures;
+          // Use longer jittered backoff for transient API/network pressure.
+          const baseBackoffMs = Math.min(10 * 60 * 1000, 45000 * Math.max(1, transientFailures));
+          const jitterMs = Math.floor(Math.random() * 12000);
+          const transientBackoffMs = baseBackoffMs + jitterMs;
+          const windowRetryAt = Number(state.spotifyTrackRateLimitedUntil || 0) > Date.now()
+            ? Number(state.spotifyTrackRateLimitedUntil || 0) + 1000
+            : 0;
+          const backoffMs = Math.max(transientBackoffMs, spotifyRetryAfterMs);
+          item.metadataHydrationNextAttemptAt = Math.max(Date.now() + backoffMs, windowRetryAt);
+          item.metadataHydrationLastError = `spotify retry pending (${Math.max(1, Math.ceil((item.metadataHydrationNextAttemptAt - Date.now()) / 1000))}s)`;
+          updated = true;
+          continue;
+        }
+
         const prevFailures = Number(item.metadataHydrationFailures || 0);
         const nextFailures = prevFailures + 1;
         item.metadataHydrationFailures = nextFailures;
         if (nextFailures >= QUEUE_METADATA_HYDRATION_MAX_FAILURES) {
           item.metadataHydrationExhausted = true;
+          item.metadataHydrationExhaustedAt = Date.now();
           item.metadataHydrationLastError = "metadata unavailable";
           delete item.metadataHydrationNextAttemptAt;
           updated = true;
           continue;
         }
-        // Back off repeated failures so one bad Spotify URI does not block the entire queue.
-        const backoffMs = Math.min(5 * 60 * 1000, 15000 * Math.max(1, nextFailures));
+
+        // Back off repeated non-transient misses so one bad Spotify URI does not block the queue.
+        const backoffMs = Math.min(7 * 60 * 1000, 30000 * Math.max(1, nextFailures));
         item.metadataHydrationNextAttemptAt = Date.now() + backoffMs;
         if (!explicitResolved && !cachedTrack) {
           item.metadataHydrationLastError = "metadata unavailable";
         }
         updated = true;
-      } else if (item.metadataHydrationFailures || item.metadataHydrationNextAttemptAt || item.metadataHydrationLastError || item.metadataHydrationExhausted) {
+      } else if (item.metadataHydrationFailures || item.metadataHydrationTransientFailures || item.metadataHydrationNextAttemptAt || item.metadataHydrationLastError || item.metadataHydrationExhausted || item.metadataHydrationExhaustedAt) {
         delete item.metadataHydrationFailures;
+        delete item.metadataHydrationTransientFailures;
         delete item.metadataHydrationNextAttemptAt;
         delete item.metadataHydrationLastError;
         delete item.metadataHydrationExhausted;
+        delete item.metadataHydrationExhaustedAt;
         updated = true;
       }
     }
@@ -4263,22 +4713,25 @@ async function hydrateSpotifyExplicitCacheForTrackIds(trackIds = []) {
     }
     const id = staleIds[i];
     try {
-      const track = await spotifyApiRequest({
-        accessToken,
-        method: "GET",
-        path: `/tracks/${id}`,
-        query: { market: SPOTIFY_MARKET }
-      });
+      const track = await fetchSpotifyTrackByIdWithFallback(id, accessToken);
       if (track?.id) {
         upsertSpotifyTrackCacheEntry(track);
       }
-    } catch {
+    } catch (error) {
+      const retryAfterMs = parseSpotifyRetryAfterMsFromError(error);
+      if (retryAfterMs > 0) {
+        state.spotifyTrackRateLimitedUntil = Math.max(
+          Number(state.spotifyTrackRateLimitedUntil || 0),
+          Date.now() + retryAfterMs
+        );
+      }
       // Keep unresolved.
     }
   }
 }
 
-async function getSpotifyExplicitForUri(uri = "") {
+async function getSpotifyExplicitForUri(uri = "", options = {}) {
+  const { swallowErrors = true } = options || {};
   const trackId = getSpotifyTrackIdFromUri(uri);
   if (!trackId || !state.tokens?.access_token) {
     return null;
@@ -4286,8 +4739,11 @@ async function getSpotifyExplicitForUri(uri = "") {
 
   try {
     await hydrateSpotifyExplicitCacheForTrackIds([trackId]);
-  } catch {
-    return null;
+  } catch (error) {
+    if (swallowErrors) {
+      return null;
+    }
+    throw error;
   }
 
   const cached = state.spotifyExplicitByTrackId.get(trackId);
@@ -4410,12 +4866,7 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
     const chunk = ids.slice(i, i + CONCURRENCY);
     const settled = await Promise.allSettled(
       chunk.map(async (id) => {
-        const track = await spotifyApiRequest({
-          accessToken,
-          method: "GET",
-          path: `/tracks/${id}`,
-          query: { market: SPOTIFY_MARKET }
-        });
+        const track = await fetchSpotifyTrackByIdWithFallback(id, accessToken);
         return track;
       })
     );
@@ -4427,6 +4878,13 @@ async function fetchSpotifyTrackObjects(trackIds = []) {
           upsertSpotifyTrackCacheEntry(track);
         }
       } else if (outcome.status === "rejected") {
+        const retryAfterMs = parseSpotifyRetryAfterMsFromError(outcome.reason);
+        if (retryAfterMs > 0) {
+          state.spotifyTrackRateLimitedUntil = Math.max(
+            Number(state.spotifyTrackRateLimitedUntil || 0),
+            Date.now() + retryAfterMs
+          );
+        }
         console.warn(`[fetchSpotifyTrackObjects] batch fetch failed: ${outcome.reason?.message}`);
       }
     }
@@ -8531,9 +8989,9 @@ app.get("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, asyn
       audioVolume: Number(state.slideshow.audioVolume || 70),
       audioAutoplay: Boolean(state.slideshow.audioAutoplay),
       excludeFeral: Boolean(state.slideshow.excludeFeral),
-      readyTodayOnly: Boolean(state.slideshow.readyTodayOnly),
       customFiltersEnabled: Boolean(state.slideshow.customFiltersEnabled),
       customFilters: sanitizeCustomFilters(state.slideshow.customFilters || []),
+      customFilterRules: sanitizeCustomFilterRules(state.slideshow.customFilterRules || []),
       displayFieldCatalog: sanitizeSlideshowDisplayFieldCatalog(state.slideshow.displayFieldCatalog || []),
       displayFields: sanitizeSlideshowDisplayFields(state.slideshow.displayFields || [], state.slideshow.displayFieldCatalog || []),
       specialPages: sanitizeSpecialPages(state.slideshow.specialPages || []),
@@ -8556,6 +9014,7 @@ app.get("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, asyn
     responseStatus: Number(result.responseStatus || 0),
     contentType: result.contentType || "",
     fieldNames: result.fieldNames || [],
+    fieldTypes: result.fieldTypes || {},
     bodyPreview: result.bodyPreview || "",
     error: result.error || ""
   });
@@ -8596,15 +9055,15 @@ app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (re
   state.slideshow.excludeFeral = body.excludeFeral !== undefined
     ? `${body.excludeFeral}` === "true" || body.excludeFeral === true
     : state.slideshow.excludeFeral;
-  state.slideshow.readyTodayOnly = body.readyTodayOnly !== undefined
-    ? `${body.readyTodayOnly}` === "true" || body.readyTodayOnly === true
-    : state.slideshow.readyTodayOnly;
   state.slideshow.customFiltersEnabled = body.customFiltersEnabled !== undefined
     ? `${body.customFiltersEnabled}` === "true" || body.customFiltersEnabled === true
     : state.slideshow.customFiltersEnabled;
   state.slideshow.customFilters = body.customFilters !== undefined
     ? sanitizeCustomFilters(Array.isArray(body.customFilters) ? body.customFilters : `${body.customFilters}`.split(/[\n,|]/g))
     : sanitizeCustomFilters(state.slideshow.customFilters || []);
+  state.slideshow.customFilterRules = body.customFilterRules !== undefined
+    ? sanitizeCustomFilterRules(Array.isArray(body.customFilterRules) ? body.customFilterRules : [])
+    : sanitizeCustomFilterRules(state.slideshow.customFilterRules || []);
   state.slideshow.displayFieldCatalog = body.displayFieldCatalog !== undefined
     ? sanitizeSlideshowDisplayFieldCatalog(Array.isArray(body.displayFieldCatalog) ? body.displayFieldCatalog : [])
     : sanitizeSlideshowDisplayFieldCatalog(state.slideshow.displayFieldCatalog || []);
@@ -8641,7 +9100,6 @@ app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (re
   persistEnvSetting("SLIDESHOW_AUDIO_VOLUME", `${state.slideshow.audioVolume}`);
   persistEnvSetting("SLIDESHOW_AUDIO_AUTOPLAY", state.slideshow.audioAutoplay ? "true" : "false");
   persistEnvSetting("SLIDESHOW_EXCLUDE_FERAL", state.slideshow.excludeFeral ? "true" : "false");
-  persistEnvSetting("SLIDESHOW_READY_TODAY_ONLY", state.slideshow.readyTodayOnly ? "true" : "false");
   persistEnvSetting("SLIDESHOW_CUSTOM_FILTERS_ENABLED", state.slideshow.customFiltersEnabled ? "true" : "false");
   persistEnvSetting("SLIDESHOW_CUSTOM_FILTERS", sanitizeCustomFilters(state.slideshow.customFilters || []).join("|"));
   persistEnvSetting("SLIDESHOW_ADOPTABLES_PER_SPECIAL", `${state.slideshow.adoptablesPerSpecial}`);
@@ -8841,6 +9299,7 @@ app.get("/api/admin/settings/asm/inspect", requireAdmin, requireJukeboxSlidesAdm
       sourceCount: Number(result.sourceCount || 0),
       mappedCount: (result.mappedItems || []).length,
       fieldNames: result.fieldNames || [],
+      fieldTypes: result.fieldTypes || {},
       bodyPreview: result.bodyPreview || "",
       firstItem: result.firstItem || null,
       error: result.error || ""
@@ -8859,8 +9318,9 @@ app.get("/api/admin/playback/state", requireAdmin, requireJukeboxPlaybackAdmin, 
       mopidyRpc("core.playback.get_time_position"),
       mopidyRpc("core.mixer.get_volume")
     ]);
-    const current = state.nowPlaying
-      ? { ...state.nowPlaying, ...getTrackVoteSummary(state.nowPlaying.uri) }
+    const nowPlaying = await getNowPlayingWithMopidyFallback();
+    const current = nowPlaying
+      ? { ...nowPlaying, ...getTrackVoteSummary(nowPlaying.uri) }
       : null;
     res.json({
       state: playbackState || "stopped",
@@ -8934,8 +9394,9 @@ app.post("/api/admin/volume", requireAdmin, requireJukeboxPlaybackAdmin, async (
 
 app.get("/api/admin/queue", requireAdmin, requireJukeboxQueueAdmin, async (_req, res) => {
   try {
-    const nowPlayingItem = state.nowPlaying
-      ? { ...state.nowPlaying, isPlaying: true, ...getTrackVoteSummary(state.nowPlaying.uri) }
+    const nowPlaying = await getNowPlayingWithMopidyFallback();
+    const nowPlayingItem = nowPlaying
+      ? { ...nowPlaying, isPlaying: true, ...getTrackVoteSummary(nowPlaying.uri) }
       : null;
     const queueItems = state.localQueue.map((item) => ({ ...item, ...getTrackVoteSummary(item.uri) }));
     const queue = nowPlayingItem ? [nowPlayingItem, ...queueItems] : queueItems;
@@ -9262,11 +9723,12 @@ app.get("/api/requests/search", requireEmployee, rateLimitEmployeeRequests, asyn
 app.get("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, async (_req, res) => {
   try {
     const staffId = _req.employeeSession.userId || "";
-    const current = state.nowPlaying
+    const nowPlaying = await getNowPlayingWithMopidyFallback();
+    const current = nowPlaying
       ? {
-        ...state.nowPlaying,
-        ...getTrackVoteSummary(state.nowPlaying.uri),
-        userVote: staffId ? getUserVoteForTrack(staffId, state.nowPlaying.uri || "") : 0
+        ...nowPlaying,
+        ...getTrackVoteSummary(nowPlaying.uri),
+        userVote: staffId ? getUserVoteForTrack(staffId, nowPlaying.uri || "") : 0
       }
       : null;
     const queue = state.localQueue.map((item) => ({
@@ -9288,8 +9750,9 @@ app.get("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, async
 
 app.get("/api/display/queue", async (_req, res) => {
   try {
-    const current = state.nowPlaying
-      ? { ...state.nowPlaying, ...getTrackVoteSummary(state.nowPlaying.uri) }
+    const nowPlaying = await getNowPlayingWithMopidyFallback();
+    const current = nowPlaying
+      ? { ...nowPlaying, ...getTrackVoteSummary(nowPlaying.uri) }
       : null;
     const upNext = state.localQueue
       .slice(0, 8)
@@ -9318,7 +9781,7 @@ app.get("/api/adoptables/image/:animalId", async (req, res) => {
     return;
   }
 
-  const methods = ["animal_image", "animal_photo", "animal_thumbnail"];
+  const methods = ["animal_image", "animal_thumbnail"];
   for (const method of methods) {
     try {
       const upstreamUrl = buildAsmServiceUrl(method, { animalid: animalId });

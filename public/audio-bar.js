@@ -45,7 +45,15 @@ function reconnectWithIntent() {
     return;
   }
   _audio.src = `${STREAM_SRC}?t=${Date.now()}`;
-  _audio.play().catch(() => {});
+  _audio.play().catch((error) => {
+    const message = `${error?.message || ""}`.toLowerCase();
+    if (message.includes("notallowed") || message.includes("gesture")) {
+      _statusEl.textContent = "Tap Play to start audio";
+      setUI(false);
+      return;
+    }
+    scheduleReconnect("Stream blocked. Retrying…");
+  });
 }
 
 function scheduleReconnect(statusText = "Reconnecting…") {
@@ -210,6 +218,11 @@ export function initAudioBar() {
   _audio.id = "liveAudio";
   _audio.preload = "none";
   _audio.controls = false;
+  _audio.autoplay = false;
+  _audio.crossOrigin = "anonymous";
+  _audio.setAttribute("playsinline", "");
+  _audio.setAttribute("webkit-playsinline", "true");
+  _audio.setAttribute("x-webkit-airplay", "deny");
   _audio.style.display = "none";
   document.body.appendChild(_audio);
 

@@ -240,3 +240,42 @@ body[data-admin-page="custom-slides"] #customFiltersRow,
 body[data-admin-page="custom-slides"] #displayFieldsRow {
   display: none !important;
 }
+
+.custom-filter-builder {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.custom-filter-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.2fr) minmax(120px, 0.6fr) minmax(220px, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.custom-filter-row input,
+.custom-filter-row select {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--ink);
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+}
+
+.custom-filter-row input::placeholder {
+  color: var(--muted);
+}
+
+.custom-filter-row input:focus,
+.custom-filter-row select:focus {
+  outline: 2px solid rgba(245,166,35,0.35);
+  outline-offset: 1px;
+}
+
+@media (max-width: 900px) {
+  .custom-filter-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -36,14 +36,14 @@ let currentIndex = 0;
 let slideTimer = null;
 let adoptablesRefreshTimer = null;
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
-  "readyToday",
-  "species",
-  "breed",
-  "sex",
-  "ageGroup",
-  "location",
-  "skip",
-  "skip",
+  "raw:NEUTERED",
+  "raw:ISGOODWITHCATS",
+  "raw:ISGOODWITHDOGS",
+  "raw:ISGOODWITHCHILDREN",
+  "raw:ISHOUSETRAINED",
+  "raw:WEIGHT",
+  "raw:TIMEONSHELTER",
+  "raw:SIZE",
   "skip",
   "skip"
 ];
@@ -60,12 +60,12 @@ const DISPLAY_FIELD_RENDERERS = {
 };
 let slideshowRawFieldCatalog = [];
 let slideshowSettings = {
-  intervalSeconds: 12,
-  defaultLimit: 20,
+  intervalSeconds: 15,
+  defaultLimit: 50,
   audioEnabled: true,
   audioSource: "/live.mp3",
   audioVolume: 70,
-  audioAutoplay: false,
+  audioAutoplay: true,
   displayFields: [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS]
 };
 
@@ -92,11 +92,48 @@ function updateDateTime() {
 }
 
 async function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    await document.documentElement.requestFullscreen().catch(() => {});
+  const root = document.documentElement;
+  const isFull = Boolean(
+    document.fullscreenElement
+    || document.webkitFullscreenElement
+    || document.mozFullScreenElement
+    || document.msFullscreenElement
+  );
+
+  if (!isFull) {
+    if (root.requestFullscreen) {
+      await root.requestFullscreen().catch(() => {});
+      return;
+    }
+    if (root.webkitRequestFullscreen) {
+      root.webkitRequestFullscreen();
+      return;
+    }
+    if (root.mozRequestFullScreen) {
+      root.mozRequestFullScreen();
+      return;
+    }
+    if (root.msRequestFullscreen) {
+      root.msRequestFullscreen();
+    }
     return;
   }
-  await document.exitFullscreen().catch(() => {});
+
+  if (document.exitFullscreen) {
+    await document.exitFullscreen().catch(() => {});
+    return;
+  }
+  if (document.webkitExitFullscreen) {
+    document.webkitExitFullscreen();
+    return;
+  }
+  if (document.mozCancelFullScreen) {
+    document.mozCancelFullScreen();
+    return;
+  }
+  if (document.msExitFullscreen) {
+    document.msExitFullscreen();
+  }
 }
 
 function syncFullscreenButton() {
@@ -125,6 +162,51 @@ function formatRawFieldLabel(fieldName) {
     .trim();
 }
 
+function buildRawValueLookupCandidates(rawValue) {
+  const text = `${rawValue ?? ""}`.trim();
+  if (!text) {
+    return [];
+  }
+  const candidates = new Set([text]);
+  const lower = text.toLowerCase();
+  if (lower === "true") {
+    candidates.add("1");
+  } else if (lower === "false") {
+    candidates.add("0");
+  }
+  const asNumber = Number(text);
+  if (Number.isFinite(asNumber)) {
+    candidates.add(`${asNumber}`);
+    if (Number.isInteger(asNumber)) {
+      candidates.add(`${Math.trunc(asNumber)}`);
+    }
+  }
+  return Array.from(candidates);
+}
+
+function getMappedValueLabel(valueLabels, rawValue) {
+  if (!valueLabels || typeof valueLabels !== "object") {
+    return "";
+  }
+  const candidates = buildRawValueLookupCandidates(rawValue);
+  for (const candidate of candidates) {
+    const mapped = `${valueLabels[candidate] ?? ""}`.trim();
+    if (mapped) {
+      return mapped;
+    }
+  }
+  return "";
+}
+
+function buildRawFieldDisplayLine(label, valueText) {
+  const safeLabel = `${label || ""}`.trim();
+  const safeValue = `${valueText || ""}`.trim();
+  if (!safeValue) {
+    return "";
+  }
+  return safeLabel ? `${safeLabel} ${safeValue}` : safeValue;
+}
+
 function normalizeDisplayFieldCatalog(raw) {
   if (!Array.isArray(raw)) {
     return [];
@@ -141,12 +223,24 @@ function normalizeDisplayFieldCatalog(raw) {
       continue;
     }
     seen.add(dedupeKey);
-    catalog.push({
+    const valueLabels = Object.fromEntries(
+      Object.entries(item?.valueLabels && typeof item.valueLabels === "object" ? item.valueLabels : {})
+        .map(([valueKey, label]) => {
+          const safeValueKey = `${valueKey || ""}`.trim().slice(0, 64);
+          const safeLabel = `${label || ""}`.trim().slice(0, 80);
+          return safeValueKey && safeLabel ? [safeValueKey, safeLabel] : null;
+        })
+        .filter(Boolean)
+        .slice(0, 40)
+    );
+    const catalogEntry = {
       key: `${item?.key || `raw:${sourceKey}`}`,
       sourceKey,
       label: `${item?.label || formatRawFieldLabel(sourceKey)}`.trim() || formatRawFieldLabel(sourceKey),
-      enabled: item?.enabled !== false
-    });
+      enabled: item?.enabled !== false,
+      valueLabels
+    };
+    catalog.push(catalogEntry);
   }
   return catalog;
 }
@@ -157,12 +251,16 @@ function buildDisplayLines(animal) {
     .map((fieldKey) => {
       if (fieldKey.startsWith("raw:")) {
         const rawFieldName = fieldKey.slice(4);
-        const rawValue = `${animal?.rawFields?.[rawFieldName] || ""}`.trim();
+        const rawValue = `${animal?.rawFields?.[rawFieldName] ?? ""}`.trim();
         if (!rawValue) {
           return "";
         }
         const entry = slideshowRawFieldCatalog.find((item) => item.key === fieldKey || item.sourceKey === rawFieldName);
-        return `${entry?.label || formatRawFieldLabel(rawFieldName)}: ${rawValue}`;
+        const mappedValue = getMappedValueLabel(entry?.valueLabels, rawValue);
+        if (mappedValue.toLowerCase() === "hide") {
+          return "";
+        }
+        return buildRawFieldDisplayLine(entry?.label || formatRawFieldLabel(rawFieldName), mappedValue || rawValue);
       }
       const formatter = DISPLAY_FIELD_RENDERERS[fieldKey] || DISPLAY_FIELD_RENDERERS.skip;
       return `${formatter(animal) || ""}`.trim();
@@ -362,6 +460,9 @@ async function loadNowPlaying() {
 }
 els.fullscreenBtn.addEventListener("click", () => toggleFullscreen());
 document.addEventListener("fullscreenchange", syncFullscreenButton);
+document.addEventListener("webkitfullscreenchange", syncFullscreenButton);
+document.addEventListener("mozfullscreenchange", syncFullscreenButton);
+document.addEventListener("MSFullscreenChange", syncFullscreenButton);
 
 els.prevAnimalBtn.addEventListener("click", () => showSlide(currentIndex - 1));
 els.nextAnimalBtn.addEventListener("click", () => showSlide(currentIndex + 1));
