@@ -62,15 +62,7 @@ const SLIDESHOW_CUSTOM_FILTERS = `${process.env.SLIDESHOW_CUSTOM_FILTERS || ""}`
   .filter(Boolean)
   .slice(0, 25);
 const SLIDESHOW_DISPLAY_FIELD_OPTIONS = [
-  { key: "skip", label: "Skip" },
-  { key: "readyToday", label: "Ready Today" },
-  { key: "species", label: "Species" },
-  { key: "breed", label: "Breed" },
-  { key: "sex", label: "Sex" },
-  { key: "ageGroup", label: "Age Group" },
-  { key: "location", label: "Location" },
-  { key: "name", label: "Name" },
-  { key: "bio", label: "Bio" }
+  { key: "skip", label: "Skip" }
 ];
 const DEFAULT_SLIDESHOW_CUSTOM_FILTER_RULES = [
   {
