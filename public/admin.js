@@ -1543,11 +1543,13 @@ async function loadQueue() {
       </div>
       <div class="q-btns">
         ${allowBtn}
+        <button class="q-btn" data-action="top" title="Move to top" aria-label="Move to top" ${idx === 0 || item.isPlaying ? "disabled" : ""}>⇡</button>
         <button class="q-btn" data-action="up" title="Move up" ${idx === 0 || item.isPlaying ? "disabled" : ""}>↑</button>
         <button class="q-btn" data-action="dn" title="Move down" ${idx === items.length - 1 || item.isPlaying ? "disabled" : ""}>↓</button>
         <button class="q-btn danger" data-action="rm" title="Remove">✕</button>
       </div>
     `;
+    li.querySelector('[data-action="top"]').addEventListener("click", () => moveTrack(item.id, "top"));
     li.querySelector('[data-action="up"]').addEventListener("click", () => moveTrack(item.id, "up"));
     li.querySelector('[data-action="dn"]').addEventListener("click", () => moveTrack(item.id, "down"));
     li.querySelector('[data-action="rm"]').addEventListener("click", () => removeTrack(item.id));

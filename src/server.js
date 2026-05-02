@@ -9509,7 +9509,10 @@ app.post("/api/admin/queue/move", requireAdmin, requireJukeboxQueueAdmin, async 
       res.status(404).json({ error: "Track not found in queue." });
       return;
     }
-    if (direction === "up" && idx > 0) {
+    if (direction === "top" && idx > 0) {
+      const [item] = state.localQueue.splice(idx, 1);
+      state.localQueue.unshift(item);
+    } else if (direction === "up" && idx > 0) {
       [state.localQueue[idx], state.localQueue[idx - 1]] = [state.localQueue[idx - 1], state.localQueue[idx]];
     } else if (direction === "down" && idx < state.localQueue.length - 1) {
       [state.localQueue[idx], state.localQueue[idx + 1]] = [state.localQueue[idx + 1], state.localQueue[idx]];
