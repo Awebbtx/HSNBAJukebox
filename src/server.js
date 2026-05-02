@@ -29,6 +29,7 @@ const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const REPORTING_HOST = `${process.env.REPORTING_HOST || "reporting.hsnba.org"}`.trim().toLowerCase();
 const ASM_FETCH_TIMEOUT_MS = Math.max(3000, Number(process.env.ASM_FETCH_TIMEOUT_MS || 15000));
+const ASM_DIAGNOSTICS_FETCH_TIMEOUT_MS = Math.max(2000, Number(process.env.ASM_DIAGNOSTICS_FETCH_TIMEOUT_MS || 8000));
 const ADMIN_SESSION_COOKIE = "hsnba_admin_session";
 const MOPIDY_URL = process.env.MOPIDY_URL || "http://127.0.0.1:6680/mopidy/rpc";
 const MAX_PENDING_PER_USER = Number(process.env.MAX_PENDING_PER_USER || 3);
@@ -1862,7 +1863,9 @@ function normalizeSecurityGroup(value) {
 }
 
 function normalizeSecurityGroups(groups) {
-  const source = Array.isArray(groups) ? groups : [];
+  const source = Array.isArray(groups)
+    ? groups
+    : (typeof groups === "string" && groups.trim() ? [groups] : []);
   const normalized = source
     .map((group) => normalizeSecurityGroup(group))
     .filter((group) =>
@@ -3699,14 +3702,14 @@ async function fetchAsmDiagnostics() {
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ASM_FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), ASM_DIAGNOSTICS_FETCH_TIMEOUT_MS);
   let response;
   try {
     response = await fetch(requestUrl, { headers: { Accept: "application/json" }, signal: controller.signal });
   } catch (error) {
     clearTimeout(timer);
     if (error?.name === "AbortError") {
-      return { ok: false, requestUrl: sanitizeAsmUrl(requestUrl), responseStatus: 0, contentType: "", sourceCount: 0, fieldNames: [], bodyPreview: "", firstItem: null, rows: [], mappedItems: [], error: `ASM diagnostics request timed out after ${Math.round(ASM_FETCH_TIMEOUT_MS / 1000)}s` };
+      return { ok: false, requestUrl: sanitizeAsmUrl(requestUrl), responseStatus: 0, contentType: "", sourceCount: 0, fieldNames: [], bodyPreview: "", firstItem: null, rows: [], mappedItems: [], error: `ASM diagnostics request timed out after ${Math.round(ASM_DIAGNOSTICS_FETCH_TIMEOUT_MS / 1000)}s` };
     }
     throw error;
   }
