@@ -4840,7 +4840,6 @@ function mapQueueTrack(entry = {}) {
 function isPriorityRequestQueueItem(item = {}) {
   return Boolean(
     `${item?.requestedByToken || ""}`.trim()
-    || `${item?.requestedAt || ""}`.trim()
     || `${item?.requestedBy || ""}`.trim()
   );
 }
