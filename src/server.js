@@ -4837,6 +4837,23 @@ function mapQueueTrack(entry = {}) {
   };
 }
 
+function isPriorityRequestQueueItem(item = {}) {
+  return Boolean(
+    `${item?.requestedByToken || ""}`.trim()
+    || `${item?.requestedAt || ""}`.trim()
+    || `${item?.requestedBy || ""}`.trim()
+  );
+}
+
+function insertPriorityRequestQueueItem(item) {
+  const firstNonRequestIndex = state.localQueue.findIndex((queuedItem) => !isPriorityRequestQueueItem(queuedItem));
+  if (firstNonRequestIndex === -1) {
+    state.localQueue.push(item);
+    return;
+  }
+  state.localQueue.splice(firstNonRequestIndex, 0, item);
+}
+
 // ── Spotify track metadata helpers ────────────────────────────────────────────
 
 function spotifyTrackToQueueItem(track, meta = {}) {
@@ -9917,7 +9934,7 @@ app.post("/api/requests/queue", requireEmployee, rateLimitEmployeeRequests, asyn
       requestedAt: new Date().toISOString()
     });
     console.log(`[queue-add] queueItem.explicit=${queueItem.explicit}`);
-    state.localQueue.push(queueItem);
+    insertPriorityRequestQueueItem(queueItem);
     saveLocalQueue();
     setImmediate(() => hydrateMissingQueueMetadataSequential(1).catch(() => {}));
     if (staff) {
