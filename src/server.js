@@ -464,6 +464,8 @@ const state = {
   playbackAdvancing: false,
   playbackAdvanceCooldownUntil: 0,
   playbackLoopRunning: false,
+  queueAutoAdvanceBlocked: false,
+  queueAutoAdvanceBlockedReason: "",
   asm: {
     serviceUrl: `${process.env.ASM_SERVICE_URL || ""}`.trim(),
     account: `${process.env.ASM_ACCOUNT || ""}`.trim(),
@@ -964,6 +966,13 @@ async function setStreamDeliveryEnabled(enabled) {
   };
 }
 
+function setQueueAutoAdvanceBlocked(blocked, reason = "") {
+  state.queueAutoAdvanceBlocked = Boolean(blocked);
+  state.queueAutoAdvanceBlockedReason = state.queueAutoAdvanceBlocked
+    ? `${reason || "manual"}`.trim() || "manual"
+    : "";
+}
+
 async function executeAudioAutomationAction(target, action) {
   const safeTarget = sanitizeAudioAutomationTarget(target);
   const safeAction = sanitizeAudioAutomationAction(safeTarget, action);
@@ -978,8 +987,22 @@ async function executeAudioAutomationAction(target, action) {
     };
   }
   if (safeTarget === "playback") {
+    if (safeAction === "stop") {
+      setQueueAutoAdvanceBlocked(true, "audio-automation-stop");
+    } else if (safeAction === "play") {
+      setQueueAutoAdvanceBlocked(false);
+    }
     await mopidyRpc(`core.playback.${safeAction}`);
-    const playbackState = await mopidyRpc("core.playback.get_state");
+    let playbackState = await mopidyRpc("core.playback.get_state");
+    if (
+      safeAction === "play"
+      && playbackState === "stopped"
+      && state.localQueue.length > 0
+      && !state.playbackAdvancing
+    ) {
+      await playNextFromQueue();
+      playbackState = await mopidyRpc("core.playback.get_state");
+    }
     return {
       target: safeTarget,
       action: safeAction,
@@ -4985,6 +5008,7 @@ async function preScreenUpcomingQueueItems(limit = 3) {
 
 async function playNextFromQueue() {
   if (state.playbackAdvancing) return;
+  if (state.queueAutoAdvanceBlocked) return;
   if (!state.localQueue.length) {
     state.nowPlaying = null;
     return;
@@ -9365,6 +9389,17 @@ for (const action of ["play", "pause", "previous"]) {
   app.post(`/api/admin/playback/${action}`, requireAdmin, requireJukeboxPlaybackAdmin, async (_req, res) => {
     try {
       await mopidyRpc(rpcMethod);
+      if (action === "play") {
+        setQueueAutoAdvanceBlocked(false);
+        const playbackState = await mopidyRpc("core.playback.get_state");
+        if (
+          playbackState === "stopped"
+          && state.localQueue.length > 0
+          && !state.playbackAdvancing
+        ) {
+          await playNextFromQueue();
+        }
+      }
       res.json({ ok: true });
     } catch (error) {
       res.status(500).json({ error: error.message });
