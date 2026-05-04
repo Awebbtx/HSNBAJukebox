@@ -31,6 +31,9 @@ let slides = [];
 let currentIndex = 0;
 let slideTimer = null;
 let adoptablesRefreshTimer = null;
+const INTER_SLIDE_BREAK_MS = 1000;
+const IMAGE_PRELOAD_TIMEOUT_MS = 5000;
+let slideAdvanceToken = 0;
 const IMAGE_MOTION_CLASSES = [
   "kb-pan-left",
   "kb-pan-right",
@@ -432,6 +435,61 @@ function showSlide(index) {
   showAnimalSlide(slide.animal || {}, slide);
 }
 
+function waitMs(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(ms || 0))));
+}
+
+function preloadSlideImage(slide) {
+  const imageUrl = `${slide?.animal?.imageUrl || ""}`.trim();
+  if (!imageUrl) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    const probe = new Image();
+    let done = false;
+    const finish = (loaded) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      probe.onload = null;
+      probe.onerror = null;
+      resolve(Boolean(loaded));
+    };
+    const timer = window.setTimeout(() => finish(false), IMAGE_PRELOAD_TIMEOUT_MS);
+    probe.onload = () => finish(true);
+    probe.onerror = () => finish(false);
+    probe.src = imageUrl;
+  });
+}
+
+async function transitionToSlide(index, { withBreak = false } = {}) {
+  if (!slides.length) {
+    renderEmptySlide();
+    return;
+  }
+
+  const normalizedIndex = (index + slides.length) % slides.length;
+  const nextSlide = slides[normalizedIndex] || {};
+  const token = ++slideAdvanceToken;
+
+  const preloadPromise = nextSlide.type === "animal"
+    ? preloadSlideImage(nextSlide)
+    : Promise.resolve(false);
+
+  if (withBreak) {
+    await Promise.all([preloadPromise, waitMs(INTER_SLIDE_BREAK_MS)]);
+  } else {
+    await preloadPromise;
+  }
+
+  if (token !== slideAdvanceToken) {
+    return;
+  }
+
+  showSlide(normalizedIndex);
+}
+
 function startSlideTimer() {
   if (slideTimer) {
     window.clearTimeout(slideTimer);
@@ -441,7 +499,10 @@ function startSlideTimer() {
     const seconds = Math.max(4, Number(current?.displaySeconds || slideshowSettings.intervalSeconds || 12));
     slideTimer = window.setTimeout(() => {
       if (slides.length > 1) {
-        showSlide(currentIndex + 1);
+        transitionToSlide(currentIndex + 1, { withBreak: true })
+          .catch(() => {})
+          .finally(scheduleNext);
+        return;
       }
       scheduleNext();
     }, seconds * 1000);
@@ -509,8 +570,12 @@ document.addEventListener("webkitfullscreenchange", syncFullscreenButton);
 document.addEventListener("mozfullscreenchange", syncFullscreenButton);
 document.addEventListener("MSFullscreenChange", syncFullscreenButton);
 
-els.prevAnimalBtn.addEventListener("click", () => showSlide(currentIndex - 1));
-els.nextAnimalBtn.addEventListener("click", () => showSlide(currentIndex + 1));
+els.prevAnimalBtn.addEventListener("click", () => {
+  transitionToSlide(currentIndex - 1).catch(() => {});
+});
+els.nextAnimalBtn.addEventListener("click", () => {
+  transitionToSlide(currentIndex + 1).catch(() => {});
+});
 els.refreshAnimalsBtn.addEventListener("click", () => loadAdoptables(true));
 
 (async () => {
