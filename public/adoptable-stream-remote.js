@@ -389,7 +389,8 @@ async function loadAdoptables(force = false) {
     if (!payload.configured) {
       els.adoptableStatus.textContent = "ASM is not configured yet (set service URL and credentials).";
     } else if (payload.error) {
-      els.adoptableStatus.textContent = `ASM error: ${payload.error}`;
+      els.adoptableStatus.textContent = `ASM error: ${payload.error} — retrying in 20s`;
+      window.setTimeout(() => loadAdoptables().catch(() => {}), 20000);
     } else {
       els.adoptableStatus.textContent = payload.fetchedAt
         ? `Adoptables synced ${new Date(payload.fetchedAt).toLocaleTimeString()}`
