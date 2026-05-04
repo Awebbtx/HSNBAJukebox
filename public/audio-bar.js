@@ -239,12 +239,12 @@ export function initAudioBar() {
       <span class="ab-live-label">LIVE</span>
     </div>
     <span class="ab-now" id="ab-now">Loading current song...</span>
+    <span class="ab-status" id="ab-status"></span>
     <div class="ab-votes" aria-label="Song votes">
       <button class="ab-vote-btn" id="ab-vote-up" type="button" title="Upvote current song">👍 <span id="ab-vote-up-count">0</span></button>
       <button class="ab-vote-btn" id="ab-vote-down" type="button" title="Downvote current song">👎 <span id="ab-vote-down-count">0</span></button>
     </div>
     <button class="ab-toggle" id="ab-toggle" type="button">▶ Play</button>
-    <span class="ab-status" id="ab-status"></span>
     <div class="ab-vol-wrap">
       <span class="ab-vol-label">VOL</span>
       <input class="ab-vol" id="ab-vol" type="range" min="0" max="1" step="0.02"

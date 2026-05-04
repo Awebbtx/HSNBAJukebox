@@ -134,7 +134,8 @@ body.has-audio-bar {
   color: #6a90b0;
   white-space: nowrap;
   flex-shrink: 0;
-  max-width: 230px;
+  width: 220px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
