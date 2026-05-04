@@ -86,6 +86,7 @@ let slideshowSettings = {
   audioSource: "/live.mp3",
   audioVolume: 70,
   audioAutoplay: true,
+  photoFit: "cover",
   panZoom: {
     speedSeconds: 12,
     startPercent: 105,
@@ -93,6 +94,10 @@ let slideshowSettings = {
   },
   displayFields: [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS]
 };
+
+function normalizePhotoFit(value) {
+  return `${value || ""}`.toLowerCase() === "contain" ? "contain" : "cover";
+}
 
 function escapeHtml(value) {
   return `${value || ""}`
@@ -358,6 +363,7 @@ function pickImageMotionClass(seed = "") {
 
 function applyAnimalImageMotion(photoWrap, seed, displaySeconds) {
   const panZoom = slideshowSettings.panZoom || {};
+  const photoFit = normalizePhotoFit(slideshowSettings.photoFit);
   const configuredSpeedSeconds = Number(panZoom.speedSeconds || 0);
   const durationSeconds = configuredSpeedSeconds > 0
     ? Math.max(4, configuredSpeedSeconds)
@@ -374,6 +380,7 @@ function applyAnimalImageMotion(photoWrap, seed, displaySeconds) {
   }
   photoWrap.classList.remove(...IMAGE_MOTION_CLASSES);
   photoWrap.classList.add(pickImageMotionClass(seed));
+  photoWrap.style.setProperty("--animal-photo-fit", photoFit);
   photoWrap.style.setProperty("--kb-duration", `${durationSeconds}s`);
 }
 
@@ -607,6 +614,7 @@ function applySlideshowSettings(settings = {}) {
       ...(incomingPanZoom || {})
     }
   };
+  slideshowSettings.photoFit = normalizePhotoFit(slideshowSettings.photoFit);
   slideshowRawFieldCatalog = normalizeDisplayFieldCatalog(settings?.displayFieldCatalog || slideshowRawFieldCatalog);
   slideshowSettings.displayFields = normalizeDisplayFields(slideshowSettings.displayFields);
 

@@ -496,6 +496,7 @@ const state = {
     adoptablesPerSpecial: Math.max(1, Number(process.env.SLIDESHOW_ADOPTABLES_PER_SPECIAL || 3)),
     alertEveryXSlides: Math.max(2, Number(process.env.SLIDESHOW_ALERT_EVERY_X_SLIDES || 6)),
     specialImageMaxMb: Math.max(1, Math.min(12, Number(process.env.SLIDESHOW_SPECIAL_IMAGE_MAX_MB || 4))),
+    photoFit: `${process.env.SLIDESHOW_PHOTO_FIT || "cover"}`.trim().toLowerCase() === "contain" ? "contain" : "cover",
     panZoomSpeedSeconds: Math.max(4, Number(process.env.SLIDESHOW_PAN_ZOOM_SPEED_SECONDS || 12)),
     panZoomStartPercent: Math.max(80, Math.min(200, Number(process.env.SLIDESHOW_PAN_ZOOM_START_PERCENT || 105))),
     panZoomEndPercent: Math.max(80, Math.min(220, Number(process.env.SLIDESHOW_PAN_ZOOM_END_PERCENT || 112)))
@@ -1348,6 +1349,9 @@ function normalizeSlideshowConfig(raw) {
   const legacyDisplayFields = `${process.env.SLIDESHOW_DISPLAY_FIELDS || ""}`.split("|");
   const displayFields = sanitizeSlideshowDisplayFields(config.displayFields || legacyDisplayFields, displayFieldCatalog);
   const specialPages = sanitizeSpecialPages(config.specialPages || []);
+  const photoFit = `${config.photoFit || process.env.SLIDESHOW_PHOTO_FIT || "cover"}`.trim().toLowerCase() === "contain"
+    ? "contain"
+    : "cover";
   return {
     version: 1,
     customFilterRules,
@@ -1357,6 +1361,7 @@ function normalizeSlideshowConfig(raw) {
     adoptablesPerSpecial: Math.max(1, Number(config.adoptablesPerSpecial || process.env.SLIDESHOW_ADOPTABLES_PER_SPECIAL || 3)),
     alertEveryXSlides: Math.max(2, Number(config.alertEveryXSlides || process.env.SLIDESHOW_ALERT_EVERY_X_SLIDES || 6)),
     specialImageMaxMb: Math.max(1, Math.min(12, Number(config.specialImageMaxMb || process.env.SLIDESHOW_SPECIAL_IMAGE_MAX_MB || 4))),
+    photoFit,
     panZoomSpeedSeconds: Math.max(4, Number(config.panZoomSpeedSeconds || process.env.SLIDESHOW_PAN_ZOOM_SPEED_SECONDS || 12)),
     panZoomStartPercent: Math.max(80, Math.min(200, Number(config.panZoomStartPercent || process.env.SLIDESHOW_PAN_ZOOM_START_PERCENT || 105))),
     panZoomEndPercent: Math.max(80, Math.min(220, Number(config.panZoomEndPercent || process.env.SLIDESHOW_PAN_ZOOM_END_PERCENT || 112)))
@@ -1372,6 +1377,7 @@ function saveSlideshowConfig() {
     adoptablesPerSpecial: state.slideshow?.adoptablesPerSpecial || 3,
     alertEveryXSlides: state.slideshow?.alertEveryXSlides || 6,
     specialImageMaxMb: state.slideshow?.specialImageMaxMb || 4,
+    photoFit: state.slideshow?.photoFit || "cover",
     panZoomSpeedSeconds: state.slideshow?.panZoomSpeedSeconds || 12,
     panZoomStartPercent: state.slideshow?.panZoomStartPercent || 105,
     panZoomEndPercent: state.slideshow?.panZoomEndPercent || 112
@@ -1394,6 +1400,7 @@ function loadSlideshowConfig() {
       state.slideshow.adoptablesPerSpecial = initial.adoptablesPerSpecial;
       state.slideshow.alertEveryXSlides = initial.alertEveryXSlides;
       state.slideshow.specialImageMaxMb = initial.specialImageMaxMb;
+      state.slideshow.photoFit = initial.photoFit;
       state.slideshow.panZoomSpeedSeconds = initial.panZoomSpeedSeconds;
       state.slideshow.panZoomStartPercent = initial.panZoomStartPercent;
       state.slideshow.panZoomEndPercent = initial.panZoomEndPercent;
@@ -1410,6 +1417,7 @@ function loadSlideshowConfig() {
     state.slideshow.adoptablesPerSpecial = normalized.adoptablesPerSpecial;
     state.slideshow.alertEveryXSlides = normalized.alertEveryXSlides;
     state.slideshow.specialImageMaxMb = normalized.specialImageMaxMb;
+    state.slideshow.photoFit = normalized.photoFit;
     state.slideshow.panZoomSpeedSeconds = normalized.panZoomSpeedSeconds;
     state.slideshow.panZoomStartPercent = normalized.panZoomStartPercent;
     state.slideshow.panZoomEndPercent = normalized.panZoomEndPercent;
@@ -1424,6 +1432,7 @@ function loadSlideshowConfig() {
     state.slideshow.adoptablesPerSpecial = fallback.adoptablesPerSpecial;
     state.slideshow.alertEveryXSlides = fallback.alertEveryXSlides;
     state.slideshow.specialImageMaxMb = fallback.specialImageMaxMb;
+    state.slideshow.photoFit = fallback.photoFit;
     state.slideshow.panZoomSpeedSeconds = fallback.panZoomSpeedSeconds;
     state.slideshow.panZoomStartPercent = fallback.panZoomStartPercent;
     state.slideshow.panZoomEndPercent = fallback.panZoomEndPercent;
@@ -9153,6 +9162,7 @@ app.get("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, asyn
       specialPages: sanitizeSpecialPages(state.slideshow.specialPages || []),
       adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
       alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
+      photoFit: `${state.slideshow.photoFit || "cover"}`.trim().toLowerCase() === "contain" ? "contain" : "cover",
       panZoom: {
         speedSeconds: Math.max(4, Number(state.slideshow.panZoomSpeedSeconds || 12)),
         startPercent: Math.max(80, Math.min(200, Number(state.slideshow.panZoomStartPercent || 105))),
@@ -9252,6 +9262,9 @@ app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (re
   state.slideshow.specialImageMaxMb = body.specialImageMaxMb !== undefined
     ? Math.max(1, Math.min(12, Number(body.specialImageMaxMb || 4)))
     : Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4)));
+  state.slideshow.photoFit = body.photoFit !== undefined
+    ? `${body.photoFit || ""}`.trim().toLowerCase() === "contain" ? "contain" : "cover"
+    : `${state.slideshow.photoFit || "cover"}`.trim().toLowerCase() === "contain" ? "contain" : "cover";
   state.slideshow.panZoomSpeedSeconds = body.panZoomSpeedSeconds !== undefined
     ? Math.max(4, Number(body.panZoomSpeedSeconds || 12))
     : Math.max(4, Number(state.slideshow.panZoomSpeedSeconds || 12));
@@ -9303,6 +9316,7 @@ app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (re
   persistEnvSetting("SLIDESHOW_ADOPTABLES_PER_SPECIAL", `${state.slideshow.adoptablesPerSpecial}`);
   persistEnvSetting("SLIDESHOW_ALERT_EVERY_X_SLIDES", `${state.slideshow.alertEveryXSlides}`);
   persistEnvSetting("SLIDESHOW_SPECIAL_IMAGE_MAX_MB", `${state.slideshow.specialImageMaxMb}`);
+  persistEnvSetting("SLIDESHOW_PHOTO_FIT", state.slideshow.photoFit);
   persistEnvSetting("SLIDESHOW_PAN_ZOOM_SPEED_SECONDS", `${state.slideshow.panZoomSpeedSeconds}`);
   persistEnvSetting("SLIDESHOW_PAN_ZOOM_START_PERCENT", `${state.slideshow.panZoomStartPercent}`);
   persistEnvSetting("SLIDESHOW_PAN_ZOOM_END_PERCENT", `${state.slideshow.panZoomEndPercent}`);
@@ -10054,6 +10068,7 @@ app.get("/api/adoptables/slideshow", async (req, res) => {
       adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
       alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
       specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4))),
+      photoFit: `${state.slideshow.photoFit || "cover"}`.trim().toLowerCase() === "contain" ? "contain" : "cover",
       panZoom: {
         speedSeconds: Math.max(4, Number(state.slideshow.panZoomSpeedSeconds || 12)),
         startPercent: Math.max(80, Math.min(200, Number(state.slideshow.panZoomStartPercent || 105))),

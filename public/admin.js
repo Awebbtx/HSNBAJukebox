@@ -285,6 +285,7 @@ const els = {
   panZoomSpeedSecondsInput: document.getElementById("panZoomSpeedSecondsInput"),
   panZoomStartPercentInput: document.getElementById("panZoomStartPercentInput"),
   panZoomEndPercentInput: document.getElementById("panZoomEndPercentInput"),
+  photoFitModeInput: document.getElementById("photoFitModeInput"),
   slideshowExcludeFeralToggle: document.getElementById("slideshowExcludeFeralToggle"),
   slideshowCustomFiltersEnabledToggle: document.getElementById("slideshowCustomFiltersEnabledToggle"),
   slideshowCustomFiltersBuilder: document.getElementById("slideshowCustomFiltersBuilder"),
@@ -2763,6 +2764,9 @@ async function loadAsmSettings() {
     if (els.panZoomEndPercentInput) {
       els.panZoomEndPercentInput.value = `${Math.max(80, Number(panZoom.endPercent || 112))}`;
     }
+    if (els.photoFitModeInput) {
+      els.photoFitModeInput.value = show.photoFit === "contain" ? "contain" : "cover";
+    }
     updateSpecialImageStorageText(show.specialImageStorage || null);
     specialPages = Array.isArray(show.specialPages) ? show.specialPages : [];
     renderSpecialPagesList();
@@ -2866,6 +2870,7 @@ async function saveAsmSettings() {
     panZoomSpeedSeconds: Number(els.panZoomSpeedSecondsInput?.value || 12),
     panZoomStartPercent: Number(els.panZoomStartPercentInput?.value || 105),
     panZoomEndPercent: Number(els.panZoomEndPercentInput?.value || 112),
+    photoFit: els.photoFitModeInput?.value === "contain" ? "contain" : "cover",
     emojiShowerEnabled: Boolean(els.emojiShowerEnabledToggle?.checked),
     emojiShowerFrequency: Number(els.emojiShowerFrequencyInput?.value || 3),
     emojiShowerDuration: Number(els.emojiShowerDurationInput?.value || 3000),

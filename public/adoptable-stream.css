@@ -229,7 +229,7 @@ a.top-brand:hover .brand-name {
 .photo-wrap img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: var(--animal-photo-fit, cover);
   display: none;
   transform-origin: center center;
 }
