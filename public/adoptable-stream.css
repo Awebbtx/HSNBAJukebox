@@ -137,7 +137,8 @@ a.top-brand:hover .brand-name {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  align-items: flex-start;
 }
 
 .photo-wrap {
@@ -168,6 +169,12 @@ a.top-brand:hover .brand-name {
 :-webkit-full-screen .slide-grid {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
+}
+
+:fullscreen .copy-frame,
+:-webkit-full-screen .copy-frame {
+  min-height: calc(100vh - 12rem);
+  max-height: calc(100vh - 12rem);
 }
 
 :fullscreen .photo-wrap,
@@ -329,26 +336,52 @@ a.top-brand:hover .brand-name {
   font-size: clamp(1.05rem, 1.65vw, 1.55rem);
 }
 
-.text-transition-host {
+.copy-frame {
   position: relative;
+  width: 100%;
+  min-height: calc(100vh - 245px);
+  max-height: calc(100vh - 245px);
   overflow: hidden;
 }
 
-.text-transition-incoming {
-  animation: text-slide-in 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+.copy-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
 }
 
-.text-transition-outgoing {
+.copy-stage-incoming {
+  animation: copy-stage-in 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.copy-stage-outgoing {
   position: absolute;
   inset: 0;
+  z-index: 2;
   pointer-events: none;
-  animation: text-fade-out 520ms ease-out forwards;
+  animation: copy-stage-out 560ms ease-out forwards;
 }
 
-@keyframes text-slide-in {
+.special-copy-wrap {
+  padding: 1.1rem 1.2rem;
+}
+
+.special-copy-wrap .copy-stage {
+  padding-right: 0.2rem;
+}
+
+.special-copy-wrap.copy-frame {
+  overflow: auto;
+}
+
+.animal-copy-frame .copy-stage {
+  padding-right: 0.35rem;
+}
+
+@keyframes copy-stage-in {
   from {
     opacity: 0;
-    transform: translate3d(0, 14px, 0);
+    transform: translate3d(0, 100%, 0);
   }
   to {
     opacity: 1;
@@ -356,15 +389,20 @@ a.top-brand:hover .brand-name {
   }
 }
 
-@keyframes text-fade-out {
+@keyframes copy-stage-out {
   from {
     opacity: 0.9;
     transform: translate3d(0, 0, 0);
   }
   to {
     opacity: 0;
-    transform: translate3d(0, -8px, 0);
+    transform: translate3d(0, -10px, 0);
   }
+}
+
+.text-transition-host {
+  position: relative;
+  overflow: hidden;
 }
 
 .slide-actions {
@@ -416,11 +454,6 @@ a.top-brand:hover .brand-name {
   min-height: calc(100vh - 245px);
   max-height: calc(100vh - 245px);
   overflow: hidden;
-}
-
-.special-copy-wrap {
-  padding: 1.1rem 1.2rem;
-  overflow: auto;
 }
 
 .special-rich-body {

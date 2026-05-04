@@ -7,6 +7,7 @@ const els = {
   animalDetails: document.getElementById("animalDetails"),
   animalBio: document.getElementById("animalBio"),
   animalProfileLink: document.getElementById("animalProfileLink"),
+  animalCopyStage: document.getElementById("animalCopyStage"),
   animalSlide: document.getElementById("animalSlide"),
   specialSlide: document.getElementById("specialSlide"),
   specialImageTemplate: document.getElementById("specialImageTemplate"),
@@ -16,6 +17,7 @@ const els = {
   specialCategory: document.getElementById("specialCategory"),
   specialTitle: document.getElementById("specialTitle"),
   specialBody: document.getElementById("specialBody"),
+  specialCopyStage: document.getElementById("specialCopyStage"),
   slideCounter: document.getElementById("slideCounter"),
   adoptableStatus: document.getElementById("adoptableStatus"),
 
@@ -81,37 +83,38 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function setTransitionContent(element, nextValue, { html = false } = {}) {
-  if (!element) return;
-  const next = `${nextValue ?? ""}`;
-  const current = html ? `${element.innerHTML ?? ""}` : `${element.textContent ?? ""}`;
-  if (current === next) {
+function runCopyStageTransition(stage, updater) {
+  if (!stage || typeof updater !== "function") {
+    return;
+  }
+  const frame = stage.closest(".copy-frame");
+  if (!frame) {
+    updater();
     return;
   }
 
-  element.classList.add("text-transition-host");
-  element.querySelectorAll('.text-transition-outgoing').forEach((node) => node.remove());
+  frame.querySelectorAll(".copy-stage-outgoing").forEach((node) => node.remove());
+  const previousHtml = `${stage.innerHTML || ""}`.trim();
 
-  if (html) {
-    element.innerHTML = next;
-  } else {
-    element.textContent = next;
-  }
+  updater();
 
-  if (current.trim()) {
-    const outgoing = document.createElement("div");
-    outgoing.className = "text-transition-outgoing";
-    outgoing.innerHTML = current;
-    element.appendChild(outgoing);
-    outgoing.addEventListener("animationend", () => outgoing.remove(), { once: true });
-  }
-
-  element.classList.remove("text-transition-incoming");
-  void element.offsetWidth;
-  element.classList.add("text-transition-incoming");
-  element.addEventListener("animationend", () => {
-    element.classList.remove("text-transition-incoming");
+  stage.classList.remove("copy-stage-incoming");
+  void stage.offsetWidth;
+  stage.classList.add("copy-stage-incoming");
+  stage.addEventListener("animationend", () => {
+    stage.classList.remove("copy-stage-incoming");
   }, { once: true });
+
+  if (!previousHtml) {
+    return;
+  }
+
+  const outgoing = document.createElement("div");
+  outgoing.className = "copy-stage-outgoing";
+  outgoing.innerHTML = previousHtml;
+  outgoing.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+  frame.appendChild(outgoing);
+  outgoing.addEventListener("animationend", () => outgoing.remove(), { once: true });
 }
 
 async function toggleFullscreen() {
@@ -308,9 +311,11 @@ function renderEmptySlide() {
     els.slideCounter.textContent = "0 / 0";
     els.animalSlide.hidden = false;
     els.specialSlide.hidden = true;
-  setTransitionContent(els.animalName, "No adoptables available");
-  setTransitionContent(els.animalDetails, "");
-  setTransitionContent(els.animalBio, "Configure ASM connection to load adoptable animals.");
+    runCopyStageTransition(els.animalCopyStage, () => {
+      els.animalName.textContent = "No adoptables available";
+      els.animalDetails.textContent = "";
+      els.animalBio.textContent = "Configure ASM connection to load adoptable animals.";
+    });
     els.animalProfileLink.setAttribute("href", "#");
     els.animalProfileLink.style.pointerEvents = "none";
     els.animalProfileLink.style.opacity = "0.5";
@@ -349,15 +354,17 @@ function showAnimalSlide(animal, slideMeta = {}) {
   els.animalSlide.hidden = false;
   els.specialSlide.hidden = true;
 
-  setTransitionContent(els.animalName, a.name || "Unknown");
+  runCopyStageTransition(els.animalCopyStage, () => {
+    els.animalName.textContent = a.name || "Unknown";
 
-  const details = buildDisplayLines(a);
-  setTransitionContent(els.animalDetails, details.length
-    ? details.map((line) => `<div>${escapeHtml(line)}</div>`).join("")
-    : "", { html: true });
+    const details = buildDisplayLines(a);
+    els.animalDetails.innerHTML = details.length
+      ? details.map((line) => `<div>${escapeHtml(line)}</div>`).join("")
+      : "";
 
-  const bio = `${a.bio || ""}`.trim();
-  setTransitionContent(els.animalBio, bio ? bio.slice(0, 360) : "");
+    const bio = `${a.bio || ""}`.trim();
+    els.animalBio.textContent = bio ? bio.slice(0, 360) : "";
+  });
 
   if (a.profileUrl) {
     els.animalProfileLink.setAttribute("href", a.profileUrl);
@@ -402,9 +409,11 @@ function showSpecialSlide(page) {
   } else {
     els.specialSplitImage.src = item.imageUrl || "";
     els.specialSplitImage.alt = item.title || "Special slide";
-    setTransitionContent(els.specialCategory, item.category || "General PSA and Alerts");
-    setTransitionContent(els.specialTitle, item.title || "Special Page");
-    setTransitionContent(els.specialBody, item.richText || "", { html: true });
+    runCopyStageTransition(els.specialCopyStage, () => {
+      els.specialCategory.textContent = item.category || "General PSA and Alerts";
+      els.specialTitle.textContent = item.title || "Special Page";
+      els.specialBody.innerHTML = item.richText || "";
+    });
   }
 }
 
