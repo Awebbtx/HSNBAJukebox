@@ -9135,6 +9135,15 @@ app.get("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, asyn
       specialPages: sanitizeSpecialPages(state.slideshow.specialPages || []),
       adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
       alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
+      emojiShower: {
+        enabled: state.slideshow.emojiShowerEnabled !== false,
+        frequency: Math.max(1, Number(state.slideshow.emojiShowerFrequency || 3)),
+        duration: Math.max(500, Number(state.slideshow.emojiShowerDuration || 3000)),
+        intensity: Math.max(1, Number(state.slideshow.emojiShowerIntensity || 15)),
+        emojis: Array.isArray(state.slideshow.emojiShowerEmojis) && state.slideshow.emojiShowerEmojis.length
+          ? state.slideshow.emojiShowerEmojis
+          : ["❤️", "⭐", "🎵", "🐾"]
+      },
       specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4))),
       specialImageStorage: {
         count: Number(specialImageStorage.count || 0),
