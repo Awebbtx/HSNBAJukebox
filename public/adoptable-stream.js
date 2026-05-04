@@ -521,14 +521,18 @@ function showSlide(index) {
   els.slideCounter.textContent = `${currentIndex + 1} / ${slides.length}`;
 
   // Trigger emoji shower based on settings (in fullscreen only)
-  if (emojiShowerSettings.enabled) {
-    slideShowCount++;
-    if (
-      slideShowCount % emojiShowerSettings.frequency === 0
-      && (document.fullscreenElement || document.webkitFullscreenElement)
-    ) {
-      triggerEmojiShower();
+  try {
+    if (emojiShowerSettings && emojiShowerSettings.enabled) {
+      slideShowCount++;
+      if (
+        slideShowCount % emojiShowerSettings.frequency === 0
+        && (document.fullscreenElement || document.webkitFullscreenElement)
+      ) {
+        triggerEmojiShower();
+      }
     }
+  } catch (err) {
+    console.error("Error in emoji shower:", err);
   }
 
   if (slide.type === "special") {
