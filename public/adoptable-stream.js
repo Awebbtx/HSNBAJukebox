@@ -58,6 +58,7 @@ let emojiShowerSettings = {
   emojis: ["❤️", "⭐", "🎵", "🐾"]
 };
 let slideShowCount = 0; // Track slides for emoji trigger
+let emojiShowerBurstId = 0;
 
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "raw:NEUTERED",
@@ -456,32 +457,46 @@ function triggerEmojiShower() {
   const container = document.getElementById("emojiShower");
   if (!container) return;
 
-  const intensity = emojiShowerSettings.intensity;
+  const intensity = Math.max(1, Math.min(400, Number(emojiShowerSettings.intensity || 15)));
   const emojis = emojiShowerSettings.emojis || ["❤️", "⭐", "🎵", "🐾"];
+  const baseDuration = Math.max(500, Number(emojiShowerSettings.duration || 3000));
+  const staggerWindowMs = Math.min(6000, Math.max(300, Math.round(baseDuration * 0.9)));
+  const burstId = ++emojiShowerBurstId;
+  const viewportWidth = Math.max(320, window.innerWidth || 0);
+  const horizontalMarginPx = Math.max(24, Math.round(viewportWidth * 0.04));
+  const minLeftPx = horizontalMarginPx;
+  const maxLeftPx = Math.max(minLeftPx, viewportWidth - horizontalMarginPx);
 
-  // Always render as top-down shower so particles stay in-view.
-  for (let i = 0; i < intensity; i++) {
+  const spawnParticle = () => {
     const emoji = emojis[Math.floor(Math.random() * emojis.length)];
     const span = document.createElement("span");
     span.className = "emoji-rain";
     span.textContent = emoji;
+    span.dataset.burstId = `${burstId}`;
 
-    span.style.left = Math.random() * 100 + "%";
+    const leftPx = minLeftPx + Math.random() * (maxLeftPx - minLeftPx);
+    span.style.left = `${leftPx}px`;
     span.style.top = "-50px";
 
-    // Keep a little variance in fall speed for natural motion.
-    let duration = emojiShowerSettings.duration || 3000;
-    duration = Math.max(500, duration * (0.8 + Math.random() * 0.4));
-    span.style.animationDuration = duration + "ms";
-    span.style.animationDelay = Math.random() * 200 + "ms";
+    // Keep variance in fall speed while honoring configured duration.
+    const fallDuration = Math.max(500, Math.round(baseDuration * (0.8 + Math.random() * 0.5)));
+    span.style.animationDuration = `${fallDuration}ms`;
+    span.style.animationDelay = "0ms";
 
     container.appendChild(span);
+    window.setTimeout(() => span.remove(), fallDuration + 250);
+  };
+
+  // Emit particles across time so high counts remain visible.
+  for (let i = 0; i < intensity; i++) {
+    const spawnDelay = Math.random() * staggerWindowMs;
+    window.setTimeout(spawnParticle, spawnDelay);
   }
 
-  // Clean up after shower duration
+  // Cleanup this burst only (prevents removing particles from newer bursts).
   window.setTimeout(() => {
-    container.querySelectorAll(".emoji-rain").forEach((el) => el.remove());
-  }, emojiShowerSettings.duration || 3000);
+    container.querySelectorAll(`.emoji-rain[data-burst-id="${burstId}"]`).forEach((el) => el.remove());
+  }, staggerWindowMs + baseDuration + 400);
 }
 
 function showSlide(index) {
