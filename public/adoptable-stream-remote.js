@@ -333,6 +333,12 @@ function pickImageMotionClass(seed = "") {
 
 function applyAnimalImageMotion(photoWrap, seed, displaySeconds) {
   const durationSeconds = Math.max(8, Number(displaySeconds || slideshowSettings.intervalSeconds || 12) - 0.25);
+  const image = photoWrap.querySelector("img");
+  if (image) {
+    image.style.animation = "none";
+    void image.offsetWidth;
+    image.style.removeProperty("animation");
+  }
   photoWrap.classList.remove(...IMAGE_MOTION_CLASSES);
   photoWrap.classList.add(pickImageMotionClass(seed));
   photoWrap.style.setProperty("--kb-duration", `${durationSeconds}s`);
@@ -365,6 +371,7 @@ function showAnimalSlide(animal, slideMeta = {}) {
 
   if (a.imageUrl) {
     const photoWrap = els.animalImage.parentElement;
+    applyAnimalImageMotion(photoWrap, `${a.imageUrl}|${currentIndex}`, slideMeta?.displaySeconds);
     els.animalImage.onload = function () {
       const portrait = this.naturalHeight > this.naturalWidth;
       photoWrap.classList.toggle("portrait", portrait);
