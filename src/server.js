@@ -50,6 +50,7 @@ const SPOTIFY_TRACK_CACHE_TTL_MS = Math.max(60000, Number(process.env.SPOTIFY_TR
 const QUEUE_METADATA_HYDRATION_INTERVAL_MS = Math.max(10000, Number(process.env.QUEUE_METADATA_HYDRATION_INTERVAL_MS || 30000));
 const QUEUE_METADATA_HYDRATION_MAX_FAILURES = Math.max(1, Number(process.env.QUEUE_METADATA_HYDRATION_MAX_FAILURES || 8));
 const QUEUE_METADATA_HYDRATION_EXHAUSTED_RETRY_MS = Math.max(10 * 60 * 1000, Number(process.env.QUEUE_METADATA_HYDRATION_EXHAUSTED_RETRY_MS || 45 * 60 * 1000));
+const IDLE_UPVOTED_AUTOPLAY_DELAY_MS = Math.max(15000, Number(process.env.IDLE_UPVOTED_AUTOPLAY_DELAY_MS || 120000));
 const SPOTIFY_MARKET = `${process.env.SPOTIFY_MARKET || "US"}`.trim().toUpperCase();
 if (!SESSION_SECRET) {
   console.warn("WARNING: SESSION_SECRET is not set. Admin sessions will not be valid across process restarts or between jukebox/reporting processes.");
@@ -466,6 +467,8 @@ const state = {
   playbackLoopRunning: false,
   queueAutoAdvanceBlocked: false,
   queueAutoAdvanceBlockedReason: "",
+  idleSilenceSince: 0,
+  idleUpvotedLastAttemptAt: 0,
   asm: {
     serviceUrl: `${process.env.ASM_SERVICE_URL || ""}`.trim(),
     account: `${process.env.ASM_ACCOUNT || ""}`.trim(),
@@ -5061,6 +5064,69 @@ async function playNextFromQueue() {
   }
 }
 
+function pickRandomUpvotedTrackCandidate() {
+  const candidates = getTopUpvoted(250)
+    .filter((item) => `${item?.uri || ""}`.trim())
+    .filter((item) => Number(item?.upvotes || 0) > 0);
+  if (!candidates.length) {
+    return null;
+  }
+  const index = Math.floor(Math.random() * candidates.length);
+  return candidates[index] || null;
+}
+
+async function playRandomUpvotedIdleTrack() {
+  const selected = pickRandomUpvotedTrackCandidate();
+  if (!selected?.uri) {
+    return false;
+  }
+
+  if (state.explicitFilter) {
+    const explicit = await getSpotifyExplicitForUri(selected.uri).catch(() => null);
+    if (explicit === true) {
+      return false;
+    }
+  }
+
+  const idleItem = {
+    id: crypto.randomUUID(),
+    uri: selected.uri,
+    name: selected.name || "Unknown track",
+    artists: selected.artists || "",
+    album: selected.album || "",
+    requestedBy: "",
+    requestedByToken: "",
+    requestedAt: new Date().toISOString(),
+    upvotes: Number(selected.upvotes || 0),
+    downvotes: Number(selected.downvotes || 0),
+    voteScore: Number(selected.score || 0)
+  };
+
+  state.playbackAdvancing = true;
+  try {
+    await mopidyRpc("core.tracklist.clear");
+    const added = await mopidyRpc("core.tracklist.add", { uris: [idleItem.uri] });
+    const tlid = added?.[0]?.tlid ?? null;
+    if (tlid != null) {
+      await mopidyRpc("core.playback.play", { tlid });
+    } else {
+      await mopidyRpc("core.playback.play");
+    }
+
+    state.playbackAdvanceCooldownUntil = Date.now() + 8000;
+    state.nowPlaying = { ...idleItem, tlid };
+    state.lastKnownCurrentTrackUri = idleItem.uri;
+    recordTrackStat(idleItem.uri, idleItem.name, idleItem.artists, idleItem.album, "playCount");
+    console.log(`Idle upvoted autoplay: ${idleItem.name} — ${idleItem.artists}`);
+    return true;
+  } catch (error) {
+    console.warn(`Idle upvoted autoplay failed: ${error.message}`);
+    return false;
+  } finally {
+    state.playbackAdvancing = false;
+  }
+}
+
 async function playbackLoop() {
   if (state.playbackLoopRunning) return;
   state.playbackLoopRunning = true;
@@ -5083,8 +5149,32 @@ async function playbackLoop() {
           await preScreenUpcomingQueueItems(3);
         }
         await playNextFromQueue();
+      } else if (
+        state.localQueue.length === 0
+        && !state.playbackAdvancing
+        && !state.queueAutoAdvanceBlocked
+      ) {
+        const now = Date.now();
+        if (!state.idleSilenceSince) {
+          state.idleSilenceSince = now;
+        }
+        const quietForMs = now - Number(state.idleSilenceSince || now);
+        const waitWindowPassed = quietForMs >= IDLE_UPVOTED_AUTOPLAY_DELAY_MS;
+        const attemptWindowPassed = (now - Number(state.idleUpvotedLastAttemptAt || 0)) >= IDLE_UPVOTED_AUTOPLAY_DELAY_MS;
+        if (waitWindowPassed && attemptWindowPassed) {
+          state.idleUpvotedLastAttemptAt = now;
+          const played = await playRandomUpvotedIdleTrack();
+          if (played) {
+            state.idleSilenceSince = 0;
+          } else {
+            state.idleSilenceSince = now;
+          }
+        }
+      } else {
+        state.idleSilenceSince = 0;
       }
     } else if (mopidyState === "playing" && currentUri) {
+      state.idleSilenceSince = 0;
       state.playbackAdvanceCooldownUntil = 0;
       // Sync nowPlaying if Mopidy was controlled externally.
       if (!state.nowPlaying || state.nowPlaying.uri !== currentUri) {
