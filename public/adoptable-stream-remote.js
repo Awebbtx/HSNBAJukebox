@@ -619,6 +619,7 @@ async function loadAdoptables(force = false) {
 
     applySlideshowSettings(payload.settings || {});
 
+    const wasEmpty = slides.length === 0;
     animals = payload.animals || [];
     slides = payload.slides || (animals || []).map((animal) => ({ type: "animal", animal }));
     if (!payload.configured) {
@@ -632,12 +633,21 @@ async function loadAdoptables(force = false) {
         : "Adoptables synced";
     }
 
-    showSlide(0);
-    startSlideTimer();
+    if (wasEmpty || force) {
+      // First load or manual refresh: start from beginning
+      showSlide(0);
+      startSlideTimer();
+    } else if (slides.length > 0) {
+      // Background refresh: stay on current slide (clamp in case list shrank)
+      currentIndex = Math.min(currentIndex, slides.length - 1);
+      els.slideCounter.textContent = `${currentIndex + 1} / ${slides.length}`;
+    }
   } catch (error) {
-    animals = [];
-    slides = [];
-    showSlide(0);
+    if (slides.length === 0) {
+      animals = [];
+      slides = [];
+      showSlide(0);
+    }
     els.adoptableStatus.textContent = error.message;
   }
 }
