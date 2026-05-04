@@ -282,6 +282,9 @@ const els = {
   slideshowLimitInput: document.getElementById("slideshowLimitInput"),
   slideshowAudioEnabledToggle: document.getElementById("slideshowAudioEnabledToggle"),
   slideshowAudioAutoplayToggle: document.getElementById("slideshowAudioAutoplayToggle"),
+  panZoomSpeedSecondsInput: document.getElementById("panZoomSpeedSecondsInput"),
+  panZoomStartPercentInput: document.getElementById("panZoomStartPercentInput"),
+  panZoomEndPercentInput: document.getElementById("panZoomEndPercentInput"),
   slideshowExcludeFeralToggle: document.getElementById("slideshowExcludeFeralToggle"),
   slideshowCustomFiltersEnabledToggle: document.getElementById("slideshowCustomFiltersEnabledToggle"),
   slideshowCustomFiltersBuilder: document.getElementById("slideshowCustomFiltersBuilder"),
@@ -2750,6 +2753,16 @@ async function loadAsmSettings() {
     if (els.specialImageMaxMbInput) {
       els.specialImageMaxMbInput.value = `${Math.max(1, Number(show.specialImageMaxMb || 4))}`;
     }
+    const panZoom = show.panZoom || {};
+    if (els.panZoomSpeedSecondsInput) {
+      els.panZoomSpeedSecondsInput.value = `${Math.max(4, Number(panZoom.speedSeconds || 12))}`;
+    }
+    if (els.panZoomStartPercentInput) {
+      els.panZoomStartPercentInput.value = `${Math.max(80, Number(panZoom.startPercent || 105))}`;
+    }
+    if (els.panZoomEndPercentInput) {
+      els.panZoomEndPercentInput.value = `${Math.max(80, Number(panZoom.endPercent || 112))}`;
+    }
     updateSpecialImageStorageText(show.specialImageStorage || null);
     specialPages = Array.isArray(show.specialPages) ? show.specialPages : [];
     renderSpecialPagesList();
@@ -2850,6 +2863,9 @@ async function saveAsmSettings() {
     adoptablesPerSpecial: Number(els.adoptablesPerSpecialInput?.value || 3),
     alertEveryXSlidesInput: Number(els.alertEveryXSlidesInput?.value || 6),
     specialImageMaxMb: Number(els.specialImageMaxMbInput?.value || 4),
+    panZoomSpeedSeconds: Number(els.panZoomSpeedSecondsInput?.value || 12),
+    panZoomStartPercent: Number(els.panZoomStartPercentInput?.value || 105),
+    panZoomEndPercent: Number(els.panZoomEndPercentInput?.value || 112),
     emojiShowerEnabled: Boolean(els.emojiShowerEnabledToggle?.checked),
     emojiShowerFrequency: Number(els.emojiShowerFrequencyInput?.value || 3),
     emojiShowerDuration: Number(els.emojiShowerDurationInput?.value || 3000),

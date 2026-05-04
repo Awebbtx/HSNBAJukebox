@@ -297,6 +297,26 @@
                 <label class="setting-desc"><input id="slideshowAudioEnabledToggle" type="checkbox" /> Enable background music</label>
                 <label class="setting-desc"><input id="slideshowAudioAutoplayToggle" type="checkbox" /> Autoplay audio when the browser allows it</label>
               </div>
+              <div id="panZoomRow" class="setting-row stack">
+                <div>
+                  <div class="setting-name">Photo Pan/Zoom Motion</div>
+                  <div class="setting-desc">Control image motion speed and zoom range used by Ken Burns transitions.</div>
+                </div>
+                <div class="setting-form-grid">
+                  <div class="form-group">
+                    <label for="panZoomSpeedSecondsInput">Speed (seconds):</label>
+                    <input id="panZoomSpeedSecondsInput" type="number" min="4" max="60" step="0.5" value="12" />
+                  </div>
+                  <div class="form-group">
+                    <label for="panZoomStartPercentInput">Start zoom (%):</label>
+                    <input id="panZoomStartPercentInput" type="number" min="80" max="200" step="1" value="105" />
+                  </div>
+                  <div class="form-group">
+                    <label for="panZoomEndPercentInput">Stop zoom (%):</label>
+                    <input id="panZoomEndPercentInput" type="number" min="80" max="220" step="1" value="112" />
+                  </div>
+                </div>
+              </div>
               <div id="emojiShowerRow" class="setting-row stack">
                 <div>
                   <div class="setting-name">Emoji Shower Effect</div>

@@ -495,7 +495,10 @@ const state = {
     specialPages: [],
     adoptablesPerSpecial: Math.max(1, Number(process.env.SLIDESHOW_ADOPTABLES_PER_SPECIAL || 3)),
     alertEveryXSlides: Math.max(2, Number(process.env.SLIDESHOW_ALERT_EVERY_X_SLIDES || 6)),
-    specialImageMaxMb: Math.max(1, Math.min(12, Number(process.env.SLIDESHOW_SPECIAL_IMAGE_MAX_MB || 4)))
+    specialImageMaxMb: Math.max(1, Math.min(12, Number(process.env.SLIDESHOW_SPECIAL_IMAGE_MAX_MB || 4))),
+    panZoomSpeedSeconds: Math.max(4, Number(process.env.SLIDESHOW_PAN_ZOOM_SPEED_SECONDS || 12)),
+    panZoomStartPercent: Math.max(80, Math.min(200, Number(process.env.SLIDESHOW_PAN_ZOOM_START_PERCENT || 105))),
+    panZoomEndPercent: Math.max(80, Math.min(220, Number(process.env.SLIDESHOW_PAN_ZOOM_END_PERCENT || 112)))
   },
   employeeSessions: new Map(),
   requestMetaByTlid: new Map(),
@@ -1353,7 +1356,10 @@ function normalizeSlideshowConfig(raw) {
     specialPages,
     adoptablesPerSpecial: Math.max(1, Number(config.adoptablesPerSpecial || process.env.SLIDESHOW_ADOPTABLES_PER_SPECIAL || 3)),
     alertEveryXSlides: Math.max(2, Number(config.alertEveryXSlides || process.env.SLIDESHOW_ALERT_EVERY_X_SLIDES || 6)),
-    specialImageMaxMb: Math.max(1, Math.min(12, Number(config.specialImageMaxMb || process.env.SLIDESHOW_SPECIAL_IMAGE_MAX_MB || 4)))
+    specialImageMaxMb: Math.max(1, Math.min(12, Number(config.specialImageMaxMb || process.env.SLIDESHOW_SPECIAL_IMAGE_MAX_MB || 4))),
+    panZoomSpeedSeconds: Math.max(4, Number(config.panZoomSpeedSeconds || process.env.SLIDESHOW_PAN_ZOOM_SPEED_SECONDS || 12)),
+    panZoomStartPercent: Math.max(80, Math.min(200, Number(config.panZoomStartPercent || process.env.SLIDESHOW_PAN_ZOOM_START_PERCENT || 105))),
+    panZoomEndPercent: Math.max(80, Math.min(220, Number(config.panZoomEndPercent || process.env.SLIDESHOW_PAN_ZOOM_END_PERCENT || 112)))
   };
 }
 
@@ -1365,7 +1371,10 @@ function saveSlideshowConfig() {
     specialPages: state.slideshow?.specialPages || [],
     adoptablesPerSpecial: state.slideshow?.adoptablesPerSpecial || 3,
     alertEveryXSlides: state.slideshow?.alertEveryXSlides || 6,
-    specialImageMaxMb: state.slideshow?.specialImageMaxMb || 4
+    specialImageMaxMb: state.slideshow?.specialImageMaxMb || 4,
+    panZoomSpeedSeconds: state.slideshow?.panZoomSpeedSeconds || 12,
+    panZoomStartPercent: state.slideshow?.panZoomStartPercent || 105,
+    panZoomEndPercent: state.slideshow?.panZoomEndPercent || 112
   });
   const dir = path.dirname(SLIDESHOW_CONFIG_PATH);
   if (!fs.existsSync(dir)) {
@@ -1385,6 +1394,9 @@ function loadSlideshowConfig() {
       state.slideshow.adoptablesPerSpecial = initial.adoptablesPerSpecial;
       state.slideshow.alertEveryXSlides = initial.alertEveryXSlides;
       state.slideshow.specialImageMaxMb = initial.specialImageMaxMb;
+      state.slideshow.panZoomSpeedSeconds = initial.panZoomSpeedSeconds;
+      state.slideshow.panZoomStartPercent = initial.panZoomStartPercent;
+      state.slideshow.panZoomEndPercent = initial.panZoomEndPercent;
       saveSlideshowConfig();
       return initial;
     }
@@ -1398,6 +1410,9 @@ function loadSlideshowConfig() {
     state.slideshow.adoptablesPerSpecial = normalized.adoptablesPerSpecial;
     state.slideshow.alertEveryXSlides = normalized.alertEveryXSlides;
     state.slideshow.specialImageMaxMb = normalized.specialImageMaxMb;
+    state.slideshow.panZoomSpeedSeconds = normalized.panZoomSpeedSeconds;
+    state.slideshow.panZoomStartPercent = normalized.panZoomStartPercent;
+    state.slideshow.panZoomEndPercent = normalized.panZoomEndPercent;
     return normalized;
   } catch (error) {
     console.warn(`Failed to load slideshow config: ${error.message}`);
@@ -1409,6 +1424,9 @@ function loadSlideshowConfig() {
     state.slideshow.adoptablesPerSpecial = fallback.adoptablesPerSpecial;
     state.slideshow.alertEveryXSlides = fallback.alertEveryXSlides;
     state.slideshow.specialImageMaxMb = fallback.specialImageMaxMb;
+    state.slideshow.panZoomSpeedSeconds = fallback.panZoomSpeedSeconds;
+    state.slideshow.panZoomStartPercent = fallback.panZoomStartPercent;
+    state.slideshow.panZoomEndPercent = fallback.panZoomEndPercent;
     return fallback;
   }
 }
@@ -9135,6 +9153,11 @@ app.get("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, asyn
       specialPages: sanitizeSpecialPages(state.slideshow.specialPages || []),
       adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
       alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
+      panZoom: {
+        speedSeconds: Math.max(4, Number(state.slideshow.panZoomSpeedSeconds || 12)),
+        startPercent: Math.max(80, Math.min(200, Number(state.slideshow.panZoomStartPercent || 105))),
+        endPercent: Math.max(80, Math.min(220, Number(state.slideshow.panZoomEndPercent || 112)))
+      },
       emojiShower: {
         enabled: state.slideshow.emojiShowerEnabled !== false,
         frequency: Math.max(1, Number(state.slideshow.emojiShowerFrequency || 3)),
@@ -9229,6 +9252,15 @@ app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (re
   state.slideshow.specialImageMaxMb = body.specialImageMaxMb !== undefined
     ? Math.max(1, Math.min(12, Number(body.specialImageMaxMb || 4)))
     : Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4)));
+  state.slideshow.panZoomSpeedSeconds = body.panZoomSpeedSeconds !== undefined
+    ? Math.max(4, Number(body.panZoomSpeedSeconds || 12))
+    : Math.max(4, Number(state.slideshow.panZoomSpeedSeconds || 12));
+  state.slideshow.panZoomStartPercent = body.panZoomStartPercent !== undefined
+    ? Math.max(80, Math.min(200, Number(body.panZoomStartPercent || 105)))
+    : Math.max(80, Math.min(200, Number(state.slideshow.panZoomStartPercent || 105)));
+  state.slideshow.panZoomEndPercent = body.panZoomEndPercent !== undefined
+    ? Math.max(80, Math.min(220, Number(body.panZoomEndPercent || 112)))
+    : Math.max(80, Math.min(220, Number(state.slideshow.panZoomEndPercent || 112)));
   state.slideshow.emojiShowerEnabled = body.emojiShowerEnabled !== undefined
     ? `${body.emojiShowerEnabled}` === "true" || body.emojiShowerEnabled === true
     : state.slideshow.emojiShowerEnabled !== false;
@@ -9271,6 +9303,9 @@ app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (re
   persistEnvSetting("SLIDESHOW_ADOPTABLES_PER_SPECIAL", `${state.slideshow.adoptablesPerSpecial}`);
   persistEnvSetting("SLIDESHOW_ALERT_EVERY_X_SLIDES", `${state.slideshow.alertEveryXSlides}`);
   persistEnvSetting("SLIDESHOW_SPECIAL_IMAGE_MAX_MB", `${state.slideshow.specialImageMaxMb}`);
+  persistEnvSetting("SLIDESHOW_PAN_ZOOM_SPEED_SECONDS", `${state.slideshow.panZoomSpeedSeconds}`);
+  persistEnvSetting("SLIDESHOW_PAN_ZOOM_START_PERCENT", `${state.slideshow.panZoomStartPercent}`);
+  persistEnvSetting("SLIDESHOW_PAN_ZOOM_END_PERCENT", `${state.slideshow.panZoomEndPercent}`);
   persistEnvSetting("EMOJI_SHOWER_ENABLED", state.slideshow.emojiShowerEnabled ? "true" : "false");
   persistEnvSetting("EMOJI_SHOWER_FREQUENCY", `${state.slideshow.emojiShowerFrequency}`);
   persistEnvSetting("EMOJI_SHOWER_DURATION", `${state.slideshow.emojiShowerDuration}`);
@@ -10019,6 +10054,11 @@ app.get("/api/adoptables/slideshow", async (req, res) => {
       adoptablesPerSpecial: Math.max(1, Number(state.slideshow.adoptablesPerSpecial || 3)),
       alertEveryXSlides: Math.max(2, Number(state.slideshow.alertEveryXSlides || 6)),
       specialImageMaxMb: Math.max(1, Math.min(12, Number(state.slideshow.specialImageMaxMb || 4))),
+      panZoom: {
+        speedSeconds: Math.max(4, Number(state.slideshow.panZoomSpeedSeconds || 12)),
+        startPercent: Math.max(80, Math.min(200, Number(state.slideshow.panZoomStartPercent || 105))),
+        endPercent: Math.max(80, Math.min(220, Number(state.slideshow.panZoomEndPercent || 112)))
+      },
       displayFieldCatalog: sanitizeSlideshowDisplayFieldCatalog(state.slideshow.displayFieldCatalog || []),
       displayFields: sanitizeSlideshowDisplayFields(state.slideshow.displayFields || [], state.slideshow.displayFieldCatalog || []),
       specialPages: sanitizeSpecialPages(state.slideshow.specialPages || []),

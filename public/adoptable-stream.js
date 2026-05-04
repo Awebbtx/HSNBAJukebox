@@ -92,6 +92,11 @@ let slideshowSettings = {
   audioSource: "/live.mp3",
   audioVolume: 70,
   audioAutoplay: true,
+  panZoom: {
+    speedSeconds: 12,
+    startPercent: 105,
+    endPercent: 112
+  },
   displayFields: [...DEFAULT_SLIDESHOW_DISPLAY_FIELDS]
 };
 
@@ -371,12 +376,20 @@ function pickImageMotionClass(seed = "") {
 }
 
 function applyAnimalImageMotion(photoWrap, seed, displaySeconds) {
-  const durationSeconds = Math.max(8, Number(displaySeconds || slideshowSettings.intervalSeconds || 12) - 0.25);
+  const panZoom = slideshowSettings.panZoom || {};
+  const configuredSpeedSeconds = Number(panZoom.speedSeconds || 0);
+  const durationSeconds = configuredSpeedSeconds > 0
+    ? Math.max(4, configuredSpeedSeconds)
+    : Math.max(8, Number(displaySeconds || slideshowSettings.intervalSeconds || 12) - 0.25);
+  const startScale = Math.max(0.8, Math.min(2.0, Number(panZoom.startPercent || 105) / 100));
+  const endScale = Math.max(0.8, Math.min(2.2, Number(panZoom.endPercent || 112) / 100));
   const image = photoWrap.querySelector("img");
   if (image) {
     image.style.animation = "none";
     void image.offsetWidth;
     image.style.removeProperty("animation");
+    image.style.setProperty("--kb-start-scale", `${startScale}`);
+    image.style.setProperty("--kb-end-scale", `${endScale}`);
   }
   photoWrap.classList.remove(...IMAGE_MOTION_CLASSES);
   photoWrap.classList.add(pickImageMotionClass(seed));
@@ -606,9 +619,14 @@ function startSlideTimer() {
 }
 
 function applySlideshowSettings(settings = {}) {
+  const incomingPanZoom = settings?.panZoom || {};
   slideshowSettings = {
     ...slideshowSettings,
-    ...(settings || {})
+    ...(settings || {}),
+    panZoom: {
+      ...slideshowSettings.panZoom,
+      ...(incomingPanZoom || {})
+    }
   };
   slideshowRawFieldCatalog = normalizeDisplayFieldCatalog(settings?.displayFieldCatalog || slideshowRawFieldCatalog);
   slideshowSettings.displayFields = normalizeDisplayFields(slideshowSettings.displayFields);
