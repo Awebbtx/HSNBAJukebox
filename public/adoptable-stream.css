@@ -329,6 +329,44 @@ a.top-brand:hover .brand-name {
   font-size: clamp(1.05rem, 1.65vw, 1.55rem);
 }
 
+.text-transition-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.text-transition-incoming {
+  animation: text-slide-in 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.text-transition-outgoing {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: text-fade-out 260ms ease-out forwards;
+}
+
+@keyframes text-slide-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes text-fade-out {
+  from {
+    opacity: 0.9;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, -8px, 0);
+  }
+}
+
 .slide-actions {
   margin-top: 0.85rem;
   display: flex;

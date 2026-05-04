@@ -81,6 +81,39 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function setTransitionContent(element, nextValue, { html = false } = {}) {
+  if (!element) return;
+  const next = `${nextValue ?? ""}`;
+  const current = html ? `${element.innerHTML ?? ""}` : `${element.textContent ?? ""}`;
+  if (current === next) {
+    return;
+  }
+
+  element.classList.add("text-transition-host");
+  element.querySelectorAll('.text-transition-outgoing').forEach((node) => node.remove());
+
+  if (html) {
+    element.innerHTML = next;
+  } else {
+    element.textContent = next;
+  }
+
+  if (current.trim()) {
+    const outgoing = document.createElement("div");
+    outgoing.className = "text-transition-outgoing";
+    outgoing.innerHTML = current;
+    element.appendChild(outgoing);
+    outgoing.addEventListener("animationend", () => outgoing.remove(), { once: true });
+  }
+
+  element.classList.remove("text-transition-incoming");
+  void element.offsetWidth;
+  element.classList.add("text-transition-incoming");
+  element.addEventListener("animationend", () => {
+    element.classList.remove("text-transition-incoming");
+  }, { once: true });
+}
+
 async function toggleFullscreen() {
   const root = document.documentElement;
   const isFull = Boolean(
@@ -275,9 +308,9 @@ function renderEmptySlide() {
     els.slideCounter.textContent = "0 / 0";
     els.animalSlide.hidden = false;
     els.specialSlide.hidden = true;
-    els.animalName.textContent = "No adoptables available";
-    els.animalDetails.textContent = "";
-    els.animalBio.textContent = "Configure ASM connection to load adoptable animals.";
+  setTransitionContent(els.animalName, "No adoptables available");
+  setTransitionContent(els.animalDetails, "");
+  setTransitionContent(els.animalBio, "Configure ASM connection to load adoptable animals.");
     els.animalProfileLink.setAttribute("href", "#");
     els.animalProfileLink.style.pointerEvents = "none";
     els.animalProfileLink.style.opacity = "0.5";
@@ -310,15 +343,15 @@ function showAnimalSlide(animal, slideMeta = {}) {
   els.animalSlide.hidden = false;
   els.specialSlide.hidden = true;
 
-  els.animalName.textContent = a.name || "Unknown";
+  setTransitionContent(els.animalName, a.name || "Unknown");
 
   const details = buildDisplayLines(a);
-  els.animalDetails.innerHTML = details.length
+  setTransitionContent(els.animalDetails, details.length
     ? details.map((line) => `<div>${escapeHtml(line)}</div>`).join("")
-    : "";
+    : "", { html: true });
 
   const bio = `${a.bio || ""}`.trim();
-  els.animalBio.textContent = bio ? bio.slice(0, 360) : "";
+  setTransitionContent(els.animalBio, bio ? bio.slice(0, 360) : "");
 
   if (a.profileUrl) {
     els.animalProfileLink.setAttribute("href", a.profileUrl);
@@ -362,9 +395,9 @@ function showSpecialSlide(page) {
   } else {
     els.specialSplitImage.src = item.imageUrl || "";
     els.specialSplitImage.alt = item.title || "Special slide";
-    els.specialCategory.textContent = item.category || "General PSA and Alerts";
-    els.specialTitle.textContent = item.title || "Special Page";
-    els.specialBody.innerHTML = item.richText || "";
+    setTransitionContent(els.specialCategory, item.category || "General PSA and Alerts");
+    setTransitionContent(els.specialTitle, item.title || "Special Page");
+    setTransitionContent(els.specialBody, item.richText || "", { html: true });
   }
 }
 
