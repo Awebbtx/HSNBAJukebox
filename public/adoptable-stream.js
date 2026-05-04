@@ -49,12 +49,16 @@ const IMAGE_MOTION_CLASSES = [
   "kb-focus-tight"
 ];
 
-// Emoji Shower Configuration
-const EMOJI_SHOWER_EMOJIS = ["❤️", "⭐", "🎵", "🐾"];
-const EMOJI_SHOWER_TRIGGER_INTERVAL = 3; // Every 3rd slide
+// Emoji Shower Configuration (defaults - will be overridden by server settings)
+let emojiShowerSettings = {
+  enabled: true,
+  frequency: 3,
+  duration: 3000,
+  intensity: 15,
+  style: "shower",
+  emojis: ["❤️", "⭐", "🎵", "🐾"]
+};
 let slideShowCount = 0; // Track slides for emoji trigger
-const EMOJI_SHOWER_DURATION_MS = 3000;
-const EMOJI_SHOWER_INTENSITY_LEVELS = [5, 8, 12, 15]; // Random options
 
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "raw:NEUTERED",
@@ -448,29 +452,55 @@ function showSpecialSlide(page) {
 }
 
 function triggerEmojiShower() {
+  if (!emojiShowerSettings.enabled) return;
+
   const container = document.getElementById("emojiShower");
   if (!container) return;
 
-  const intensity = EMOJI_SHOWER_INTENSITY_LEVELS[
-    Math.floor(Math.random() * EMOJI_SHOWER_INTENSITY_LEVELS.length)
-  ];
+  const intensity = emojiShowerSettings.intensity;
+  const style = emojiShowerSettings.style || "shower";
+  const emojis = emojiShowerSettings.emojis || ["❤️", "⭐", "🎵", "🐾"];
 
-  // Create emoji rain
+  // Create emoji rain/burst based on style
   for (let i = 0; i < intensity; i++) {
-    const emoji = EMOJI_SHOWER_EMOJIS[Math.floor(Math.random() * EMOJI_SHOWER_EMOJIS.length)];
+    const emoji = emojis[Math.floor(Math.random() * emojis.length)];
     const span = document.createElement("span");
     span.className = "emoji-rain";
     span.textContent = emoji;
+    span.setAttribute("data-style", style);
 
-    // Random horizontal position
-    span.style.left = Math.random() * 100 + "%";
+    // Position based on style
+    if (style === "shower") {
+      span.style.left = Math.random() * 100 + "%";
+      span.style.top = "-50px";
+    } else if (style === "burst") {
+      // Burst from center outward
+      const angle = (Math.PI * 2 * i) / intensity;
+      span.style.left = "50%";
+      span.style.top = "50%";
+      span.dataset.angle = angle;
+      span.dataset.distance = 200 + Math.random() * 300;
+    } else if (style === "burst-bottom") {
+      // Burst from bottom
+      span.style.left = Math.random() * 100 + "%";
+      span.style.bottom = "-50px";
+    } else if (style === "burst-sides") {
+      // Burst from sides
+      const side = Math.random() > 0.5 ? "left" : "right";
+      span.style[side] = "-50px";
+      span.style.top = Math.random() * 100 + "%";
+    }
 
-    // Random animation duration (fall speed)
-    const duration = 2000 + Math.random() * 1500; // 2-3.5 seconds
+    // Animation duration based on style
+    let duration = emojiShowerSettings.duration || 3000;
+    if (style === "burst" || style === "burst-bottom" || style === "burst-sides") {
+      duration = 1500 + Math.random() * 500; // Shorter for bursts
+    } else {
+      duration = 2000 + Math.random() * 1500; // Standard fall time
+    }
     span.style.animationDuration = duration + "ms";
-
-    // Small random delay for staggered effect
     span.style.animationDelay = Math.random() * 200 + "ms";
+    span.classList.add(`emoji-${style}`);
 
     container.appendChild(span);
   }
@@ -478,7 +508,7 @@ function triggerEmojiShower() {
   // Clean up after shower duration
   window.setTimeout(() => {
     container.querySelectorAll(".emoji-rain").forEach((el) => el.remove());
-  }, EMOJI_SHOWER_DURATION_MS);
+  }, emojiShowerSettings.duration || 3000);
 }
 
 function showSlide(index) {
@@ -490,13 +520,15 @@ function showSlide(index) {
   const slide = slides[currentIndex] || {};
   els.slideCounter.textContent = `${currentIndex + 1} / ${slides.length}`;
 
-  // Trigger emoji shower every 3rd slide (in fullscreen only)
-  slideShowCount++;
-  if (
-    slideShowCount % EMOJI_SHOWER_TRIGGER_INTERVAL === 0
-    && (document.fullscreenElement || document.webkitFullscreenElement)
-  ) {
-    triggerEmojiShower();
+  // Trigger emoji shower based on settings (in fullscreen only)
+  if (emojiShowerSettings.enabled) {
+    slideShowCount++;
+    if (
+      slideShowCount % emojiShowerSettings.frequency === 0
+      && (document.fullscreenElement || document.webkitFullscreenElement)
+    ) {
+      triggerEmojiShower();
+    }
   }
 
   if (slide.type === "special") {
@@ -588,6 +620,20 @@ function applySlideshowSettings(settings = {}) {
   };
   slideshowRawFieldCatalog = normalizeDisplayFieldCatalog(settings?.displayFieldCatalog || slideshowRawFieldCatalog);
   slideshowSettings.displayFields = normalizeDisplayFields(slideshowSettings.displayFields);
+
+  // Apply emoji shower settings from server
+  if (settings.emojiShower) {
+    emojiShowerSettings = {
+      enabled: settings.emojiShower.enabled !== false,
+      frequency: Math.max(1, Number(settings.emojiShower.frequency || 3)),
+      duration: Math.max(500, Number(settings.emojiShower.duration || 3000)),
+      intensity: Math.max(1, Number(settings.emojiShower.intensity || 15)),
+      style: settings.emojiShower.style || "shower",
+      emojis: Array.isArray(settings.emojiShower.emojis) && settings.emojiShower.emojis.length
+        ? settings.emojiShower.emojis
+        : ["❤️", "⭐", "🎵", "🐾"]
+    };
+  }
 }
 
 async function loadAdoptables(force = false) {

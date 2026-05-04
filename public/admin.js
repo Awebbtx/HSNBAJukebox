@@ -287,6 +287,13 @@ const els = {
   slideshowCustomFiltersBuilder: document.getElementById("slideshowCustomFiltersBuilder"),
   addCustomFilterRuleBtn: document.getElementById("addCustomFilterRuleBtn"),
   applyCustomFiltersBtn: document.getElementById("applyCustomFiltersBtn"),
+  emojiShowerEnabledToggle: document.getElementById("emojiShowerEnabledToggle"),
+  emojiShowerFrequencyInput: document.getElementById("emojiShowerFrequencyInput"),
+  emojiShowerDurationInput: document.getElementById("emojiShowerDurationInput"),
+  emojiShowerIntensityInput: document.getElementById("emojiShowerIntensityInput"),
+  emojiShowerStyleSelect: document.getElementById("emojiShowerStyleSelect"),
+  emojiShowerChoiceCheckboxes: document.querySelectorAll('input[name="emojiChoice"]'),
+  saveEmojiShowerBtn: document.getElementById("saveEmojiShowerBtn"),
   adoptablesPerSpecialInput: document.getElementById("adoptablesPerSpecialInput"),
   alertEveryXSlidesInput: document.getElementById("alertEveryXSlidesInput"),
   specialImageMaxMbInput: document.getElementById("specialImageMaxMbInput"),
@@ -2751,6 +2758,30 @@ async function loadAsmSettings() {
     slideshowDisplayFieldCatalog = sanitizeSlideshowDisplayFieldCatalog(show.displayFieldCatalog || []);
     asmKnownFieldNames = sanitizeAsmFieldNameList(data.fieldNames || [], 120);
     asmFieldTypes = sanitizeAsmFieldTypeMap(data.fieldTypes || {});
+
+    // Load emoji shower settings
+    const emojiShower = show.emojiShower || {};
+    if (els.emojiShowerEnabledToggle) {
+      els.emojiShowerEnabledToggle.checked = emojiShower.enabled !== false;
+    }
+    if (els.emojiShowerFrequencyInput) {
+      els.emojiShowerFrequencyInput.value = `${Math.max(1, Number(emojiShower.frequency || 3))}`;
+    }
+    if (els.emojiShowerDurationInput) {
+      els.emojiShowerDurationInput.value = `${Math.max(500, Number(emojiShower.duration || 3000))}`;
+    }
+    if (els.emojiShowerIntensityInput) {
+      els.emojiShowerIntensityInput.value = `${Math.max(1, Number(emojiShower.intensity || 15))}`;
+    }
+    if (els.emojiShowerStyleSelect) {
+      els.emojiShowerStyleSelect.value = emojiShower.style || "shower";
+    }
+    if (els.emojiShowerChoiceCheckboxes && Array.isArray(emojiShower.emojis)) {
+      els.emojiShowerChoiceCheckboxes.forEach((checkbox) => {
+        checkbox.checked = emojiShower.emojis.includes(checkbox.value);
+      });
+    }
+
     renderSlideshowFieldMapDialogList();
     const options = Array.isArray(data.displayFieldOptions) && data.displayFieldOptions.length
       ? data.displayFieldOptions
@@ -2796,6 +2827,12 @@ async function loadAsmSettings() {
 async function saveAsmSettings() {
   slideshowCustomFilterRules = collectCustomFilterRulesFromUi();
   syncSlideshowFieldMapSelectionFromUi();
+  
+  // Collect emoji shower settings
+  const selectedEmojis = Array.from(els.emojiShowerChoiceCheckboxes || [])
+    .filter((cb) => cb.checked)
+    .map((cb) => cb.value);
+
   const payload = {
     serviceUrl: els.asmServiceUrlInput.value.trim(),
     account: els.asmAccountInput.value.trim(),
@@ -2817,6 +2854,12 @@ async function saveAsmSettings() {
     adoptablesPerSpecial: Number(els.adoptablesPerSpecialInput?.value || 3),
     alertEveryXSlidesInput: Number(els.alertEveryXSlidesInput?.value || 6),
     specialImageMaxMb: Number(els.specialImageMaxMbInput?.value || 4),
+    emojiShowerEnabled: Boolean(els.emojiShowerEnabledToggle?.checked),
+    emojiShowerFrequency: Number(els.emojiShowerFrequencyInput?.value || 3),
+    emojiShowerDuration: Number(els.emojiShowerDurationInput?.value || 3000),
+    emojiShowerIntensity: Number(els.emojiShowerIntensityInput?.value || 15),
+    emojiShowerStyle: els.emojiShowerStyleSelect?.value || "shower",
+    emojiShowerEmojis: selectedEmojis,
     customFilters: []
   };
   await api("/api/admin/settings/asm", {
@@ -3240,6 +3283,9 @@ if (els.applyCustomFiltersBtn) {
 }
 if (els.saveSlideshowFieldMapBtn) {
   els.saveSlideshowFieldMapBtn.addEventListener("click", saveSlideshowFieldMapSelection);
+  if (els.saveEmojiShowerBtn) {
+    els.saveEmojiShowerBtn.addEventListener("click", saveAsmSettings);
+  }
 }
 if (els.cancelSlideshowFieldMapBtn) {
   els.cancelSlideshowFieldMapBtn.addEventListener("click", () => els.slideshowFieldMapDialog?.close());

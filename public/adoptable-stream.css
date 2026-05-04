@@ -540,6 +540,57 @@ a.top-brand:hover .brand-name {
     opacity: 0;
   }
 }
+
+/* Burst animation - explode outward from center */
+.emoji-rain.emoji-burst {
+  animation: burst linear forwards;
+}
+
+@keyframes burst {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(var(--burst-x, 300px), var(--burst-y, 300px)) scale(0.3);
+    opacity: 0;
+  }
+}
+
+/* Burst from bottom animation */
+.emoji-rain.emoji-burst-bottom {
+  animation: burst-from-bottom linear forwards;
+}
+
+@keyframes burst-from-bottom {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-100vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* Burst from sides animation */
+.emoji-rain.emoji-burst-sides {
+  animation: burst-from-sides linear forwards;
+}
+
+@keyframes burst-from-sides {
+  0% {
+    transform: translateX(0) translateY(0);
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateX(var(--side-x, 500px)) translateY(var(--side-y, 200px));
+    opacity: 0;
+  }
+}
   font-size: clamp(0.95rem, 2vw, 1.2rem);
   color: var(--ink);
   white-space: nowrap;
