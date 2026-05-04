@@ -439,49 +439,23 @@ function triggerEmojiShower() {
   if (!container) return;
 
   const intensity = emojiShowerSettings.intensity;
-  const style = emojiShowerSettings.style || "shower";
   const emojis = emojiShowerSettings.emojis || ["❤️", "⭐", "🎵", "🐾"];
 
-  // Create emoji rain/burst based on style
+  // Always render as top-down shower so particles stay in-view.
   for (let i = 0; i < intensity; i++) {
     const emoji = emojis[Math.floor(Math.random() * emojis.length)];
     const span = document.createElement("span");
     span.className = "emoji-rain";
     span.textContent = emoji;
-    span.setAttribute("data-style", style);
 
-    // Position based on style
-    if (style === "shower") {
-      span.style.left = Math.random() * 100 + "%";
-      span.style.top = "-50px";
-    } else if (style === "burst") {
-      // Burst from center outward
-      const angle = (Math.PI * 2 * i) / intensity;
-      span.style.left = "50%";
-      span.style.top = "50%";
-      span.dataset.angle = angle;
-      span.dataset.distance = 200 + Math.random() * 300;
-    } else if (style === "burst-bottom") {
-      // Burst from bottom
-      span.style.left = Math.random() * 100 + "%";
-      span.style.bottom = "-50px";
-    } else if (style === "burst-sides") {
-      // Burst from sides
-      const side = Math.random() > 0.5 ? "left" : "right";
-      span.style[side] = "-50px";
-      span.style.top = Math.random() * 100 + "%";
-    }
+    span.style.left = Math.random() * 100 + "%";
+    span.style.top = "-50px";
 
-    // Animation duration based on style
+    // Keep a little variance in fall speed for natural motion.
     let duration = emojiShowerSettings.duration || 3000;
-    if (style === "burst" || style === "burst-bottom" || style === "burst-sides") {
-      duration = 1500 + Math.random() * 500; // Shorter for bursts
-    } else {
-      duration = 2000 + Math.random() * 1500; // Standard fall time
-    }
+    duration = Math.max(500, duration * (0.8 + Math.random() * 0.4));
     span.style.animationDuration = duration + "ms";
     span.style.animationDelay = Math.random() * 200 + "ms";
-    span.classList.add(`emoji-${style}`);
 
     container.appendChild(span);
   }
@@ -613,7 +587,7 @@ function applySlideshowSettings(settings = {}) {
       frequency: Math.max(1, Number(settings.emojiShower.frequency || 3)),
       duration: Math.max(500, Number(settings.emojiShower.duration || 3000)),
       intensity: Math.max(1, Number(settings.emojiShower.intensity || 15)),
-      style: settings.emojiShower.style || "shower",
+      style: "shower",
       emojis: Array.isArray(settings.emojiShower.emojis) && settings.emojiShower.emojis.length
         ? settings.emojiShower.emojis
         : ["❤️", "⭐", "🎵", "🐾"]
