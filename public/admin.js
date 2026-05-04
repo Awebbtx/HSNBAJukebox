@@ -3294,9 +3294,9 @@ if (els.applyCustomFiltersBtn) {
 }
 if (els.saveSlideshowFieldMapBtn) {
   els.saveSlideshowFieldMapBtn.addEventListener("click", saveSlideshowFieldMapSelection);
-  if (els.saveEmojiShowerBtn) {
-    els.saveEmojiShowerBtn.addEventListener("click", saveAsmSettings);
-  }
+}
+if (els.saveEmojiShowerBtn) {
+  els.saveEmojiShowerBtn.addEventListener("click", saveAsmSettings);
 }
 if (els.cancelSlideshowFieldMapBtn) {
   els.cancelSlideshowFieldMapBtn.addEventListener("click", () => els.slideshowFieldMapDialog?.close());
