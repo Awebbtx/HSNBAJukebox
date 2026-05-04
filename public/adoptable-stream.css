@@ -504,6 +504,42 @@ a.top-brand:hover .brand-name {
 .hud-title {
   margin-top: 0.3rem;
   font-family: "Sora", sans-serif;
+}
+
+/* Emoji Shower Celebration Effect */
+.emoji-shower {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.emoji-rain {
+  position: absolute;
+  font-size: clamp(2rem, 5vw, 5rem);
+  font-weight: 700;
+  opacity: 0.8;
+  animation: rain-fall linear forwards;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+
+@keyframes rain-fall {
+  0% {
+    transform: translateY(-100px) rotate(0deg);
+    opacity: 0.8;
+  }
+  90% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(100vh) rotate(360deg);
+    opacity: 0;
+  }
+}
   font-size: clamp(0.95rem, 2vw, 1.2rem);
   color: var(--ink);
   white-space: nowrap;

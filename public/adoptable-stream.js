@@ -48,6 +48,14 @@ const IMAGE_MOTION_CLASSES = [
   "kb-focus-center",
   "kb-focus-tight"
 ];
+
+// Emoji Shower Configuration
+const EMOJI_SHOWER_EMOJIS = ["❤️", "⭐", "🎵", "🐾"];
+const EMOJI_SHOWER_TRIGGER_INTERVAL = 3; // Every 3rd slide
+let slideShowCount = 0; // Track slides for emoji trigger
+const EMOJI_SHOWER_DURATION_MS = 3000;
+const EMOJI_SHOWER_INTENSITY_LEVELS = [5, 8, 12, 15]; // Random options
+
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "raw:NEUTERED",
   "raw:ISGOODWITHCATS",
@@ -439,6 +447,40 @@ function showSpecialSlide(page) {
   }
 }
 
+function triggerEmojiShower() {
+  const container = document.getElementById("emojiShower");
+  if (!container) return;
+
+  const intensity = EMOJI_SHOWER_INTENSITY_LEVELS[
+    Math.floor(Math.random() * EMOJI_SHOWER_INTENSITY_LEVELS.length)
+  ];
+
+  // Create emoji rain
+  for (let i = 0; i < intensity; i++) {
+    const emoji = EMOJI_SHOWER_EMOJIS[Math.floor(Math.random() * EMOJI_SHOWER_EMOJIS.length)];
+    const span = document.createElement("span");
+    span.className = "emoji-rain";
+    span.textContent = emoji;
+
+    // Random horizontal position
+    span.style.left = Math.random() * 100 + "%";
+
+    // Random animation duration (fall speed)
+    const duration = 2000 + Math.random() * 1500; // 2-3.5 seconds
+    span.style.animationDuration = duration + "ms";
+
+    // Small random delay for staggered effect
+    span.style.animationDelay = Math.random() * 200 + "ms";
+
+    container.appendChild(span);
+  }
+
+  // Clean up after shower duration
+  window.setTimeout(() => {
+    container.querySelectorAll(".emoji-rain").forEach((el) => el.remove());
+  }, EMOJI_SHOWER_DURATION_MS);
+}
+
 function showSlide(index) {
   if (!slides.length) {
     renderEmptySlide();
@@ -447,6 +489,16 @@ function showSlide(index) {
   currentIndex = (index + slides.length) % slides.length;
   const slide = slides[currentIndex] || {};
   els.slideCounter.textContent = `${currentIndex + 1} / ${slides.length}`;
+
+  // Trigger emoji shower every 3rd slide (in fullscreen only)
+  slideShowCount++;
+  if (
+    slideShowCount % EMOJI_SHOWER_TRIGGER_INTERVAL === 0
+    && (document.fullscreenElement || document.webkitFullscreenElement)
+  ) {
+    triggerEmojiShower();
+  }
+
   if (slide.type === "special") {
     showSpecialSlide(slide.page || {});
     return;
