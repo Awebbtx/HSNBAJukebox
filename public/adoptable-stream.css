@@ -224,10 +224,75 @@ a.top-brand:hover .brand-name {
   height: 100%;
   object-fit: cover;
   display: none;
+  transform-origin: center center;
 }
 
 .photo-wrap.has-image img {
   display: block;
+  animation: animal-kenburns var(--kb-duration, 12s) linear both;
+}
+
+.photo-wrap.kb-pan-left img {
+  --kb-start-x: 6%;
+  --kb-start-y: 0%;
+  --kb-end-x: -3%;
+  --kb-end-y: 0%;
+  --kb-start-scale: 1.05;
+  --kb-end-scale: 1.12;
+}
+
+.photo-wrap.kb-pan-right img {
+  --kb-start-x: -6%;
+  --kb-start-y: 0%;
+  --kb-end-x: 3%;
+  --kb-end-y: 0%;
+  --kb-start-scale: 1.05;
+  --kb-end-scale: 1.12;
+}
+
+.photo-wrap.kb-pan-up img {
+  --kb-start-x: 0%;
+  --kb-start-y: 5%;
+  --kb-end-x: 0%;
+  --kb-end-y: -3%;
+  --kb-start-scale: 1.06;
+  --kb-end-scale: 1.13;
+}
+
+.photo-wrap.kb-pan-down img {
+  --kb-start-x: 0%;
+  --kb-start-y: -5%;
+  --kb-end-x: 0%;
+  --kb-end-y: 3%;
+  --kb-start-scale: 1.06;
+  --kb-end-scale: 1.13;
+}
+
+.photo-wrap.kb-focus-center img {
+  --kb-start-x: 0%;
+  --kb-start-y: 0%;
+  --kb-end-x: 0%;
+  --kb-end-y: 0%;
+  --kb-start-scale: 1.04;
+  --kb-end-scale: 1.15;
+}
+
+.photo-wrap.kb-focus-tight img {
+  --kb-start-x: 2%;
+  --kb-start-y: -2%;
+  --kb-end-x: -2%;
+  --kb-end-y: 2%;
+  --kb-start-scale: 1.08;
+  --kb-end-scale: 1.18;
+}
+
+@keyframes animal-kenburns {
+  from {
+    transform: translate3d(var(--kb-start-x, 0%), var(--kb-start-y, 0%), 0) scale(var(--kb-start-scale, 1.05));
+  }
+  to {
+    transform: translate3d(var(--kb-end-x, 0%), var(--kb-end-y, 0%), 0) scale(var(--kb-end-scale, 1.12));
+  }
 }
 
 .image-fallback {

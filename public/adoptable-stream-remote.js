@@ -29,6 +29,14 @@ let slides = [];
 let currentIndex = 0;
 let slideTimer = null;
 let adoptablesRefreshTimer = null;
+const IMAGE_MOTION_CLASSES = [
+  "kb-pan-left",
+  "kb-pan-right",
+  "kb-pan-up",
+  "kb-pan-down",
+  "kb-focus-center",
+  "kb-focus-tight"
+];
 const DEFAULT_SLIDESHOW_DISPLAY_FIELDS = [
   "raw:NEUTERED",
   "raw:ISGOODWITHCATS",
@@ -274,10 +282,30 @@ function renderEmptySlide() {
     els.animalProfileLink.style.pointerEvents = "none";
     els.animalProfileLink.style.opacity = "0.5";
     els.animalImage.removeAttribute("src");
-    els.animalImage.parentElement.classList.remove("has-image");
+    const photoWrap = els.animalImage.parentElement;
+    photoWrap.classList.remove("has-image", "portrait", "landscape", ...IMAGE_MOTION_CLASSES);
+    photoWrap.style.removeProperty("--kb-duration");
 }
 
-function showAnimalSlide(animal) {
+function pickImageMotionClass(seed = "") {
+  const text = `${seed || ""}`;
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  const index = Math.abs(hash) % IMAGE_MOTION_CLASSES.length;
+  return IMAGE_MOTION_CLASSES[index];
+}
+
+function applyAnimalImageMotion(photoWrap, seed, displaySeconds) {
+  const durationSeconds = Math.max(8, Number(displaySeconds || slideshowSettings.intervalSeconds || 12) - 0.25);
+  photoWrap.classList.remove(...IMAGE_MOTION_CLASSES);
+  photoWrap.classList.add(pickImageMotionClass(seed));
+  photoWrap.style.setProperty("--kb-duration", `${durationSeconds}s`);
+}
+
+function showAnimalSlide(animal, slideMeta = {}) {
   const a = animal || {};
   els.animalSlide.hidden = false;
   els.specialSlide.hidden = true;
@@ -303,11 +331,21 @@ function showAnimalSlide(animal) {
   }
 
   if (a.imageUrl) {
+    const photoWrap = els.animalImage.parentElement;
+    els.animalImage.onload = function () {
+      const portrait = this.naturalHeight > this.naturalWidth;
+      photoWrap.classList.toggle("portrait", portrait);
+      photoWrap.classList.toggle("landscape", !portrait);
+      applyAnimalImageMotion(photoWrap, `${a.imageUrl}|${currentIndex}`, slideMeta?.displaySeconds);
+    };
     els.animalImage.src = a.imageUrl;
-    els.animalImage.parentElement.classList.add("has-image");
+    photoWrap.classList.add("has-image");
   } else {
+    const photoWrap = els.animalImage.parentElement;
+    els.animalImage.onload = null;
     els.animalImage.removeAttribute("src");
-    els.animalImage.parentElement.classList.remove("has-image");
+    photoWrap.classList.remove("has-image", "portrait", "landscape", ...IMAGE_MOTION_CLASSES);
+    photoWrap.style.removeProperty("--kb-duration");
   }
 }
 
@@ -342,7 +380,7 @@ function showSlide(index) {
     showSpecialSlide(slide.page || {});
     return;
   }
-  showAnimalSlide(slide.animal || {});
+  showAnimalSlide(slide.animal || {}, slide);
 }
 
 function startSlideTimer() {
