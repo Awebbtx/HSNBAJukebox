@@ -55,7 +55,6 @@ let emojiShowerSettings = {
   frequency: 3,
   duration: 3000,
   intensity: 15,
-  style: "shower",
   emojis: ["❤️", "⭐", "🎵", "🐾"]
 };
 let slideShowCount = 0; // Track slides for emoji trigger
@@ -606,7 +605,6 @@ function applySlideshowSettings(settings = {}) {
       frequency: Math.max(1, Number(settings.emojiShower.frequency || 3)),
       duration: Math.max(500, Number(settings.emojiShower.duration || 3000)),
       intensity: Math.max(1, Number(settings.emojiShower.intensity || 15)),
-      style: "shower",
       emojis: Array.isArray(settings.emojiShower.emojis) && settings.emojiShower.emojis.length
         ? settings.emojiShower.emojis
         : ["❤️", "⭐", "🎵", "🐾"]

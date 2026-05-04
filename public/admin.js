@@ -291,7 +291,6 @@ const els = {
   emojiShowerFrequencyInput: document.getElementById("emojiShowerFrequencyInput"),
   emojiShowerDurationInput: document.getElementById("emojiShowerDurationInput"),
   emojiShowerIntensityInput: document.getElementById("emojiShowerIntensityInput"),
-  emojiShowerStyleSelect: document.getElementById("emojiShowerStyleSelect"),
   emojiShowerChoiceCheckboxes: document.querySelectorAll('input[name="emojiChoice"]'),
   saveEmojiShowerBtn: document.getElementById("saveEmojiShowerBtn"),
   adoptablesPerSpecialInput: document.getElementById("adoptablesPerSpecialInput"),
@@ -2773,9 +2772,6 @@ async function loadAsmSettings() {
     if (els.emojiShowerIntensityInput) {
       els.emojiShowerIntensityInput.value = `${Math.max(1, Number(emojiShower.intensity || 15))}`;
     }
-    if (els.emojiShowerStyleSelect) {
-      els.emojiShowerStyleSelect.value = "shower";
-    }
     if (els.emojiShowerChoiceCheckboxes && Array.isArray(emojiShower.emojis)) {
       els.emojiShowerChoiceCheckboxes.forEach((checkbox) => {
         checkbox.checked = emojiShower.emojis.includes(checkbox.value);
@@ -2858,7 +2854,6 @@ async function saveAsmSettings() {
     emojiShowerFrequency: Number(els.emojiShowerFrequencyInput?.value || 3),
     emojiShowerDuration: Number(els.emojiShowerDurationInput?.value || 3000),
     emojiShowerIntensity: Number(els.emojiShowerIntensityInput?.value || 15),
-    emojiShowerStyle: "shower",
     emojiShowerEmojis: selectedEmojis,
     customFilters: []
   };

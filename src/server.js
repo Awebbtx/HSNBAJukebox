@@ -9232,7 +9232,6 @@ app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (re
   state.slideshow.emojiShowerIntensity = body.emojiShowerIntensity !== undefined
     ? Math.max(1, Number(body.emojiShowerIntensity || 15))
     : Math.max(1, Number(state.slideshow.emojiShowerIntensity || 15));
-  state.slideshow.emojiShowerStyle = "shower";
   state.slideshow.emojiShowerEmojis = body.emojiShowerEmojis !== undefined
     ? Array.isArray(body.emojiShowerEmojis) && body.emojiShowerEmojis.length
       ? body.emojiShowerEmojis.filter((e) => `${e}`.trim())
@@ -9267,7 +9266,6 @@ app.post("/api/admin/settings/asm", requireAdmin, requireJukeboxSlidesAdmin, (re
   persistEnvSetting("EMOJI_SHOWER_FREQUENCY", `${state.slideshow.emojiShowerFrequency}`);
   persistEnvSetting("EMOJI_SHOWER_DURATION", `${state.slideshow.emojiShowerDuration}`);
   persistEnvSetting("EMOJI_SHOWER_INTENSITY", `${state.slideshow.emojiShowerIntensity}`);
-  persistEnvSetting("EMOJI_SHOWER_STYLE", state.slideshow.emojiShowerStyle);
   persistEnvSetting("EMOJI_SHOWER_EMOJIS", state.slideshow.emojiShowerEmojis.join(","));
 
   res.json({ ok: true });
@@ -10020,7 +10018,6 @@ app.get("/api/adoptables/slideshow", async (req, res) => {
         frequency: Math.max(1, Number(state.slideshow.emojiShowerFrequency || 3)),
         duration: Math.max(500, Number(state.slideshow.emojiShowerDuration || 3000)),
         intensity: Math.max(1, Number(state.slideshow.emojiShowerIntensity || 15)),
-        style: "shower",
         emojis: Array.isArray(state.slideshow.emojiShowerEmojis) && state.slideshow.emojiShowerEmojis.length
           ? state.slideshow.emojiShowerEmojis
           : ["❤️", "⭐", "🎵", "🐾"]
