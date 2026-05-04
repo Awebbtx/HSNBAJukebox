@@ -489,14 +489,12 @@ function showSlide(index) {
   const slide = slides[currentIndex] || {};
   els.slideCounter.textContent = `${currentIndex + 1} / ${slides.length}`;
 
-  // Trigger emoji shower based on settings (in fullscreen only)
+  // Trigger emoji shower based on settings.
+  // Remote stream often runs embedded without fullscreen, so do not gate on fullscreen.
   try {
     if (emojiShowerSettings && emojiShowerSettings.enabled) {
       slideShowCount++;
-      if (
-        slideShowCount % emojiShowerSettings.frequency === 0
-        && (document.fullscreenElement || document.webkitFullscreenElement)
-      ) {
+      if (slideShowCount % emojiShowerSettings.frequency === 0) {
         triggerEmojiShower();
       }
     }
